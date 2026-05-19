@@ -1,0 +1,20 @@
+# Encyclopedia of AI Hallucinations - compose file
+#
+# Deploy to randy:
+#   1. ssh randy
+#   2. git clone or rsync this directory to ~/eah
+#   3. cp .env.example .env  &&  edit .env  with DB creds + SESSION_SECRET
+#   4. docker compose up -d --build
+#   5. docker compose exec eah bun scripts/migrate.ts
+#   6. ADMIN_BOOTSTRAP_USER=... ADMIN_BOOTSTRAP_PASS=... docker compose exec -T eah bun scripts/seed-admin.ts
+
+services:
+  eah:
+    build: .
+    container_name: eah
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
