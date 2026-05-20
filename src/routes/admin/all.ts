@@ -7,6 +7,7 @@ import { h, raw, type SafeHtml } from "../../html.ts";
 import { layout } from "../../layout.ts";
 import { query, queryOne } from "../../db.ts";
 import { categoryLabel } from "../../categories.ts";
+import { tokenForRequest } from "../../csrf.ts";
 import { htmlResponse, type RouteContext } from "../types.ts";
 
 const PAGE_SIZE = 100;
@@ -42,6 +43,8 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
   if (!ctx.admin) {
     return new Response(null, { status: 303, headers: { Location: "/admin/login" } });
   }
+
+  const { token: csrfToken, setCookie } = tokenForRequest(req);
 
   const rawStatus = ctx.url.searchParams.get("status");
   const status = rawStatus && VALID_STATUSES.has(rawStatus) ? rawStatus : null;
@@ -150,7 +153,7 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
     title: status ? `All submissions — ${status}` : "All submissions",
     heading: status ? `All submissions — ${status}` : "All submissions",
     body,
-    admin: { username: ctx.admin.username },
+    admin: { username: ctx.admin.username, csrfToken },
   });
-  return htmlResponse(html);
+  return htmlResponse(html, { setCookie });
 }

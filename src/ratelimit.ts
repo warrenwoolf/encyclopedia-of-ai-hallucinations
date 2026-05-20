@@ -24,7 +24,7 @@ const LIMITS: Record<string, LimitConfig> = {
 
 const buckets = new Map<string, Bucket>();
 
-const MAX_KEYS = 10_000; // crude memory cap
+const MAX_KEYS = 50_000; // ~few MB of RAM at most
 
 export function check(action: keyof typeof LIMITS, ip: string): { allowed: boolean; retryAfterSec?: number } {
   const cfg = LIMITS[action];
@@ -52,12 +52,24 @@ export function check(action: keyof typeof LIMITS, ip: string): { allowed: boole
 
 function setBucket(key: string, bucket: Bucket) {
   if (buckets.size >= MAX_KEYS && !buckets.has(key)) {
-    // Evict the oldest entries when we hit the cap.
-    const toRemove = Math.floor(MAX_KEYS / 10);
+    // Evict buckets that have refilled to ~capacity first — those carry no
+    // protective state, so dropping them harms nobody. Only fall back to
+    // insertion-order eviction if no refilled buckets exist.
     let removed = 0;
-    for (const k of buckets.keys()) {
-      buckets.delete(k);
-      if (++removed >= toRemove) break;
+    const target = Math.max(1, Math.floor(MAX_KEYS / 20));
+    for (const [k, b] of buckets) {
+      const cfg = LIMITS[k.split(":", 1)[0]!];
+      if (cfg && b.tokens >= cfg.capacity - 0.5) {
+        buckets.delete(k);
+        if (++removed >= target) break;
+      }
+    }
+    if (removed === 0) {
+      // Last resort: oldest-by-insertion. Still bounded.
+      for (const k of buckets.keys()) {
+        buckets.delete(k);
+        if (++removed >= target) break;
+      }
     }
   }
   buckets.set(key, bucket);

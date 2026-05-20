@@ -7,13 +7,16 @@ import { h } from "../../html.ts";
 import { layout } from "../../layout.ts";
 import { execute, queryOne } from "../../db.ts";
 import { verifyCsrf } from "../../csrf.ts";
-import { htmlResponse, parseForm, type RouteContext } from "../types.ts";
+import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "../types.ts";
 
-function badRequest(message: string, status = 400): Response {
+function badRequest(message: string, status = 400, returnTo?: string): Response {
+  const link = returnTo
+    ? h` <a href="${returnTo}">Return to the queue</a>.`
+    : h` <a href="/admin/queue">Return to the queue</a>.`;
   const body = layout({
     title: "Bad request",
     heading: "Bad request",
-    body: h`<p>${message} <a href="javascript:history.back()">Go back</a>.</p>`,
+    body: h`<p>${message}${link}</p>`,
   });
   return htmlResponse(body, { status });
 }
@@ -42,10 +45,10 @@ function parseBoundedInt(raw: string | null, name: string): number | null {
   return n;
 }
 
-/** Trim and null-ify empty text, enforcing a max length. */
+/** Sanitize, trim, null-ify empty text, enforce max length. */
 function parseText(raw: string | null, name: string, max: number): string | null {
   if (raw === null) return null;
-  const v = raw.trim();
+  const v = sanitizeText(raw).trim();
   if (v === "") return null;
   if (v.length > max) throw new Error(`${name} exceeds ${max} characters`);
   return v;

@@ -57,11 +57,14 @@ function authRedirect(): Response {
 export async function getQueue(req: Request, ctx: RouteContext): Promise<Response> {
   if (!ctx.admin) return authRedirect();
 
+  const { token: csrfToken, setCookie } = tokenForRequest(req);
+
   const rows = await query<PendingRow>(
     `SELECT id, public_id, ai_model, category, submitted_at
        FROM submissions
        WHERE status = 'pending'
-       ORDER BY submitted_at ASC`,
+       ORDER BY submitted_at ASC
+       LIMIT 1000`,
   );
 
   const tableBody: SafeHtml = rows.length === 0
@@ -102,9 +105,9 @@ export async function getQueue(req: Request, ctx: RouteContext): Promise<Respons
     title: "Admin queue",
     heading: "Pending submissions",
     body,
-    admin: { username: ctx.admin.username },
+    admin: { username: ctx.admin.username, csrfToken },
   });
-  return htmlResponse(html);
+  return htmlResponse(html, { setCookie });
 }
 
 export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<Response> {
@@ -217,7 +220,7 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
     title: `Submission #${row.id}`,
     heading: `Submission #${row.id} (${row.public_id}) ${statusBadge(row.status)}`,
     body,
-    admin: { username: ctx.admin.username },
+    admin: { username: ctx.admin.username, csrfToken },
   });
   return htmlResponse(html, { setCookie: csrfSetCookie });
 }

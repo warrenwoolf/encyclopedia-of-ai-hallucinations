@@ -11,7 +11,7 @@ import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { check as rateCheck } from "../ratelimit.ts";
 import { CATEGORIES, isValidCategory } from "../categories.ts";
 import { config } from "../config.ts";
-import { htmlResponse, parseForm, type RouteHandler } from "./types.ts";
+import { htmlResponse, parseForm, sanitizeText, type RouteHandler } from "./types.ts";
 
 const LIMITS = {
   prompt: 8000,
@@ -177,14 +177,15 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     );
   }
 
+  const scrub = (k: string) => sanitizeText(form.get(k) ?? "").trim();
   const values: FormValues = {
-    prompt: (form.get("prompt") ?? "").trim(),
-    output: (form.get("output") ?? "").trim(),
-    ai_model: (form.get("ai_model") ?? "").trim(),
-    category: (form.get("category") ?? "").trim(),
-    tags: (form.get("tags") ?? "").trim(),
-    summary: (form.get("summary") ?? "").trim(),
-    author_name: (form.get("author_name") ?? "").trim(),
+    prompt: scrub("prompt"),
+    output: scrub("output"),
+    ai_model: scrub("ai_model"),
+    category: scrub("category"),
+    tags: scrub("tags"),
+    summary: scrub("summary"),
+    author_name: scrub("author_name"),
   };
 
   // Required + length checks.

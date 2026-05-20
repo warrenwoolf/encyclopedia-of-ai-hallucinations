@@ -7,8 +7,12 @@ export interface LayoutOptions {
   body: SafeHtml;
   /** If set, shown as an h1 above the body. */
   heading?: string;
-  /** Show admin nav (only if logged-in admin context). */
-  admin?: { username: string } | null;
+  /**
+   * Show admin nav (only if logged-in admin context). The csrfToken is used by
+   * the logout form so the POST passes CSRF verification. If omitted, the
+   * logout button is rendered without it and will be 403'd by the handler.
+   */
+  admin?: { username: string; csrfToken?: string } | null;
   /** Optional sub-nav links above the body. */
   subnav?: SafeHtml | null;
 }
@@ -26,7 +30,8 @@ export function layout(opts: LayoutOptions): string {
         signed in as <strong>${opts.admin.username}</strong> ·
         <a href="/admin/queue">queue</a> ·
         <a href="/admin/all">all</a> ·
-        <form method="post" action="/admin/logout" style="display:inline">
+        <form class="inline-form" method="post" action="/admin/logout">
+          <input type="hidden" name="_csrf" value="${opts.admin.csrfToken ?? ""}">
           <button class="linkbutton" type="submit">log out</button>
         </form>
       </span>`

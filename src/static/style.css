@@ -115,6 +115,9 @@ header nav {
   display: inline;
 }
 
+/* Forms whose entire content should render inline (e.g. logout button in nav). */
+.inline-form { display: inline; margin: 0; padding: 0; }
+
 main {
   max-width: 900px;
   margin: 0 auto;

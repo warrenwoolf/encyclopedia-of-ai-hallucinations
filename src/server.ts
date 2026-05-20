@@ -80,31 +80,48 @@ function addSecurityHeaders(res: Response): Response {
   return res;
 }
 
-function clientIp(req: Request, server: { requestIP?: (req: Request) => { address: string } | null }): string {
-  // Behind cloudflared, Cloudflare sets cf-connecting-ip with the real client IP.
-  const cf = req.headers.get("cf-connecting-ip");
-  if (cf) return cf.trim();
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) {
-    const first = xff.split(",")[0]?.trim();
-    if (first) return first;
-  }
-  try {
-    const addr = server.requestIP?.(req);
-    if (addr?.address) return addr.address;
-  } catch {}
-  return "0.0.0.0";
+function isLoopback(addr: string | undefined): boolean {
+  if (!addr) return false;
+  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
 }
 
+function clientIp(req: Request, server: { requestIP?: (req: Request) => { address: string } | null }): string {
+  // Behind cloudflared, Cloudflare sets cf-connecting-ip with the real client IP.
+  // Trust it ONLY if the immediate TCP peer is loopback — i.e. cloudflared on
+  // the host. Otherwise an attacker hitting :8090 directly could spoof the
+  // header to bypass rate limits or poison ip_hash. We additionally publish
+  // the port on 127.0.0.1 only (see docker-compose.yml).
+  let peer: string | undefined;
+  try {
+    peer = server.requestIP?.(req)?.address;
+  } catch {}
+
+  if (isLoopback(peer)) {
+    const cf = req.headers.get("cf-connecting-ip");
+    if (cf && /^[A-Za-z0-9.:_-]{1,64}$/.test(cf.trim())) return cf.trim();
+  }
+  // Do NOT honor X-Forwarded-For — cloudflared uses cf-connecting-ip, and XFF
+  // is too easy to spoof from anywhere on the host network.
+  return peer ?? "0.0.0.0";
+}
+
+// Explicit allowlist — there are only a couple of static files. Easier to audit
+// than a regex, and we never accidentally let `..` or `.` through.
+const STATIC_FILES: Record<string, { path: string; contentType: string }> = {
+  "style.css": { path: "./src/static/style.css", contentType: "text/css; charset=utf-8" },
+  "robots.txt": { path: "./src/static/robots.txt", contentType: "text/plain; charset=utf-8" },
+};
+
 async function serveStatic(pathname: string): Promise<Response | null> {
-  // Only allow /static/<file> with safe chars.
   if (!pathname.startsWith("/static/")) return null;
   const rest = pathname.slice("/static/".length);
-  if (!/^[A-Za-z0-9._-]+$/.test(rest)) return null;
-  const file = Bun.file(`./src/static/${rest}`);
+  const entry = STATIC_FILES[rest];
+  if (!entry) return null;
+  const file = Bun.file(entry.path);
   if (!(await file.exists())) return null;
   return new Response(file, {
     headers: {
+      "Content-Type": entry.contentType,
       "Cache-Control": isProd ? "public, max-age=3600" : "no-cache",
     },
   });
