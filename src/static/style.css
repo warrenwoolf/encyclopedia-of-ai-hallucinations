@@ -308,3 +308,19 @@ footer a:link, footer a:visited { color: var(--muted); }
   font-size: 1.05em;
   color: var(--muted);
 }
+
+/* Reviewer note on /track — distinct from the page chrome so the submitter
+   reads it before deciding what to do. */
+.reviewer-note {
+  margin: 0.5em 0 1em 0;
+  padding: 0.5em 1em;
+  border-left: 3px solid var(--rule);
+  background: var(--surface, transparent);
+  white-space: pre-wrap;
+}
+
+/* Inline form-field hint paragraph used on /submit. */
+.field-hint {
+  margin: 0.1em 0 0.9em 0;
+  color: var(--muted);
+}

@@ -22,6 +22,7 @@ interface SubmissionRow {
   submitted_at: Date;
   status: string;
   rejection_reason: string | null;
+  staff_review_message: string | null;
 }
 
 function ymd(d: Date | string): string {
@@ -39,11 +40,14 @@ function trackExplainer() {
        submitting a hallucination. Paste it below to:</p>
     <ul>
       <li>check whether your submission has been reviewed,</li>
-      <li>see the rejection reason if it was rejected, or</li>
+      <li>see reviewer notes and/or the rejection reason, or</li>
       <li>withdraw the submission while it's still pending.</li>
     </ul>
-    <p>If you didn't save your code when you submitted, there's no way to
-       recover it — just resubmit the entry.</p>
+    <p>If you gave us an email address when you submitted, you can instead
+       use <a href="/lookup">/lookup</a> to be emailed tracking links for all
+       your submissions — no code to save.</p>
+    <p>If you didn't save your code and didn't give an email, there's no way
+       to recover access — just resubmit the entry.</p>
   `;
 }
 
@@ -87,7 +91,7 @@ export const trackGet: RouteHandler = async (req, ctx) => {
 
   const hash = createHash("sha256").update(code).digest();
   const row = await queryOne<SubmissionRow>(
-    `SELECT public_id, ai_model, category, submitted_at, status, rejection_reason
+    `SELECT public_id, ai_model, category, submitted_at, status, rejection_reason, staff_review_message
        FROM submissions
        WHERE tracking_hash = ?`,
     [hash],
@@ -133,6 +137,13 @@ export const trackGet: RouteHandler = async (req, ctx) => {
     statusSection = h`<p>Status: ${row.status}</p>`;
   }
 
+  // The staff review message is shown on accept AND reject; it's the
+  // reviewer's free-form note to the submitter.
+  const staffReviewSection = row.staff_review_message
+    ? h`<p><strong>Note from the reviewer:</strong></p>
+        <blockquote class="reviewer-note">${row.staff_review_message}</blockquote>`
+    : h``;
+
   const body = h`
     ${lookupForm({ csrf: token, code })}
 
@@ -145,6 +156,8 @@ export const trackGet: RouteHandler = async (req, ctx) => {
     </dl>
 
     ${statusSection}
+
+    ${staffReviewSection}
   `;
 
   return htmlResponse(

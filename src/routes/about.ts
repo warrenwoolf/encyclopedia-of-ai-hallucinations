@@ -20,10 +20,15 @@ export const about: RouteHandler = (_req, ctx) => {
        it appears publicly, to keep the catalog signal-rich and to filter out
        obviously-fake or unreproducible material.</p>
 
-    <p><strong>Tracking codes.</strong> When you submit, you get a one-time
-       tracking code. Save it — we never show it again. It lets you check
-       your submission's review status, see any rejection reason, or withdraw
-       a pending submission.</p>
+    <p><strong>Tracking codes and email.</strong> When you submit, you get a
+       one-time tracking code. Save it — we never show it again. It lets you
+       check your submission's review status, see reviewer notes, or withdraw
+       a pending submission via <a href="/track">/track</a>. You may also
+       optionally give an email address; if you do, we'll notify you when
+       staff review your submission, and you can use <a href="/lookup">/lookup</a>
+       to be emailed tracking links for all your submissions instead of
+       saving the code. See the <a href="/privacy">privacy policy</a> for
+       what we do with email addresses.</p>
 
     <p><strong>Categories</strong> currently include:
        ${CATEGORIES.map((c, i) => h`${i > 0 ? ", " : ""}${c.label}`)}.

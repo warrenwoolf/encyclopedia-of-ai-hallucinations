@@ -11,6 +11,7 @@ import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { check as rateCheck } from "../ratelimit.ts";
 import { CATEGORIES, isValidCategory } from "../categories.ts";
 import { config } from "../config.ts";
+import { sendSubmissionReceived } from "../email.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteHandler } from "./types.ts";
 
 const LIMITS = {
@@ -19,9 +20,14 @@ const LIMITS = {
   ai_model: 120,
   summary: 2000,
   notes: 4000,
+  shared_chat_url: 2048,
   author_name: 80,
+  submitter_email: 254,
   tags: 600, // bounding the raw tags input
 };
+
+/** Pragmatic email format check. Not RFC-strict; rejects obvious garbage. */
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,189}\.[^\s@]{2,63}$/;
 
 interface FormValues {
   prompt: string;
@@ -31,11 +37,17 @@ interface FormValues {
   tags: string;
   summary: string;
   notes: string;
+  shared_chat_url: string;
   author_name: string;
+  submitter_email: string;
 }
 
 function emptyForm(): FormValues {
-  return { prompt: "", output: "", ai_model: "", category: "", tags: "", summary: "", notes: "", author_name: "" };
+  return {
+    prompt: "", output: "", ai_model: "", category: "", tags: "",
+    summary: "", notes: "", shared_chat_url: "", author_name: "",
+    submitter_email: "",
+  };
 }
 
 function renderForm(opts: {
@@ -87,6 +99,11 @@ function renderForm(opts: {
       <textarea id="notes" name="notes" rows="4" maxlength="${LIMITS.notes}"
                 placeholder="optional: reproduction steps, context about the conversation, related links, etc.">${values.notes}</textarea>
 
+      <label for="shared_chat_url">Shared chat URL <small>(optional, e.g. a chatgpt.com/share/... or claude.ai/share/... link)</small></label>
+      <input id="shared_chat_url" name="shared_chat_url" type="url" maxlength="${LIMITS.shared_chat_url}"
+             value="${values.shared_chat_url}" placeholder="https://...">
+      <p class="field-hint"><small>If you have a shareable conversation link, paste it here. <strong>This will be public on the entry page.</strong></small></p>
+
       <label for="tags">Tags <small>(comma-separated; lowercase letters, digits, hyphens; max 10)</small></label>
       <input id="tags" name="tags" type="text" maxlength="${LIMITS.tags}"
              value="${values.tags}" placeholder="e.g. counting, strawberry, letter-r">
@@ -95,11 +112,20 @@ function renderForm(opts: {
       <input id="author_name" name="author_name" type="text" maxlength="${LIMITS.author_name}"
              value="${values.author_name}">
 
+      <label for="submitter_email">Email <small>(optional, never shown publicly)</small></label>
+      <input id="submitter_email" name="submitter_email" type="email" maxlength="${LIMITS.submitter_email}"
+             value="${values.submitter_email}" placeholder="you@example.com" autocomplete="email">
+      <p class="field-hint"><small>If you give us an email, we'll notify you when staff
+        reviews your submission, and you'll be able to look up all your submissions
+        at <a href="/lookup">/lookup</a> without saving a tracking code. See our
+        <a href="/privacy">privacy policy</a> for what we do with this.</small></p>
+
       <button type="submit">Submit</button>
     </form>
 
     <p><small>Submissions are reviewed by staff before being published. You'll
-    receive a tracking code to check status or withdraw.</small></p>
+    receive a tracking code (and an email, if you gave us one) to check status
+    or withdraw.</small></p>
   `;
 }
 
@@ -195,7 +221,12 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     tags: scrub("tags"),
     summary: scrub("summary"),
     notes: scrub("notes"),
+    shared_chat_url: scrub("shared_chat_url"),
     author_name: scrub("author_name"),
+    // Email is normalized to lowercase so /lookup can match without a
+    // case-insensitive comparison and so duplicate-detection (if we ever add
+    // it) works the obvious way.
+    submitter_email: scrub("submitter_email").toLowerCase(),
   };
 
   // Required + length checks.
@@ -220,8 +251,26 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   if (values.notes.length > LIMITS.notes)
     return showForm(req, ctx, { values, error: `Notes are too long (max ${LIMITS.notes} chars).`, status: 400 });
 
+  if (values.shared_chat_url.length > 0) {
+    let parsedUrl: URL | null = null;
+    try {
+      parsedUrl = new URL(values.shared_chat_url);
+    } catch {
+      // invalid URL
+    }
+    if (!parsedUrl || (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") || values.shared_chat_url.length > LIMITS.shared_chat_url)
+      return showForm(req, ctx, { values, error: "Shared chat URL must be a valid http(s) URL.", status: 400 });
+  }
+
   if (values.author_name.length > LIMITS.author_name)
     return showForm(req, ctx, { values, error: `Author name is too long (max ${LIMITS.author_name} chars).`, status: 400 });
+
+  if (values.submitter_email.length > 0) {
+    if (values.submitter_email.length > LIMITS.submitter_email)
+      return showForm(req, ctx, { values, error: `Email is too long (max ${LIMITS.submitter_email} chars).`, status: 400 });
+    if (!EMAIL_RE.test(values.submitter_email))
+      return showForm(req, ctx, { values, error: "Email address looks invalid. Leave it blank to skip.", status: 400 });
+  }
 
   if (values.tags.length > LIMITS.tags)
     return showForm(req, ctx, { values, error: "Tags input is too long.", status: 400 });
@@ -239,14 +288,21 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     .update(`${config.sessionSecret}:${ctx.ip}`)
     .digest();
 
+  // notify_token holds the PLAINTEXT tracking code, but only if the submitter
+  // gave us an email. This lets /lookup rebuild /track?code=… links later.
+  // Submissions without an email keep the hash-only model intact.
+  const hasEmail = values.submitter_email.length > 0;
+  const submitterEmail = hasEmail ? values.submitter_email : null;
+  const notifyToken = hasEmail ? trackingCodeFull : null;
+
   // Insert in a single transaction so partial inserts don't leak orphan tag rows.
   try {
     await transaction(async (tx) => {
       const ins = await tx.execute(
         `INSERT INTO submissions
-          (public_id, tracking_hash, prompt, output, ai_model, summary, notes, category,
-           author_name, submitted_at, status, ip_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?)`,
+          (public_id, tracking_hash, prompt, output, ai_model, summary, notes, shared_chat_url, category,
+           author_name, submitted_at, status, ip_hash, submitter_email, notify_token)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, ?)`,
         [
           publicId,
           trackingHash,
@@ -255,9 +311,12 @@ export const submitPost: RouteHandler = async (req, ctx) => {
           values.ai_model,
           values.summary.length > 0 ? values.summary : null,
           values.notes.length > 0 ? values.notes : null,
+          values.shared_chat_url.length > 0 ? values.shared_chat_url : null,
           values.category,
           values.author_name.length > 0 ? values.author_name : null,
           ipHash,
+          submitterEmail,
+          notifyToken,
         ],
       );
       const submissionId = ins.insertId;
@@ -285,6 +344,21 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     });
   }
 
+  // Fire-and-forget email notification. Never throws; failures only log.
+  if (hasEmail) {
+    void sendSubmissionReceived({
+      to: values.submitter_email,
+      publicId,
+      trackingCode: trackingCodeFull,
+      modelLabel: values.ai_model,
+    });
+  }
+
+  const emailLine = hasEmail
+    ? h`<p>We've also sent a copy to <code>${values.submitter_email}</code>.
+        You'll get another email when staff review your submission.</p>`
+    : h``;
+
   const body = h`
     <p>Thanks — your submission is in the review queue. It won't appear
        publicly until a staff member approves it.</p>
@@ -294,6 +368,8 @@ export const submitPost: RouteHandler = async (req, ctx) => {
       <pre class="tracking-code">${trackingCodeFull}</pre>
       <p>Use it at <a href="/track">/track</a> to check status or withdraw.</p>
     </div>
+
+    ${emailLine}
 
     <p>Public ID (will be live at <code>/e/${publicId}</code> if approved): <code>${publicId}</code></p>
     <p><a href="/">Back to home</a> · <a href="/submit">Submit another</a></p>

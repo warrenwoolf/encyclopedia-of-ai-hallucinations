@@ -60,6 +60,7 @@ export function layout(opts: LayoutOptions): string {
         <a href="/browse">browse</a>
         <a href="/submit">submit</a>
         <a href="/track">track</a>
+        <a href="/lookup">lookup</a>
         <a href="/about">about</a>
         ${adminNav}
       </nav>
@@ -70,7 +71,7 @@ export function layout(opts: LayoutOptions): string {
       ${opts.body}
     </main>
     <footer>
-      <p><a href="/about">about</a></p>
+      <p><a href="/about">about</a> · <a href="/privacy">privacy</a></p>
     </footer>
   </body>
 </html>`;

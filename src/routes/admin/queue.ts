@@ -26,13 +26,16 @@ interface SubmissionFull {
   output: string;
   ai_model: string | null;
   summary: string | null;
+  shared_chat_url: string | null;
   category: string;
   author_name: string | null;
+  submitter_email: string | null;
   submitted_at: Date;
   status: "pending" | "published" | "rejected" | "withdrawn";
   reviewed_by: number | null;
   reviewed_at: Date | null;
   reviewer_notes: string | null;
+  staff_review_message: string | null;
   verified_hits: number | null;
   verified_total: number | null;
   rejection_reason: string | null;
@@ -120,9 +123,9 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
   }
 
   const row = await queryOne<SubmissionFull>(
-    `SELECT id, public_id, prompt, output, ai_model, summary, category, author_name,
-            submitted_at, status, reviewed_by, reviewed_at, reviewer_notes,
-            verified_hits, verified_total, rejection_reason, ip_hash
+    `SELECT id, public_id, prompt, output, ai_model, summary, shared_chat_url, category, author_name,
+            submitter_email, submitted_at, status, reviewed_by, reviewed_at, reviewer_notes,
+            staff_review_message, verified_hits, verified_total, rejection_reason, ip_hash
        FROM submissions
        WHERE id = ?`,
     [id],
@@ -161,6 +164,7 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
 
   const reviewerNotesPrev = row.reviewer_notes ?? "";
   const rejectionReasonPrev = row.rejection_reason ?? "";
+  const staffReviewMessagePrev = row.staff_review_message ?? "";
   const verifiedHitsPrev = row.verified_hits ?? "";
   const verifiedTotalPrev = row.verified_total ?? "";
 
@@ -172,8 +176,10 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
       <dt>model</dt><dd>${row.ai_model ?? "—"}</dd>
       <dt>category</dt><dd>${categoryLabel(row.category)}</dd>
       <dt>author</dt><dd>${row.author_name ?? "anonymous"}</dd>
+      <dt>email</dt><dd>${row.submitter_email ? h`<code>${row.submitter_email}</code>` : h`<em>none</em>`}</dd>
       <dt>submitted</dt><dd>${fmtDate(row.submitted_at)}</dd>
       <dt>tags</dt><dd>${tagsHtml}</dd>
+      <dt>shared chat</dt><dd>${row.shared_chat_url ? h`<a href="${row.shared_chat_url}" rel="nofollow noopener noreferrer">${row.shared_chat_url}</a>` : "—"}</dd>
       <dt>ip-hash prefix</dt><dd><code>${ipPrefix}</code> <small>(triage only)</small></dd>
       ${row.reviewed_at ? h`<dt>reviewed</dt><dd>${fmtDate(row.reviewed_at)}</dd>` : raw("")}
     </dl>
@@ -205,9 +211,15 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
                   maxlength="4000">${reviewerNotesPrev}</textarea>
       </p>
       <p>
-        <label for="rejection_reason">Rejection reason (shown to submitter on /track)</label><br>
+        <label for="rejection_reason">Rejection reason (shown to submitter on /track and in the rejection email)</label><br>
         <textarea id="rejection_reason" name="rejection_reason" rows="3" cols="80"
                   maxlength="1000">${rejectionReasonPrev}</textarea>
+      </p>
+      <p>
+        <label for="staff_review_message">Staff review message
+          (emailed to the submitter on accept/reject; also shown on /track)</label><br>
+        <textarea id="staff_review_message" name="staff_review_message" rows="4" cols="80"
+                  maxlength="4000">${staffReviewMessagePrev}</textarea>
       </p>
       <p>
         <button name="action" value="approve" type="submit">Approve and publish</button>

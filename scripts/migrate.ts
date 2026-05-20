@@ -86,6 +86,44 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; sql: string }> = 
     column: "notes",
     sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS notes TEXT NULL",
   },
+  {
+    table: "submissions",
+    column: "shared_chat_url",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS shared_chat_url VARCHAR(2048) NULL",
+  },
+  {
+    table: "submissions",
+    column: "submitter_email",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS submitter_email VARCHAR(254) NULL",
+  },
+  {
+    // Plaintext copy of the tracking code, ONLY populated when the submitter
+    // gave us an email at submit time. With this, /lookup can rebuild
+    // /track?code=… links from a single email address. Without it we'd need
+    // a second auth surface.
+    //
+    // Tradeoff: a DB dump now exposes withdrawal codes for email-enabled
+    // submissions (it didn't before — tracking codes were hashed-only).
+    // Acceptable because (a) withdrawal is reversible by re-submit, (b) the
+    // submitter is already trusting us with their email address, which is a
+    // strictly more valuable secret than a per-submission revocation code.
+    table: "submissions",
+    column: "notify_token",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS notify_token VARCHAR(32) NULL",
+  },
+  {
+    table: "submissions",
+    column: "staff_review_message",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS staff_review_message TEXT NULL",
+  },
+  {
+    // Speeds up /lookup. CASE-INSENSITIVE — the table's collation is
+    // utf8mb4_unicode_ci so lookups are already case-insensitive; we just
+    // need the index for performance.
+    table: "submissions",
+    column: "idx_submitter_email",
+    sql: "ALTER TABLE submissions ADD INDEX IF NOT EXISTS idx_submitter_email (submitter_email)",
+  },
 ];
 
 async function main(): Promise<void> {

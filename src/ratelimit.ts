@@ -20,6 +20,10 @@ const LIMITS: Record<string, LimitConfig> = {
   submit: { capacity: 60, refillPerHour: 60 },
   login: { capacity: 10, refillPerHour: 10 },
   withdraw: { capacity: 20, refillPerHour: 20 },
+  // Lookup-by-email triggers an outbound email. Cap aggressively to avoid
+  // becoming a spam relay (we'd be billed for the volume even if Resend's
+  // suppression list saved us reputationally).
+  lookup: { capacity: 5, refillPerHour: 5 },
 };
 
 const buckets = new Map<string, Bucket>();

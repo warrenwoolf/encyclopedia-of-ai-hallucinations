@@ -15,6 +15,7 @@ interface SubmissionRow {
   ai_model: string;
   summary: string | null;
   notes: string | null;
+  shared_chat_url: string | null;
   category: string;
   author_name: string | null;
   submitted_at: Date;
@@ -46,7 +47,7 @@ export const entry: RouteHandler = async (_req, ctx) => {
   }
 
   const row = await queryOne<SubmissionRow>(
-    `SELECT id, public_id, prompt, output, ai_model, summary, notes, category,
+    `SELECT id, public_id, prompt, output, ai_model, summary, notes, shared_chat_url, category,
             author_name, submitted_at, status
        FROM submissions
        WHERE public_id = ?`,
@@ -78,6 +79,12 @@ export const entry: RouteHandler = async (_req, ctx) => {
     ? h`<section><h2>Notes</h2><p>${row.notes}</p></section>`
     : raw("");
 
+  const sharedChatBlock = row.shared_chat_url && row.shared_chat_url.trim().length > 0
+    ? h`<section><h2>Shared chat</h2>
+        <p><a href="${row.shared_chat_url}" rel="nofollow noopener noreferrer">${row.shared_chat_url}</a></p>
+      </section>`
+    : raw("");
+
   // The big page heading uses the AI model and category, not the public_id.
   const pageHeader = h`
     <header class="entry-header">
@@ -105,6 +112,7 @@ export const entry: RouteHandler = async (_req, ctx) => {
       <pre class="output">${row.output}</pre>
     </section>
 
+    ${sharedChatBlock}
     ${summaryBlock}
     ${notesBlock}
   `;

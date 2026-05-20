@@ -17,7 +17,9 @@ import { entry } from "./routes/entry.ts";
 import { browse } from "./routes/browse.ts";
 import { submitGet, submitPost } from "./routes/submit.ts";
 import { trackGet, trackWithdrawPost } from "./routes/track.ts";
+import { lookupGet, lookupPost } from "./routes/lookup.ts";
 import { about } from "./routes/about.ts";
+import { privacy } from "./routes/privacy.ts";
 import { getLogin, postLogin, postLogout } from "./routes/admin/login.ts";
 import { getQueue, getQueueDetail } from "./routes/admin/queue.ts";
 import { postReview } from "./routes/admin/review.ts";
@@ -48,12 +50,15 @@ const ROUTES: RouteDef[] = [
   // Public
   route("GET", "/", home),
   route("GET", "/about", about),
+  route("GET", "/privacy", privacy),
   route("GET", "/browse", browse),
   route("GET", "/e/:public_id", entry),
   route("GET", "/submit", submitGet),
   route("POST", "/submit", submitPost),
   route("GET", "/track", trackGet),
   route("POST", "/track/withdraw", trackWithdrawPost),
+  route("GET", "/lookup", lookupGet),
+  route("POST", "/lookup", lookupPost),
   // Admin
   route("GET", "/admin/login", getLogin),
   route("POST", "/admin/login", postLogin),

@@ -7,6 +7,7 @@ import { h } from "../../html.ts";
 import { layout } from "../../layout.ts";
 import { execute, queryOne } from "../../db.ts";
 import { verifyCsrf } from "../../csrf.ts";
+import { sendDecision } from "../../email.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "../types.ts";
 
 function badRequest(message: string, status = 400, returnTo?: string): Response {
@@ -83,11 +84,13 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   let verifiedTotal: number | null;
   let reviewerNotes: string | null;
   let rejectionReason: string | null;
+  let staffReviewMessage: string | null;
   try {
     verifiedHits = parseBoundedInt(form.get("verified_hits"), "verified_hits");
     verifiedTotal = parseBoundedInt(form.get("verified_total"), "verified_total");
     reviewerNotes = parseText(form.get("reviewer_notes"), "reviewer_notes", 4000);
     rejectionReason = parseText(form.get("rejection_reason"), "rejection_reason", 1000);
+    staffReviewMessage = parseText(form.get("staff_review_message"), "staff_review_message", 4000);
   } catch (err) {
     return badRequest(err instanceof Error ? err.message : "Invalid form input.");
   }
@@ -102,7 +105,18 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   }
 
   // Confirm the submission exists before update so we can return a proper 404.
-  const exists = await queryOne<{ id: number }>("SELECT id FROM submissions WHERE id = ?", [id]);
+  // Also pull the fields we'll need to compose the outbound email so we can
+  // skip the email entirely when there's no submitter_email or notify_token.
+  const exists = await queryOne<{
+    id: number;
+    public_id: string;
+    ai_model: string | null;
+    submitter_email: string | null;
+    notify_token: string | null;
+  }>(
+    "SELECT id, public_id, ai_model, submitter_email, notify_token FROM submissions WHERE id = ?",
+    [id],
+  );
   if (!exists) return badRequest("Submission not found.", 404);
 
   if (action === "approve") {
@@ -114,9 +128,10 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
               verified_hits = ?,
               verified_total = ?,
               reviewer_notes = ?,
+              staff_review_message = ?,
               rejection_reason = NULL
         WHERE id = ?`,
-      [ctx.admin.adminId, verifiedHits, verifiedTotal, reviewerNotes, id],
+      [ctx.admin.adminId, verifiedHits, verifiedTotal, reviewerNotes, staffReviewMessage, id],
     );
   } else {
     await execute(
@@ -126,11 +141,27 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
               reviewed_at = NOW(),
               rejection_reason = ?,
               reviewer_notes = ?,
+              staff_review_message = ?,
               verified_hits = ?,
               verified_total = ?
         WHERE id = ?`,
-      [ctx.admin.adminId, rejectionReason, reviewerNotes, verifiedHits, verifiedTotal, id],
+      [ctx.admin.adminId, rejectionReason, reviewerNotes, staffReviewMessage, verifiedHits, verifiedTotal, id],
     );
+  }
+
+  // Fire-and-forget decision email. Only fires if we have both an address and
+  // a notify_token (the plaintext tracking code) — see submit.ts for why
+  // those two travel together.
+  if (exists.submitter_email && exists.notify_token) {
+    void sendDecision({
+      to: exists.submitter_email,
+      publicId: exists.public_id,
+      trackingCode: exists.notify_token,
+      modelLabel: exists.ai_model ?? "(unknown)",
+      decision: action === "approve" ? "approved" : "rejected",
+      staffReviewMessage,
+      rejectionReason: action === "approve" ? null : rejectionReason,
+    });
   }
 
   return new Response(null, { status: 303, headers: { Location: "/admin/queue" } });

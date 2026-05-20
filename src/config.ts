@@ -19,6 +19,26 @@ function bool(name: string, fallback: boolean): boolean {
   return v === "true" || v === "1" || v === "yes";
 }
 
+/**
+ * Read a value from $NAME, else from $NAME_FILE (a path on disk), else fall
+ * back. Useful for secrets: keeps them off the command line / env dump.
+ */
+function optionalFile(name: string, fallback: string): string {
+  const direct = process.env[name];
+  if (direct && direct.length > 0) return direct;
+  const filePath = process.env[`${name}_FILE`];
+  if (filePath && filePath.length > 0) {
+    try {
+      const fs = require("node:fs") as typeof import("node:fs");
+      const v = fs.readFileSync(filePath, "utf8").trim();
+      if (v.length > 0) return v;
+    } catch (err) {
+      console.error(`[config] failed to read ${name}_FILE=${filePath}:`, err);
+    }
+  }
+  return fallback;
+}
+
 export const config = {
   port: parseInt(optional("PORT", "8090"), 10),
   hostname: optional("HOST", "0.0.0.0"),
@@ -34,6 +54,17 @@ export const config = {
   },
 
   sessionSecret: required("SESSION_SECRET"),
+
+  /** Where the public site lives. Used to build absolute URLs in outbound emails. */
+  publicBaseUrl: optional("PUBLIC_BASE_URL", "https://hallucination.firmamental.org"),
+
+  email: {
+    /** When unset, email sending is disabled and the module no-ops. */
+    resendApiKey: optionalFile("RESEND_API_KEY", ""),
+    from: optional("EMAIL_FROM", "EAH <noreply@hallucination.firmamental.org>"),
+    /** Where bounces / human replies should go. */
+    replyTo: optional("EMAIL_REPLY_TO", "noreply@hallucination.firmamental.org"),
+  },
 
   adminBootstrap: {
     user: optional("ADMIN_BOOTSTRAP_USER", ""),
