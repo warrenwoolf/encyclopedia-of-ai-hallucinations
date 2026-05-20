@@ -2,21 +2,21 @@
 #
 # Deploy to randy:
 #   1. ssh randy
-#   2. git clone or rsync this directory to ~/eah
+#   2. rsync this directory to ~/eah  (or git clone)
 #   3. cp .env.example .env  &&  edit .env  with DB creds + SESSION_SECRET
 #   4. docker compose up -d --build
 #   5. docker compose exec eah bun scripts/migrate.ts
-#   6. ADMIN_BOOTSTRAP_USER=... ADMIN_BOOTSTRAP_PASS=... docker compose exec -T eah bun scripts/seed-admin.ts
+#   6. ADMIN_BOOTSTRAP_USER=... ADMIN_BOOTSTRAP_PASS=... \
+#        docker compose run --rm eah bun scripts/seed-admin.ts
+#
+# We use network_mode: host so the container can reach MariaDB at 127.0.0.1
+# (bound to loopback only on the Pi) and so the Bun server binds 127.0.0.1:8090
+# directly — cloudflared on the same host is the only public path.
 
 services:
   eah:
     build: .
     container_name: eah
     restart: unless-stopped
-    ports:
-      # Bind to loopback only — cloudflared on the host is the only public path.
-      # This means clientIp() can trust the cf-connecting-ip header (see server.ts).
-      - "127.0.0.1:8090:8090"
+    network_mode: host
     env_file: .env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"

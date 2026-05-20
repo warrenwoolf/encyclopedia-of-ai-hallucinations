@@ -218,8 +218,7 @@ async function handle(req: Request, server: any): Promise<Response> {
 
 const server = Bun.serve({
   port: config.port,
-  // Bind to 0.0.0.0 so the container is reachable on the published port.
-  hostname: "0.0.0.0",
+  hostname: config.hostname,
   async fetch(req) {
     const res = await handle(req, server);
     return addSecurityHeaders(res);

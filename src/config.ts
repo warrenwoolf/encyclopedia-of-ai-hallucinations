@@ -21,6 +21,7 @@ function bool(name: string, fallback: boolean): boolean {
 
 export const config = {
   port: parseInt(optional("PORT", "8090"), 10),
+  hostname: optional("HOST", "0.0.0.0"),
   nodeEnv: optional("NODE_ENV", "development"),
   inDevelopment: bool("IN_DEVELOPMENT", true),
 
