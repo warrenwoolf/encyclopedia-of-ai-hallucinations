@@ -18,6 +18,7 @@ const LIMITS = {
   output: 32000,
   ai_model: 120,
   summary: 2000,
+  notes: 4000,
   author_name: 80,
   tags: 600, // bounding the raw tags input
 };
@@ -29,11 +30,12 @@ interface FormValues {
   category: string;
   tags: string;
   summary: string;
+  notes: string;
   author_name: string;
 }
 
 function emptyForm(): FormValues {
-  return { prompt: "", output: "", ai_model: "", category: "", tags: "", summary: "", author_name: "" };
+  return { prompt: "", output: "", ai_model: "", category: "", tags: "", summary: "", notes: "", author_name: "" };
 }
 
 function renderForm(opts: {
@@ -55,10 +57,13 @@ function renderForm(opts: {
     <form method="post" action="/submit" class="submit-form">
       <input type="hidden" name="_csrf" value="${csrf}">
 
-      <label for="ai_model">AI model</label>
+      <label for="ai_model">AI model <small>(or service + date if exact model unknown)</small></label>
       <input id="ai_model" name="ai_model" type="text" maxlength="${LIMITS.ai_model}"
              required value="${values.ai_model}"
-             placeholder="e.g. GPT-4o, Claude 3.5 Sonnet, Llama 3.1 70B">
+             placeholder="e.g. GPT-4o, Claude 3.5 Sonnet, or 'Google AI Overview (accessed 2026-05-19)'">
+      <p class="field-hint"><small>For products that don't expose their exact model
+        (e.g. Google's AI Overview, Bing search summaries), write the service name
+        and the date you accessed it.</small></p>
 
       <label for="category">Category</label>
       <select id="category" name="category" required>
@@ -77,6 +82,10 @@ function renderForm(opts: {
       <label for="summary">Summary <small>(optional, what's wrong about it)</small></label>
       <textarea id="summary" name="summary" rows="3" maxlength="${LIMITS.summary}"
                 placeholder="optional: 1-2 sentences explaining what's hallucinated">${values.summary}</textarea>
+
+      <label for="notes">Notes <small>(optional, anything else that doesn't fit elsewhere)</small></label>
+      <textarea id="notes" name="notes" rows="4" maxlength="${LIMITS.notes}"
+                placeholder="optional: reproduction steps, context about the conversation, related links, etc.">${values.notes}</textarea>
 
       <label for="tags">Tags <small>(comma-separated; lowercase letters, digits, hyphens; max 10)</small></label>
       <input id="tags" name="tags" type="text" maxlength="${LIMITS.tags}"
@@ -185,6 +194,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     category: scrub("category"),
     tags: scrub("tags"),
     summary: scrub("summary"),
+    notes: scrub("notes"),
     author_name: scrub("author_name"),
   };
 
@@ -206,6 +216,9 @@ export const submitPost: RouteHandler = async (req, ctx) => {
 
   if (values.summary.length > LIMITS.summary)
     return showForm(req, ctx, { values, error: `Summary is too long (max ${LIMITS.summary} chars).`, status: 400 });
+
+  if (values.notes.length > LIMITS.notes)
+    return showForm(req, ctx, { values, error: `Notes are too long (max ${LIMITS.notes} chars).`, status: 400 });
 
   if (values.author_name.length > LIMITS.author_name)
     return showForm(req, ctx, { values, error: `Author name is too long (max ${LIMITS.author_name} chars).`, status: 400 });
@@ -231,9 +244,9 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     await transaction(async (tx) => {
       const ins = await tx.execute(
         `INSERT INTO submissions
-          (public_id, tracking_hash, prompt, output, ai_model, summary, category,
+          (public_id, tracking_hash, prompt, output, ai_model, summary, notes, category,
            author_name, submitted_at, status, ip_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?)`,
         [
           publicId,
           trackingHash,
@@ -241,6 +254,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
           values.output,
           values.ai_model,
           values.summary.length > 0 ? values.summary : null,
+          values.notes.length > 0 ? values.notes : null,
           values.category,
           values.author_name.length > 0 ? values.author_name : null,
           ipHash,
@@ -276,7 +290,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
        publicly until a staff member approves it.</p>
 
     <div class="tracking-code-block">
-      <p><strong>Your tracking code (save this — we won't show it again):</strong></p>
+      <p><strong>Your tracking code to track, review, or withdraw your submission (save this — we won't show it again):</strong></p>
       <pre class="tracking-code">${trackingCodeFull}</pre>
       <p>Use it at <a href="/track">/track</a> to check status or withdraw.</p>
     </div>

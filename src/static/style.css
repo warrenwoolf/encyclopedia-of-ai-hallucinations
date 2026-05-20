@@ -231,3 +231,80 @@ footer a:link, footer a:visited { color: var(--muted); }
 
 .muted { color: var(--muted); }
 .small { font-size: 0.9em; }
+
+/* Search form: input + button on a single row, with breathing room. */
+.search-form {
+  display: flex;
+  gap: 0.8em;
+  align-items: stretch;
+  max-width: 600px;
+}
+.search-form input[type="search"] { flex: 1 1 auto; width: auto; }
+.search-form button { flex: 0 0 auto; }
+
+/* Category nav with commas between links. */
+.category-nav { margin: 1em 0; }
+.category-nav strong { margin-right: 0.4em; }
+
+/* Inline form-field hint (e.g. under the AI model input). */
+.field-hint {
+  margin: 0.3em 0 0.6em 0;
+  color: var(--muted);
+}
+
+/* Homepage entry cards (prompt + output inline). */
+.entry-list { display: block; }
+.entry-card {
+  border-top: 1px solid var(--rule);
+  padding: 1em 0 0.8em 0;
+  margin: 0;
+}
+.entry-card h3 {
+  margin: 0 0 0.6em 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.8em;
+  flex-wrap: wrap;
+}
+.entry-card h3 .meta {
+  font-weight: normal;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+.entry-section {
+  margin: 0.4em 0 0.8em 0;
+}
+.entry-label {
+  font-weight: bold;
+  font-size: 0.9em;
+  margin-bottom: 0.25em;
+}
+
+/* Browse-page compact list (no prompt body, no public ID). */
+.entry-list-compact {
+  list-style: none;
+  padding: 0;
+  margin: 1em 0;
+}
+.entry-list-compact li {
+  padding: 0.35em 0;
+  border-bottom: 1px solid var(--rule);
+}
+.entry-list-compact .meta {
+  font-size: 0.85em;
+  color: var(--muted);
+  margin-left: 0.5em;
+}
+
+/* Single-entry page header: model name big, category as subhead. */
+.entry-header { margin: 0 0 1em 0; }
+.entry-model {
+  font-size: 1.8em;
+  margin: 0 0 0.15em 0;
+  word-wrap: break-word;
+}
+.entry-category {
+  margin: 0;
+  font-size: 1.05em;
+  color: var(--muted);
+}

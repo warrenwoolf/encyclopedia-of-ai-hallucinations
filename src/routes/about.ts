@@ -23,8 +23,7 @@ export const about: RouteHandler = (_req, ctx) => {
     <p><strong>Tracking codes.</strong> When you submit, you get a one-time
        tracking code. Save it — we never show it again. It lets you check
        your submission's review status, see any rejection reason, or withdraw
-       a pending submission. We store only a hash of the code, so even we
-       can't look it up if you lose it.</p>
+       a pending submission.</p>
 
     <p><strong>Categories</strong> currently include:
        ${CATEGORIES.map((c, i) => h`${i > 0 ? ", " : ""}${c.label}`)}.
@@ -34,6 +33,8 @@ export const about: RouteHandler = (_req, ctx) => {
     <p><strong>This site is in development.</strong> The schema, the URL
        structure, and the rules may change. Don't rely on any specific entry
        persisting yet. When things stabilize this notice will come down.</p>
+
+    <p class="muted">Initial scaffolding written by Claude (Anthropic), May 2026.</p>
   `;
   return htmlResponse(layout({
     title: "About · EAH",

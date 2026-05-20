@@ -76,10 +76,26 @@ const TABLES: TableSpec[] = [
   },
 ];
 
+/**
+ * Idempotent column additions. Run AFTER the CREATE TABLE pass.
+ * Each entry is `ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...`; harmless to re-run.
+ */
+const COLUMN_ADDITIONS: Array<{ table: string; column: string; sql: string }> = [
+  {
+    table: "submissions",
+    column: "notes",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS notes TEXT NULL",
+  },
+];
+
 async function main(): Promise<void> {
   for (const t of TABLES) {
     await execute(t.sql);
     console.log(`ok  ${t.name}`);
+  }
+  for (const c of COLUMN_ADDITIONS) {
+    await execute(c.sql);
+    console.log(`ok  ${c.table}.${c.column}`);
   }
 }
 

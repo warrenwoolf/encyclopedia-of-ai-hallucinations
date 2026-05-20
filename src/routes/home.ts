@@ -1,8 +1,9 @@
 /**
  * GET / — landing page.
  *
- * Shows a published-count, the 20 most-recent published entries, a category
- * nav, a search form, and a "submit" CTA.
+ * Shows recent published entries inline (prompt + output truncated past
+ * ~1000 chars), a comma-separated category nav, a search form, and a
+ * "submit" CTA.
  */
 import { h, raw } from "../html.ts";
 import { layout } from "../layout.ts";
@@ -12,10 +13,14 @@ import { htmlResponse, type RouteHandler } from "./types.ts";
 
 interface RecentRow {
   public_id: string;
+  prompt: string;
+  output: string;
   ai_model: string;
   category: string;
   submitted_at: Date;
 }
+
+const TRUNCATE_AT = 1000;
 
 function ymd(d: Date | string): string {
   const date = d instanceof Date ? d : new Date(d);
@@ -26,6 +31,11 @@ function ymd(d: Date | string): string {
   return `${y}-${m}-${day}`;
 }
 
+function truncate(s: string): { text: string; truncated: boolean } {
+  if (s.length <= TRUNCATE_AT) return { text: s, truncated: false };
+  return { text: s.slice(0, TRUNCATE_AT) + "…", truncated: true };
+}
+
 export const home: RouteHandler = async (_req, ctx) => {
   const countRow = await queryOne<{ n: number }>(
     "SELECT COUNT(*) AS n FROM submissions WHERE status = 'published'",
@@ -33,7 +43,7 @@ export const home: RouteHandler = async (_req, ctx) => {
   const total = Number(countRow?.n ?? 0);
 
   const recent = await query<RecentRow>(
-    `SELECT public_id, ai_model, category, submitted_at
+    `SELECT public_id, prompt, output, ai_model, category, submitted_at
        FROM submissions
        WHERE status = 'published'
        ORDER BY submitted_at DESC, id DESC
@@ -42,21 +52,33 @@ export const home: RouteHandler = async (_req, ctx) => {
 
   const recentList = recent.length === 0
     ? h`<p><em>No published entries yet.</em></p>`
-    : h`<ul class="entry-list">
-        ${recent.map(
-          (r) => h`<li>
-            <a href="/e/${r.public_id}"><code>${r.public_id}</code></a>
-            — ${r.ai_model}
-            <span class="meta">[${categoryLabel(r.category)}]</span>
-            <span class="meta">${ymd(r.submitted_at)}</span>
-          </li>`,
-        )}
-      </ul>`;
+    : h`<div class="entry-list">
+        ${recent.map((r) => {
+          const p = truncate(r.prompt);
+          const o = truncate(r.output);
+          const fullLink = h`<a href="/e/${r.public_id}">view full entry</a>`;
+          return h`<article class="entry-card">
+            <h3><a href="/e/${r.public_id}">${r.ai_model}</a>
+              <span class="meta">[${categoryLabel(r.category)}] ${ymd(r.submitted_at)}</span>
+            </h3>
+            <div class="entry-section">
+              <div class="entry-label">Prompt</div>
+              <pre>${p.text}</pre>
+              ${p.truncated ? h`<p class="muted">(prompt truncated — ${fullLink})</p>` : h``}
+            </div>
+            <div class="entry-section">
+              <div class="entry-label">Output</div>
+              <pre>${o.text}</pre>
+              ${o.truncated ? h`<p class="muted">(output truncated — ${fullLink})</p>` : h``}
+            </div>
+          </article>`;
+        })}
+      </div>`;
 
   const categoryNav = h`<nav class="category-nav">
     <strong>Categories:</strong>
     ${CATEGORIES.map(
-      (c) => h`<a href="/browse?category=${c.key}">${c.label}</a> `,
+      (c, i) => h`${i > 0 ? ", " : ""}<a href="/browse?category=${c.key}">${c.label}</a>`,
     )}
   </nav>`;
 

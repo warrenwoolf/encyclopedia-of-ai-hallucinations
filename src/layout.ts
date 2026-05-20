@@ -70,7 +70,7 @@ export function layout(opts: LayoutOptions): string {
       ${opts.body}
     </main>
     <footer>
-      <p>Encyclopedia of AI Hallucinations. No accounts, no tracking, no ads.</p>
+      <p><a href="/about">about</a></p>
     </footer>
   </body>
 </html>`;

@@ -33,6 +33,20 @@ function ymd(d: Date | string): string {
   return `${y}-${m}-${day}`;
 }
 
+function trackExplainer() {
+  return h`
+    <p>A <strong>tracking code</strong> is a short string you receive after
+       submitting a hallucination. Paste it below to:</p>
+    <ul>
+      <li>check whether your submission has been reviewed,</li>
+      <li>see the rejection reason if it was rejected, or</li>
+      <li>withdraw the submission while it's still pending.</li>
+    </ul>
+    <p>If you didn't save your code when you submitted, there's no way to
+       recover it — just resubmit the entry.</p>
+  `;
+}
+
 function lookupForm(opts: { csrf: string; code: string }) {
   return h`
     <form action="/track" method="get" class="track-form">
@@ -48,9 +62,12 @@ export const trackGet: RouteHandler = async (req, ctx) => {
   const { token, setCookie } = tokenForRequest(req);
   const code = (ctx.url.searchParams.get("code") ?? "").trim();
 
-  // No code yet — just show the form.
+  // No code yet — show the explainer and the lookup form.
   if (!code) {
-    const body = lookupForm({ csrf: token, code: "" });
+    const body = h`
+      ${trackExplainer()}
+      ${lookupForm({ csrf: token, code: "" })}
+    `;
     return htmlResponse(
       layout({ title: "Track · EAH", heading: "Track a submission", body, admin: ctx.admin }),
       { setCookie },

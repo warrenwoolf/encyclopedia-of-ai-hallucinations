@@ -139,11 +139,10 @@ export const browse: RouteHandler = async (_req, ctx) => {
 
   const list = rows.length === 0
     ? h`<p><em>No matching entries.</em></p>`
-    : h`<ul class="entry-list">
+    : h`<ul class="entry-list-compact">
         ${rows.map(
           (r) => h`<li>
-            <a href="/e/${r.public_id}"><code>${r.public_id}</code></a>
-            — ${r.ai_model}
+            <a href="/e/${r.public_id}">${r.ai_model}</a>
             <span class="meta">[${categoryLabel(r.category)}]</span>
             <span class="meta">${ymd(r.submitted_at)}</span>
           </li>`,
