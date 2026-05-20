@@ -83,19 +83,21 @@ export const home: RouteHandler = async (_req, ctx) => {
   </nav>`;
 
   const body = h`
-    <p>An OEIS-style catalog of LLM hallucinations. There ${total === 1 ? raw("is") : raw("are")}
-       currently <strong>${total}</strong> published ${total === 1 ? raw("entry") : raw("entries")}.</p>
+    <div class="home-top">
+      <p>A catalog of LLM hallucinations. There ${total === 1 ? raw("is") : raw("are")}
+         currently <strong>${total}</strong> published ${total === 1 ? raw("entry") : raw("entries")}.</p>
 
-    <form action="/browse" method="get" class="search-form">
-      <input type="search" name="q" placeholder="search prompts, outputs, models..." maxlength="200">
-      <button type="submit">Search</button>
-    </form>
+      <form action="/browse" method="get" class="search-form">
+        <input type="search" name="q" placeholder="search prompts, outputs, models..." maxlength="200">
+        <button type="submit">Search</button>
+      </form>
 
-    <p><a class="cta" href="/submit">Submit a hallucination</a></p>
+      <p><a class="cta" href="/submit">Submit a hallucination</a></p>
 
-    ${categoryNav}
+      ${categoryNav}
 
-    <h2>Recently published</h2>
+      <h2>Recently published</h2>
+    </div>
     ${recentList}
   `;
 

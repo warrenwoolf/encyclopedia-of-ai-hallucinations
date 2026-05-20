@@ -115,10 +115,12 @@ function renderForm(opts: {
       <label for="submitter_email">Email <small>(optional, never shown publicly)</small></label>
       <input id="submitter_email" name="submitter_email" type="email" maxlength="${LIMITS.submitter_email}"
              value="${values.submitter_email}" placeholder="you@example.com" autocomplete="email">
-      <p class="field-hint"><small>If you give us an email, we'll notify you when staff
-        reviews your submission, and you'll be able to look up all your submissions
-        at <a href="/lookup">/lookup</a> without saving a tracking code. See our
-        <a href="/privacy">privacy policy</a> for what we do with this.</small></p>
+      <p class="field-hint"><small>If you give us an email, we'll send a
+        confirmation right away (with your tracking link, so you don't have to
+        save the code by hand), and another email when staff review your
+        submission. You'll also be able to look up all your submissions at
+        <a href="/lookup">/lookup</a>. See our <a href="/privacy">privacy
+        policy</a> for what we do with this.</small></p>
 
       <button type="submit">Submit</button>
     </form>

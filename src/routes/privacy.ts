@@ -25,9 +25,12 @@ export const privacy: RouteHandler = (_req, ctx) => {
           (shown publicly if provided), and your email address.</li>
     </ul>
     <p>The email address, if given, is stored in plaintext and is used only to
-       send you a notification when your submission is accepted or rejected, and
-       to look up your own submissions via a magic link. It is not used for any
-       other purpose and is not shown publicly.</p>
+       (a) send you a confirmation email immediately after submission, with a
+       link to track or withdraw it; (b) notify you when staff accept or
+       reject your submission, including any reviewer notes; and (c) email
+       you tracking links for your submissions when you request them via
+       <a href="/lookup">/lookup</a>. It is not used for any other purpose
+       and is not shown publicly.</p>
 
     <p><strong>Automatically:</strong> we store a salted SHA-256 hash of your
        IP address (salted with a server-side secret). We do not store your raw
@@ -39,9 +42,12 @@ export const privacy: RouteHandler = (_req, ctx) => {
       <li>Submission content (prompt, output, model, category, tags, summary,
           notes, public name, shared-chat URL) is reviewed by staff and, if
           accepted, published on the site.</li>
-      <li>If you provided an email address, we send one notification email on
-          accept or reject via Resend (see "Third parties" below). We do not
-          send marketing email.</li>
+      <li>If you provided an email address, we send transactional email via
+          Resend (see "Third parties" below): a confirmation when you
+          submit, a decision email when staff review your submission, and a
+          digest of your submissions' tracking links if you request one at
+          <a href="/lookup">/lookup</a>. We do not send marketing email and
+          we do not maintain a mailing list.</li>
       <li>The IP hash is available to admins for spam and abuse triage only.
           It is never exported or sold.</li>
     </ul>
@@ -83,8 +89,8 @@ export const privacy: RouteHandler = (_req, ctx) => {
     <h2>Your choices</h2>
     <p><strong>Pending submissions</strong> can be withdrawn at any time using
        the tracking code you received on submission, via the
-       <a href="/track">track</a> page, or via the magic link sent to your
-       email address (if you provided one).</p>
+       <a href="/track">track</a> page, or via the tracking link in any of
+       the emails we sent you (if you provided an email address).</p>
     <p><strong>Published or rejected submissions,</strong> or requests to
        delete a stored email address, must be handled manually. Email the
        maintainer at the address in the "Contact" section below with the entry
@@ -98,7 +104,7 @@ export const privacy: RouteHandler = (_req, ctx) => {
     <p>If we make material changes to data practices, we will update this page.
        The date below reflects the last revision.</p>
 
-    <p class="muted">Last updated: 2026-05-20</p>
+    <p class="muted">Last updated: 2026-05-20.</p>
   `;
   return htmlResponse(layout({
     title: "Privacy · EAH",

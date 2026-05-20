@@ -1,5 +1,5 @@
 /* Encyclopedia of AI Hallucinations
- * Deliberately plain styling, OEIS-flavored.
+ * Deliberately plain styling.
  * No JS, no hover effects, no animations.
  */
 
@@ -67,28 +67,64 @@ a:active { color: var(--link); }
 
 header {
   display: flex;
-  align-items: baseline;
-  justify-content: flex-start;
-  gap: 1.5em;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9em;
   max-width: 900px;
   margin: 0 auto;
-  padding: 1em 1em 0.5em 1em;
+  padding: 1.2em 1em 0.6em 1em;
   border-bottom: 1px solid var(--rule);
+  text-align: center;
 }
 
 .site-title {
   font-weight: bold;
   text-decoration: none;
-  font-size: 1.2em;
+  font-size: 2em;
   color: var(--fg);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85em;
+  line-height: 1.1;
 }
 .site-title:link, .site-title:visited { color: var(--fg); text-decoration: none; }
+.site-logo-block {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15em;
+  flex: none;
+  line-height: 1;
+}
+.site-logo {
+  width: 2.6em;
+  height: 2.6em;
+  display: block;
+}
+.site-logo-caption {
+  font-size: 0.5em;
+  font-weight: bold;
+  letter-spacing: 0.12em;
+  /* letter-spacing adds trailing space after the last letter, which makes
+     the visual content of "EAH" sit left of the box center. Bumping the box
+     right by one full letter-spacing shifts the visual center back onto
+     the strawberry's axis under align-items: center. */
+  margin-left: 0.12em;
+}
+
+.site-credit {
+  margin: 0;
+  font-size: 0.85em;
+  color: var(--muted);
+  font-style: italic;
+  align-self: flex-end;
+}
 
 header nav {
-  margin-left: auto;
   display: flex;
-  gap: 1em;
+  gap: 1.2em;
   flex-wrap: wrap;
+  justify-content: center;
   align-items: baseline;
 }
 
@@ -129,7 +165,7 @@ h1, h2, h3, h4 {
   font-weight: bold;
   line-height: 1.2;
 }
-h1 { font-size: 1.5em; margin: 0.6em 0; }
+h1 { font-size: 1.5em; margin: 0.6em 0; text-align: center; }
 h2 { font-size: 1.25em; margin: 1em 0 0.4em 0; }
 h3 { font-size: 1.1em; margin: 0.8em 0 0.3em 0; }
 
@@ -238,13 +274,21 @@ footer a:link, footer a:visited { color: var(--muted); }
   gap: 0.8em;
   align-items: stretch;
   max-width: 600px;
+  margin: 1em auto;
 }
 .search-form input[type="search"] { flex: 1 1 auto; width: auto; }
 .search-form button { flex: 0 0 auto; }
 
 /* Category nav with commas between links. */
-.category-nav { margin: 1em 0; }
+.category-nav { margin: 1em 0; text-align: center; }
 .category-nav strong { margin-right: 0.4em; }
+
+/* Home page "top matter": centered intro, CTA, and section heading above
+   the entry list. The entry-list itself stays left-aligned so the
+   prompt/output <pre> blocks remain readable. */
+.home-top { text-align: center; }
+.home-top h2 { text-align: center; }
+.home-top .cta { font-size: 1.05em; }
 
 /* Inline form-field hint (e.g. under the AI model input). */
 .field-hint {
