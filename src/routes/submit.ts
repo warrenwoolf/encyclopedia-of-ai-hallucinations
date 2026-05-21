@@ -1,7 +1,7 @@
 /**
  * GET /submit — show the submission form.
- * POST /submit — validate, rate-limit, insert as `pending`, return a one-time
- * tracking code to the user.
+ * POST /submit — validate, rate-limit, allocate the EAH number, insert as
+ * `pending`, and return a one-time tracking code to the user.
  */
 import { randomBytes, createHash } from "node:crypto";
 import { h, raw, type SafeHtml } from "../html.ts";
@@ -12,9 +12,11 @@ import { check as rateCheck } from "../ratelimit.ts";
 import { CATEGORIES, isValidCategory } from "../categories.ts";
 import { config } from "../config.ts";
 import { sendSubmissionReceived } from "../email.ts";
+import { allocateEahNumber, formatEahId } from "../eah-id.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteHandler } from "./types.ts";
 
 const LIMITS = {
+  title: 200,
   prompt: 8000,
   output: 32000,
   ai_model: 120,
@@ -26,10 +28,17 @@ const LIMITS = {
   tags: 600, // bounding the raw tags input
 };
 
+/** OEIS-style cap on simultaneous drafts per submitter email. */
+const MAX_PENDING_PER_EMAIL = 4;
+
 /** Pragmatic email format check. Not RFC-strict; rejects obvious garbage. */
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,189}\.[^\s@]{2,63}$/;
 
+/** Pragmatic ISO-8601 date check, in the past or today. */
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
 interface FormValues {
+  title: string;
   prompt: string;
   output: string;
   ai_model: string;
@@ -40,13 +49,15 @@ interface FormValues {
   shared_chat_url: string;
   author_name: string;
   submitter_email: string;
+  hallucination_date: string;
+  allow_author_edits: boolean;
 }
 
 function emptyForm(): FormValues {
   return {
-    prompt: "", output: "", ai_model: "", category: "", tags: "",
+    title: "", prompt: "", output: "", ai_model: "", category: "", tags: "",
     summary: "", notes: "", shared_chat_url: "", author_name: "",
-    submitter_email: "",
+    submitter_email: "", hallucination_date: "", allow_author_edits: false,
   };
 }
 
@@ -68,6 +79,11 @@ function renderForm(opts: {
     ${errBlock}
     <form method="post" action="/submit" class="submit-form">
       <input type="hidden" name="_csrf" value="${csrf}">
+
+      <label for="title">Title <small>(short descriptive name, e.g. "Strawberry R-count error")</small></label>
+      <input id="title" name="title" type="text" maxlength="${LIMITS.title}"
+             required value="${values.title}"
+             placeholder="e.g. Savanna H-count error">
 
       <label for="ai_model">AI model <small>(or service + date if exact model unknown)</small></label>
       <input id="ai_model" name="ai_model" type="text" maxlength="${LIMITS.ai_model}"
@@ -99,6 +115,10 @@ function renderForm(opts: {
       <textarea id="notes" name="notes" rows="4" maxlength="${LIMITS.notes}"
                 placeholder="optional: reproduction steps, context about the conversation, related links, etc.">${values.notes}</textarea>
 
+      <label for="hallucination_date">Date of hallucination <small>(optional; YYYY-MM-DD; leave blank if it was today)</small></label>
+      <input id="hallucination_date" name="hallucination_date" type="date"
+             value="${values.hallucination_date}">
+
       <label for="shared_chat_url">Shared chat URL <small>(optional, e.g. a chatgpt.com/share/... or claude.ai/share/... link)</small></label>
       <input id="shared_chat_url" name="shared_chat_url" type="url" maxlength="${LIMITS.shared_chat_url}"
              value="${values.shared_chat_url}" placeholder="https://...">
@@ -117,17 +137,29 @@ function renderForm(opts: {
              value="${values.submitter_email}" placeholder="you@example.com" autocomplete="email">
       <p class="field-hint"><small>If you give us an email, we'll send a
         confirmation right away (with your tracking link, so you don't have to
-        save the code by hand), and another email when staff review your
-        submission. You'll also be able to look up all your submissions at
+        save the code by hand), notify you when a reviewer leaves a comment,
+        and email you the decision when staff accept or reject your submission.
+        You'll also be able to look up all your submissions at
         <a href="/lookup">/lookup</a>. See our <a href="/privacy">privacy
         policy</a> for what we do with this.</small></p>
+
+      <p class="field-checkbox">
+        <label class="checkbox-label">
+          <input type="checkbox" name="allow_author_edits" value="1"
+                 ${values.allow_author_edits ? raw('checked') : raw('')}>
+          I'm OK with later staff-approved authors editing this entry on my behalf
+          (e.g. to add reproduction notes, fix typos, or update the patched status).
+        </label>
+      </p>
 
       <button type="submit">Submit</button>
     </form>
 
     <p><small>Submissions are reviewed by staff before being published. You'll
-    receive a tracking code (and an email, if you gave us one) to check status
-    or withdraw.</small></p>
+    receive a tracking code (and an email, if you gave us one) to check status,
+    chat with reviewers, or withdraw. While your submission is pending, you may
+    have at most ${MAX_PENDING_PER_EMAIL} drafts open at once per email
+    address.</small></p>
   `;
 }
 
@@ -183,6 +215,29 @@ function parseTags(raw: string): { ok: true; tags: string[] } | { ok: false; err
   return { ok: true, tags };
 }
 
+/** YYYY-MM-DD in the past or today. Returns null for blank/invalid. */
+function parseHallucinationDate(s: string): { ok: true; value: string | null } | { ok: false; error: string } {
+  const trimmed = s.trim();
+  if (trimmed.length === 0) return { ok: true, value: null };
+  const m = DATE_RE.exec(trimmed);
+  if (!m) return { ok: false, error: "Date of hallucination must be in YYYY-MM-DD format." };
+  const y = parseInt(m[1]!, 10);
+  const mo = parseInt(m[2]!, 10);
+  const d = parseInt(m[3]!, 10);
+  if (y < 2015 || y > 2100) return { ok: false, error: "Date of hallucination has an implausible year." };
+  if (mo < 1 || mo > 12) return { ok: false, error: "Date of hallucination has an invalid month." };
+  if (d < 1 || d > 31) return { ok: false, error: "Date of hallucination has an invalid day." };
+  // Roundtrip through Date to catch e.g. Feb 30.
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) {
+    return { ok: false, error: "Date of hallucination is not a real calendar date." };
+  }
+  if (dt.getTime() > Date.now() + 24 * 3600 * 1000) {
+    return { ok: false, error: "Date of hallucination can't be in the future." };
+  }
+  return { ok: true, value: trimmed };
+}
+
 export const submitGet: RouteHandler = (req, ctx) => {
   return showForm(req, ctx);
 };
@@ -216,6 +271,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
 
   const scrub = (k: string) => sanitizeText(form.get(k) ?? "").trim();
   const values: FormValues = {
+    title: scrub("title"),
     prompt: scrub("prompt"),
     output: scrub("output"),
     ai_model: scrub("ai_model"),
@@ -229,9 +285,15 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     // case-insensitive comparison and so duplicate-detection (if we ever add
     // it) works the obvious way.
     submitter_email: scrub("submitter_email").toLowerCase(),
+    hallucination_date: scrub("hallucination_date"),
+    allow_author_edits: form.get("allow_author_edits") === "1",
   };
 
   // Required + length checks.
+  if (!values.title) return showForm(req, ctx, { values, error: "Title is required.", status: 400 });
+  if (values.title.length > LIMITS.title)
+    return showForm(req, ctx, { values, error: `Title is too long (max ${LIMITS.title} chars).`, status: 400 });
+
   if (!values.prompt) return showForm(req, ctx, { values, error: "Prompt is required.", status: 400 });
   if (values.prompt.length > LIMITS.prompt)
     return showForm(req, ctx, { values, error: `Prompt is too long (max ${LIMITS.prompt} chars).`, status: 400 });
@@ -252,6 +314,10 @@ export const submitPost: RouteHandler = async (req, ctx) => {
 
   if (values.notes.length > LIMITS.notes)
     return showForm(req, ctx, { values, error: `Notes are too long (max ${LIMITS.notes} chars).`, status: 400 });
+
+  const dateResult = parseHallucinationDate(values.hallucination_date);
+  if (!dateResult.ok) return showForm(req, ctx, { values, error: dateResult.error, status: 400 });
+  const hallucinationDate = dateResult.value;
 
   if (values.shared_chat_url.length > 0) {
     let parsedUrl: URL | null = null;
@@ -281,6 +347,28 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   if (!tagResult.ok) return showForm(req, ctx, { values, error: tagResult.error, status: 400 });
   const tags = tagResult.tags;
 
+  // OEIS-style draft cap: at most MAX_PENDING_PER_EMAIL pending submissions per
+  // submitter email. Enforced ONLY when an email was provided (anonymous
+  // submitters can't be linked across requests; the per-IP rate limit handles
+  // that case).
+  if (values.submitter_email.length > 0) {
+    const pendingRow = await queryOne<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM submissions
+        WHERE submitter_email = ? AND status = 'pending'`,
+      [values.submitter_email],
+    );
+    const pending = Number(pendingRow?.n ?? 0);
+    if (pending >= MAX_PENDING_PER_EMAIL) {
+      return showForm(req, ctx, {
+        values,
+        error: `You already have ${pending} pending submissions for ${values.submitter_email}. ` +
+          `EAH allows at most ${MAX_PENDING_PER_EMAIL} open drafts per email at a time — please ` +
+          `wait for one to be accepted or rejected (or withdraw one at /lookup) before submitting another.`,
+        status: 429,
+      });
+    }
+  }
+
   // Generate IDs and hashes.
   const publicId = await generateUniquePublicId();
   const trackingCode = randomBytes(15).toString("base64url"); // 20 chars typical; ensure 24.
@@ -297,16 +385,24 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   const submitterEmail = hasEmail ? values.submitter_email : null;
   const notifyToken = hasEmail ? trackingCodeFull : null;
 
+  let eahNumber: number;
   // Insert in a single transaction so partial inserts don't leak orphan tag rows.
   try {
-    await transaction(async (tx) => {
+    eahNumber = await transaction(async (tx) => {
+      // Allocate the A-number BEFORE the insert so we hold a row lock on
+      // freed_eah_numbers (if used) for the whole transaction.
+      const n = await allocateEahNumber(tx);
+
       const ins = await tx.execute(
         `INSERT INTO submissions
-          (public_id, tracking_hash, prompt, output, ai_model, summary, notes, shared_chat_url, category,
-           author_name, submitted_at, status, ip_hash, submitter_email, notify_token)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, ?)`,
+          (public_id, eah_number, title, tracking_hash, prompt, output, ai_model, summary, notes,
+           shared_chat_url, category, author_name, submitted_at, status, ip_hash,
+           submitter_email, notify_token, hallucination_date, allow_author_edits)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, ?, ?, ?)`,
         [
           publicId,
+          n,
+          values.title,
           trackingHash,
           values.prompt,
           values.output,
@@ -319,6 +415,8 @@ export const submitPost: RouteHandler = async (req, ctx) => {
           ipHash,
           submitterEmail,
           notifyToken,
+          hallucinationDate,
+          values.allow_author_edits ? 1 : 0,
         ],
       );
       const submissionId = ins.insertId;
@@ -336,6 +434,8 @@ export const submitPost: RouteHandler = async (req, ctx) => {
           [submissionId, row.id],
         );
       }
+
+      return n;
     });
   } catch (err) {
     console.error("submission insert failed", err);
@@ -346,34 +446,41 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     });
   }
 
+  const eahId = formatEahId(eahNumber);
+
   // Fire-and-forget email notification. Never throws; failures only log.
   if (hasEmail) {
     void sendSubmissionReceived({
       to: values.submitter_email,
+      eahId,
       publicId,
       trackingCode: trackingCodeFull,
       modelLabel: values.ai_model,
+      title: values.title,
     });
   }
 
   const emailLine = hasEmail
     ? h`<p>We've also sent a copy to <code>${values.submitter_email}</code>.
-        You'll get another email when staff review your submission.</p>`
+        You'll get more email when reviewers comment, and again when staff
+        accept or reject your submission.</p>`
     : h``;
 
   const body = h`
-    <p>Thanks — your submission is in the review queue. It won't appear
-       publicly until a staff member approves it.</p>
+    <p>Thanks — your submission is in the review queue with the ID
+       <code>${eahId}</code>. It won't appear publicly until a staff member
+       approves it. If they reject or you withdraw it, that A-number is
+       returned to the pool for the next incoming draft.</p>
 
     <div class="tracking-code-block">
-      <p><strong>Your tracking code to track, review, or withdraw your submission (save this — we won't show it again):</strong></p>
+      <p><strong>Your tracking code to chat with reviewers, check status, or withdraw the submission (save this — we won't show it again):</strong></p>
       <pre class="tracking-code">${trackingCodeFull}</pre>
-      <p>Use it at <a href="/track">/track</a> to check status or withdraw.</p>
+      <p>Use it at <a href="/track">/track</a> any time.</p>
     </div>
 
     ${emailLine}
 
-    <p>Public ID (will be live at <code>/e/${publicId}</code> if approved): <code>${publicId}</code></p>
+    <p>If approved, your entry will live at <code>/e/${eahId}</code>.</p>
     <p><a href="/">Back to home</a> · <a href="/submit">Submit another</a></p>
   `;
   return htmlResponse(layout({

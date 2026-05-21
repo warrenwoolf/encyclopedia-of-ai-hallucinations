@@ -74,6 +74,38 @@ const TABLES: TableSpec[] = [
       FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   },
+  {
+    // Holes in the EAH-number sequence, created when a draft is rejected or
+    // withdrawn (OEIS rule: rejected drafts free their A-number for reuse).
+    // We pop the MIN(n) before allocating from the high-water mark, so the
+    // sequence stays as dense as possible.
+    name: "freed_eah_numbers",
+    sql: `CREATE TABLE IF NOT EXISTS freed_eah_numbers (
+      n INT PRIMARY KEY
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+  },
+  {
+    // Reviewer ↔ submitter chat thread per submission. Visible on:
+    //   - /track?code=… (the submitter's view)
+    //   - /admin/queue/:id (the staff view)
+    //
+    // sender_type: 'staff' messages come from an admin (sender_admin_id set);
+    // 'user' messages come from the submitter authenticated by their tracking
+    // code (sender_admin_id is NULL). 'system' is reserved for status-change
+    // notes posted automatically on accept/reject/withdraw.
+    name: "submission_messages",
+    sql: `CREATE TABLE IF NOT EXISTS submission_messages (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      submission_id   INT NOT NULL,
+      sender_type     ENUM('staff','user','system') NOT NULL,
+      sender_admin_id INT NULL,
+      body            TEXT NOT NULL,
+      created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_submission (submission_id, created_at),
+      FOREIGN KEY (submission_id)   REFERENCES submissions(id) ON DELETE CASCADE,
+      FOREIGN KEY (sender_admin_id) REFERENCES admins(id)      ON DELETE SET NULL
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+  },
 ];
 
 /**
@@ -124,7 +156,91 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; sql: string }> = 
     column: "idx_submitter_email",
     sql: "ALTER TABLE submissions ADD INDEX IF NOT EXISTS idx_submitter_email (submitter_email)",
   },
+  // -- A-number system (OEIS-style sequential ID, "A" + 6-digit zero-padded). --
+  // Assigned at draft creation; freed back into freed_eah_numbers on reject /
+  // withdraw; locked once published.
+  {
+    table: "submissions",
+    column: "eah_number",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS eah_number INT NULL UNIQUE",
+  },
+  // -- New user-facing fields. --
+  {
+    table: "submissions",
+    column: "title",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS title VARCHAR(200) NULL",
+  },
+  {
+    // Whether the hallucination still reproduces ('active') or has been patched
+    // in newer model versions ('patched'). Distinct from the moderation-side
+    // submissions.status enum.
+    table: "submissions",
+    column: "entry_status",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS entry_status ENUM('active','patched') NOT NULL DEFAULT 'active'",
+  },
+  {
+    // When the submitter actually observed the hallucination. Optional —
+    // if blank, the submission date is used.
+    table: "submissions",
+    column: "hallucination_date",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS hallucination_date DATE NULL",
+  },
+  {
+    // Submitter opt-in: if true, the original author keeps direct edit rights
+    // post-publication. If false (default), edits require staff approval.
+    table: "submissions",
+    column: "allow_author_edits",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS allow_author_edits TINYINT(1) NOT NULL DEFAULT 0",
+  },
+  {
+    // Index for "next eah_number" lookups when the freed-numbers pool is empty.
+    table: "submissions",
+    column: "idx_eah_number",
+    sql: "ALTER TABLE submissions ADD INDEX IF NOT EXISTS idx_eah_number (eah_number)",
+  },
 ];
+
+/**
+ * Backfill eah_number on rows that don't have one yet. Runs after all schema
+ * changes and is itself idempotent.
+ *
+ * Policy:
+ *   - Rows with status 'pending' or 'published' get the next sequential
+ *     number, ordered by (submitted_at, id) so the early entries get the
+ *     low A-numbers.
+ *   - Rows with status 'rejected' or 'withdrawn' get NULL — they didn't
+ *     consume an A-number under the new rules, and would consume one
+ *     spuriously if we backfilled them now.
+ */
+async function backfillEahNumbers(): Promise<void> {
+  const { query } = await import("../src/db.ts");
+
+  // High-water mark of existing numbers (in case backfill is re-run after some
+  // rows already got numbered via the live system).
+  const maxRow = await query<{ m: number | null }>(
+    "SELECT COALESCE(MAX(eah_number), 0) AS m FROM submissions",
+  );
+  let next = Number(maxRow[0]?.m ?? 0) + 1;
+
+  const rows = await query<{ id: number }>(
+    `SELECT id
+       FROM submissions
+       WHERE eah_number IS NULL
+         AND status IN ('pending', 'published')
+       ORDER BY submitted_at ASC, id ASC`,
+  );
+
+  if (rows.length === 0) {
+    console.log("ok  backfill (no rows needed eah_number)");
+    return;
+  }
+
+  for (const r of rows) {
+    await execute("UPDATE submissions SET eah_number = ? WHERE id = ?", [next, r.id]);
+    next++;
+  }
+  console.log(`ok  backfill (${rows.length} row${rows.length === 1 ? "" : "s"} numbered)`);
+}
 
 async function main(): Promise<void> {
   for (const t of TABLES) {
@@ -135,6 +251,7 @@ async function main(): Promise<void> {
     await execute(c.sql);
     console.log(`ok  ${c.table}.${c.column}`);
   }
+  await backfillEahNumbers();
 }
 
 main()

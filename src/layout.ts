@@ -55,6 +55,7 @@ export function layout(opts: LayoutOptions): string {
     <meta name="robots" content="noindex,nofollow">
     <title>${opts.title}</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/theme.js"></script>
   </head>
   <body>
     ${banner}
@@ -73,6 +74,9 @@ export function layout(opts: LayoutOptions): string {
         <a href="/track">track</a>
         <a href="/lookup">lookup</a>
         <a href="/about">about</a>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">
+          <span class="theme-icon">◐</span><span class="theme-label">theme</span>
+        </button>
         ${adminNav}
       </nav>
     </header>
@@ -83,6 +87,7 @@ export function layout(opts: LayoutOptions): string {
     </main>
     <footer>
       <p><a href="/about">about</a> · <a href="/privacy">privacy</a></p>
+      <p class="muted">Founded in 2026 by Rudra Jadhav and Warren Woolf.</p>
     </footer>
   </body>
 </html>`;

@@ -9,18 +9,18 @@ import { h, raw } from "../html.ts";
 import { layout } from "../layout.ts";
 import { queryOne, query } from "../db.ts";
 import { CATEGORIES, categoryLabel } from "../categories.ts";
+import { formatEahId } from "../eah-id.ts";
 import { htmlResponse, type RouteHandler } from "./types.ts";
 
 interface RecentRow {
   public_id: string;
-  prompt: string;
-  output: string;
+  eah_number: number | null;
+  title: string | null;
   ai_model: string;
   category: string;
+  entry_status: "active" | "patched";
   submitted_at: Date;
 }
-
-const TRUNCATE_AT = 1000;
 
 function ymd(d: Date | string): string {
   const date = d instanceof Date ? d : new Date(d);
@@ -31,11 +31,6 @@ function ymd(d: Date | string): string {
   return `${y}-${m}-${day}`;
 }
 
-function truncate(s: string): { text: string; truncated: boolean } {
-  if (s.length <= TRUNCATE_AT) return { text: s, truncated: false };
-  return { text: s.slice(0, TRUNCATE_AT) + "…", truncated: true };
-}
-
 export const home: RouteHandler = async (_req, ctx) => {
   const countRow = await queryOne<{ n: number }>(
     "SELECT COUNT(*) AS n FROM submissions WHERE status = 'published'",
@@ -43,37 +38,43 @@ export const home: RouteHandler = async (_req, ctx) => {
   const total = Number(countRow?.n ?? 0);
 
   const recent = await query<RecentRow>(
-    `SELECT public_id, prompt, output, ai_model, category, submitted_at
+    `SELECT public_id, eah_number, title, ai_model, category, entry_status, submitted_at
        FROM submissions
        WHERE status = 'published'
        ORDER BY submitted_at DESC, id DESC
-       LIMIT 20`,
+       LIMIT 12`,
   );
 
   const recentList = recent.length === 0
     ? h`<p><em>No published entries yet.</em></p>`
-    : h`<div class="entry-list">
-        ${recent.map((r) => {
-          const p = truncate(r.prompt);
-          const o = truncate(r.output);
-          const fullLink = h`<a href="/e/${r.public_id}">view full entry</a>`;
-          return h`<article class="entry-card">
-            <h3><a href="/e/${r.public_id}">${r.ai_model}</a>
-              <span class="meta">[${categoryLabel(r.category)}] ${ymd(r.submitted_at)}</span>
-            </h3>
-            <div class="entry-section">
-              <div class="entry-label">Prompt</div>
-              <pre>${p.text}</pre>
-              ${p.truncated ? h`<p class="muted">(prompt truncated — ${fullLink})</p>` : h``}
-            </div>
-            <div class="entry-section">
-              <div class="entry-label">Output</div>
-              <pre>${o.text}</pre>
-              ${o.truncated ? h`<p class="muted">(output truncated — ${fullLink})</p>` : h``}
-            </div>
-          </article>`;
-        })}
-      </div>`;
+    : h`<table class="recent-table">
+        <thead>
+          <tr>
+            <th>EAH ID</th>
+            <th>Title</th>
+            <th>Model</th>
+            <th>Category</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${recent.map((r) => {
+            const eahId = formatEahId(r.eah_number);
+            const url = eahId ? `/e/${eahId}` : `/e/${r.public_id}`;
+            return h`<tr>
+              <td><a href="${url}"><code>${eahId || r.public_id}</code></a></td>
+              <td><a href="${url}">${r.title ?? h`<em>(untitled)</em>`}</a>${
+                r.entry_status === "patched"
+                  ? h` <span class="entry-status entry-status-patched">patched</span>`
+                  : raw("")
+              }</td>
+              <td>${r.ai_model}</td>
+              <td>${categoryLabel(r.category)}</td>
+              <td>${ymd(r.submitted_at)}</td>
+            </tr>`;
+          })}
+        </tbody>
+      </table>`;
 
   const categoryNav = h`<nav class="category-nav">
     <strong>Categories:</strong>
@@ -84,7 +85,9 @@ export const home: RouteHandler = async (_req, ctx) => {
 
   const body = h`
     <div class="home-top">
-      <p>A catalog of LLM hallucinations. There ${total === 1 ? raw("is") : raw("are")}
+      <p class="tagline"><em>A community-maintained database of real, reproducible AI hallucinations.</em></p>
+
+      <p>There ${total === 1 ? raw("is") : raw("are")}
          currently <strong>${total}</strong> published ${total === 1 ? raw("entry") : raw("entries")}.</p>
 
       <form action="/browse" method="get" class="search-form">

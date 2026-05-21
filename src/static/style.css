@@ -33,6 +33,38 @@
   }
 }
 
+/* Explicit theme overrides (set by /static/theme.js via <html data-theme="...">).
+ * These take precedence over the prefers-color-scheme media query so the
+ * user's saved choice wins. When data-theme is absent, the OS preference
+ * still drives the colors via the @media block above. */
+html[data-theme="light"] {
+  --bg: #ffffff;
+  --fg: #111111;
+  --muted: #666666;
+  --link: #0033cc;
+  --visited: #551a8b;
+  --rule: #cccccc;
+  --pre-bg: #f2f2f2;
+  --stripe: #f7f7f7;
+  --banner-bg: #ffe600;
+  --banner-fg: #000000;
+  --banner-border: #000000;
+}
+
+html[data-theme="dark"] {
+  --bg: #0c0c0c;
+  --fg: #e8e8e8;
+  --muted: #999999;
+  --link: #88aaff;
+  --visited: #c9a3ff;
+  --rule: #333333;
+  --pre-bg: #1a1a1a;
+  --stripe: #161616;
+  --banner-bg: #b89700;
+  --banner-fg: #000000;
+  --banner-border: #000000;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -153,6 +185,25 @@ header nav {
 
 /* Forms whose entire content should render inline (e.g. logout button in nav). */
 .inline-form { display: inline; margin: 0; padding: 0; }
+
+/* Theme toggle button — text-style, matches .linkbutton aesthetic. No hover
+ * effects, no animation; just an underlined inline control sitting in the nav. */
+.theme-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--link);
+  text-decoration: underline;
+  cursor: pointer;
+  display: inline;
+}
+.theme-toggle .theme-icon {
+  text-decoration: none;
+  display: inline-block;
+  margin-right: 0.2em;
+}
 
 main {
   max-width: 900px;
@@ -367,4 +418,134 @@ footer a:link, footer a:visited { color: var(--muted); }
 .field-hint {
   margin: 0.1em 0 0.9em 0;
   color: var(--muted);
+}
+
+/* ─── new fields & layout for A-number entries ─────────────────────────── */
+
+.tagline {
+  font-size: 1.05em;
+  color: var(--muted);
+  margin: 0.4em 0 1em 0;
+}
+
+/* Recently-published table on the home page. */
+.recent-table { margin: 1em 0; }
+.recent-table td a { text-decoration: none; }
+.recent-table td a:hover { text-decoration: underline; }
+
+/* Browse listing table. */
+.browse-table { margin: 1em 0; }
+.browse-table th, .browse-table td { white-space: nowrap; }
+.browse-table td:nth-child(2) { white-space: normal; }
+
+/* Status filter / sort controls bar on /browse. */
+.browse-controls {
+  margin: 0.6em 0 0.4em 0;
+  font-size: 0.95em;
+  color: var(--muted);
+}
+.browse-controls a:link, .browse-controls a:visited { color: var(--link); }
+
+/* Entry-status pill (Active / Patched). Plain text, just a subtle outline. */
+.entry-status {
+  display: inline-block;
+  font-size: 0.8em;
+  padding: 0.05em 0.5em;
+  border: 1px solid var(--rule);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
+}
+.entry-status-active { color: var(--muted); }
+.entry-status-patched {
+  color: var(--banner-fg);
+  background: var(--banner-bg);
+  border-color: var(--banner-border);
+}
+
+/* Single-entry page: A-number + status above the title. */
+.entry-eah-id {
+  margin: 0 0 0.2em 0;
+  font-size: 0.95em;
+  color: var(--muted);
+}
+.entry-title {
+  font-size: 1.8em;
+  margin: 0 0 0.15em 0;
+  word-wrap: break-word;
+}
+
+/* Patched-status banner on entry pages. */
+.patched-banner {
+  margin: 1em 0;
+  padding: 0.7em 1em;
+  border: 1px solid var(--banner-border);
+  background: var(--banner-bg);
+  color: var(--banner-fg);
+}
+
+/* Citation block on entry pages. Selectable, copyable, low-key. */
+pre.citation {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-size: 0.92em;
+}
+.entry-footer-block {
+  margin-top: 2em;
+  padding-top: 1em;
+  border-top: 1px solid var(--rule);
+}
+
+/* Submitter ↔ reviewer chat thread. */
+.chat-thread {
+  list-style: none;
+  padding: 0;
+  margin: 0.5em 0 1em 0;
+}
+.chat-message {
+  border-left: 3px solid var(--rule);
+  padding: 0.4em 0.8em;
+  margin: 0.5em 0;
+  background: var(--stripe);
+}
+.chat-message.chat-staff { border-left-color: var(--link); }
+.chat-message.chat-user  { border-left-color: var(--muted); }
+.chat-message.chat-system {
+  border-left-style: dashed;
+  font-style: italic;
+  background: transparent;
+}
+.chat-meta {
+  font-size: 0.85em;
+  color: var(--muted);
+  margin-bottom: 0.2em;
+}
+.chat-body { white-space: pre-wrap; word-wrap: break-word; }
+
+.chat-reply { margin-top: 1em; }
+
+/* Submit form: opt-in checkbox row for "I'm OK with author edits". */
+.field-checkbox { margin: 0.8em 0; }
+.checkbox-label { font-weight: normal; display: block; }
+.checkbox-label input[type="checkbox"] { width: auto; margin-right: 0.4em; }
+
+/* Tracking-code result block on submit confirmation. */
+.tracking-code-block {
+  margin: 1em 0;
+  padding: 0.8em 1em;
+  border: 1px solid var(--rule);
+  background: var(--stripe);
+}
+.tracking-code {
+  font-size: 1.1em;
+  margin: 0.4em 0;
+}
+
+/* Form error banner (validation failure on submit forms). */
+.form-error {
+  border: 1px solid var(--banner-border);
+  background: var(--banner-bg);
+  color: var(--banner-fg);
+  padding: 0.6em 0.9em;
+  margin: 0.5em 0 1em 0;
 }

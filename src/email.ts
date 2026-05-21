@@ -88,8 +88,8 @@ function trackUrl(trackingCode: string): string {
   return `${config.publicBaseUrl}/track?code=${encodeURIComponent(trackingCode)}`;
 }
 
-function entryUrl(publicId: string): string {
-  return `${config.publicBaseUrl}/e/${encodeURIComponent(publicId)}`;
+function entryUrl(eahIdOrPublicId: string): string {
+  return `${config.publicBaseUrl}/e/${encodeURIComponent(eahIdOrPublicId)}`;
 }
 
 function htmlWrap(body: string): string {
@@ -100,38 +100,84 @@ function htmlWrap(body: string): string {
 /** Sent immediately after a successful submit, only if email was provided. */
 export async function sendSubmissionReceived(opts: {
   to: string;
+  eahId: string;
   publicId: string;
   trackingCode: string;
   modelLabel: string;
+  title: string;
 }): Promise<void> {
-  const { to, publicId, trackingCode, modelLabel } = opts;
+  const { to, eahId, trackingCode, modelLabel, title } = opts;
   const link = trackUrl(trackingCode);
-  const subject = "EAH: submission received";
+  const subject = `EAH: submission received (${eahId})`;
   const text =
     `Thanks for your submission to the Encyclopedia of AI Hallucinations.\n\n` +
+    `Title: ${title}\n` +
     `Model: ${modelLabel}\n` +
-    `Public ID (if approved): ${publicId}\n\n` +
+    `EAH ID: ${eahId}\n\n` +
     `A staff reviewer will look at your submission before it appears publicly.\n` +
-    `You'll get another email when it's accepted or rejected.\n\n` +
-    `Track or withdraw this submission:\n${link}\n\n` +
+    `You'll get another email when a reviewer comments, and again when it's\n` +
+    `accepted or rejected. If it's rejected or you withdraw, the A-number\n` +
+    `(${eahId}) is returned to the pool for the next incoming draft.\n\n` +
+    `Track, chat with reviewers, or withdraw this submission:\n${link}\n\n` +
     `Your tracking code: ${trackingCode}\n` +
-    `(Save this — anyone with it can withdraw the submission while it's pending.)\n`;
+    `(Save this — anyone with it can act on the submission while it's pending.)\n`;
   const html = htmlWrap(
     `<p>Thanks for your submission to the <strong>Encyclopedia of AI Hallucinations</strong>.</p>` +
-      `<p><strong>Model:</strong> ${escape(modelLabel)}<br>` +
-      `<strong>Public ID (if approved):</strong> <code>${escape(publicId)}</code></p>` +
+      `<p><strong>Title:</strong> ${escape(title)}<br>` +
+      `<strong>Model:</strong> ${escape(modelLabel)}<br>` +
+      `<strong>EAH ID:</strong> <code>${escape(eahId)}</code></p>` +
       `<p>A staff reviewer will look at your submission before it appears publicly. ` +
-      `You'll get another email when it's accepted or rejected.</p>` +
-      `<p><a href="${escape(link)}">Track or withdraw this submission</a></p>` +
+      `You'll get another email when a reviewer comments and again when it's accepted ` +
+      `or rejected. If it's rejected or you withdraw it, the A-number is returned to ` +
+      `the pool for the next incoming draft.</p>` +
+      `<p><a href="${escape(link)}">Track, chat with reviewers, or withdraw this submission</a></p>` +
       `<p><strong>Tracking code:</strong> <code>${escape(trackingCode)}</code><br>` +
-      `<small>Save this — anyone with it can withdraw the submission while it's pending.</small></p>`,
+      `<small>Save this — anyone with it can act on the submission while it's pending.</small></p>`,
   );
+  await send({ to, subject, text, html });
+}
+
+/**
+ * Sent when a staff reviewer posts a chat message on a pending submission.
+ * The submitter follows the tracking link to read the full thread and reply.
+ */
+export async function sendReviewerMessage(opts: {
+  to: string;
+  eahId: string;
+  trackingCode: string;
+  modelLabel: string;
+  reviewerName: string;
+  bodyPreview: string;
+}): Promise<void> {
+  const { to, eahId, trackingCode, modelLabel, reviewerName, bodyPreview } = opts;
+  const link = trackUrl(trackingCode);
+  const subject = `EAH: a reviewer commented on your submission (${eahId})`;
+  const preview = bodyPreview.length > 600 ? bodyPreview.slice(0, 600) + "…" : bodyPreview;
+
+  const text =
+    `A staff reviewer (${reviewerName}) posted a comment on your submission ` +
+    `to the Encyclopedia of AI Hallucinations.\n\n` +
+    `EAH ID: ${eahId}\n` +
+    `Model: ${modelLabel}\n\n` +
+    `> ${preview.split("\n").join("\n> ")}\n\n` +
+    `Read the full thread and reply:\n${link}\n`;
+
+  const html = htmlWrap(
+    `<p>A staff reviewer (<strong>${escape(reviewerName)}</strong>) posted a comment on your ` +
+      `submission to the <strong>Encyclopedia of AI Hallucinations</strong>.</p>` +
+      `<p><strong>EAH ID:</strong> <code>${escape(eahId)}</code><br>` +
+      `<strong>Model:</strong> ${escape(modelLabel)}</p>` +
+      `<blockquote style="border-left:3px solid #ccc;padding-left:0.8em;color:#444;white-space:pre-wrap">${escape(preview)}</blockquote>` +
+      `<p><a href="${escape(link)}">Read the full thread and reply</a></p>`,
+  );
+
   await send({ to, subject, text, html });
 }
 
 /** Sent after admin accept/reject when submitter_email is present. */
 export async function sendDecision(opts: {
   to: string;
+  eahId: string;
   publicId: string;
   trackingCode: string;
   modelLabel: string;
@@ -139,23 +185,26 @@ export async function sendDecision(opts: {
   staffReviewMessage: string | null;
   rejectionReason: string | null;
 }): Promise<void> {
-  const { to, publicId, trackingCode, modelLabel, decision, staffReviewMessage, rejectionReason } = opts;
+  const { to, eahId, trackingCode, modelLabel, decision, staffReviewMessage, rejectionReason } = opts;
 
   const subject =
     decision === "approved"
-      ? `EAH: your submission was published`
+      ? `EAH: your submission was published (${eahId})`
       : `EAH: your submission was not accepted`;
 
   const lines: string[] = [];
   if (decision === "approved") {
     lines.push(`Your submission to the Encyclopedia of AI Hallucinations was approved and is now public.`);
     lines.push(``);
+    lines.push(`EAH ID: ${eahId}`);
     lines.push(`Model: ${modelLabel}`);
-    lines.push(`View it: ${entryUrl(publicId)}`);
+    lines.push(`View it: ${entryUrl(eahId)}`);
   } else {
     lines.push(`Your submission to the Encyclopedia of AI Hallucinations was not accepted.`);
     lines.push(``);
     lines.push(`Model: ${modelLabel}`);
+    lines.push(`(The A-number that had been reserved for this draft has been ` +
+      `returned to the pool.)`);
     if (rejectionReason) {
       lines.push(``);
       lines.push(`Reason given: ${rejectionReason}`);
@@ -174,11 +223,13 @@ export async function sendDecision(opts: {
   const htmlParts: string[] = [];
   if (decision === "approved") {
     htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was approved and is now public.</p>`);
-    htmlParts.push(`<p><strong>Model:</strong> ${escape(modelLabel)}</p>`);
-    htmlParts.push(`<p><a href="${escape(entryUrl(publicId))}">View the published entry</a></p>`);
+    htmlParts.push(`<p><strong>EAH ID:</strong> <code>${escape(eahId)}</code><br>` +
+      `<strong>Model:</strong> ${escape(modelLabel)}</p>`);
+    htmlParts.push(`<p><a href="${escape(entryUrl(eahId))}">View the published entry</a></p>`);
   } else {
     htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was not accepted.</p>`);
     htmlParts.push(`<p><strong>Model:</strong> ${escape(modelLabel)}</p>`);
+    htmlParts.push(`<p><small>The A-number that had been reserved for this draft has been returned to the pool.</small></p>`);
     if (rejectionReason) {
       htmlParts.push(`<p><strong>Reason given:</strong></p><blockquote>${escape(rejectionReason)}</blockquote>`);
     }
@@ -201,7 +252,7 @@ export async function sendDecision(opts: {
  */
 export async function sendLookupDigest(opts: {
   to: string;
-  submissions: Array<{ publicId: string; trackingCode: string; modelLabel: string; status: string; submittedAt: Date }>;
+  submissions: Array<{ eahId: string; trackingCode: string; modelLabel: string; title: string | null; status: string; submittedAt: Date }>;
 }): Promise<void> {
   const { to, submissions } = opts;
   if (submissions.length === 0) return;
@@ -213,7 +264,9 @@ export async function sendLookupDigest(opts: {
   lines.push(`Here are the submissions we have on file for this email address.`);
   lines.push(``);
   for (const s of submissions) {
-    lines.push(`- [${s.status}] ${s.modelLabel} — submitted ${fmtDate(s.submittedAt)}`);
+    const titlePart = s.title && s.title.length > 0 ? ` — "${s.title}"` : "";
+    const idPart = s.eahId.length > 0 ? `${s.eahId} ` : "";
+    lines.push(`- ${idPart}[${s.status}] ${s.modelLabel}${titlePart} — submitted ${fmtDate(s.submittedAt)}`);
     lines.push(`  ${trackUrl(s.trackingCode)}`);
   }
   lines.push(``);
@@ -221,12 +274,15 @@ export async function sendLookupDigest(opts: {
   const text = lines.join("\n") + "\n";
 
   const items = submissions
-    .map(
-      (s) =>
-        `<li><span style="font-family:monospace">[${escape(s.status)}]</span> ` +
-        `${escape(s.modelLabel)} — submitted ${escape(fmtDate(s.submittedAt))}<br>` +
-        `<a href="${escape(trackUrl(s.trackingCode))}">${escape(trackUrl(s.trackingCode))}</a></li>`,
-    )
+    .map((s) => {
+      const titlePart = s.title && s.title.length > 0 ? ` — "${escape(s.title)}"` : "";
+      const idPart = s.eahId.length > 0 ? `<code>${escape(s.eahId)}</code> ` : "";
+      return (
+        `<li>${idPart}<span style="font-family:monospace">[${escape(s.status)}]</span> ` +
+        `${escape(s.modelLabel)}${titlePart} — submitted ${escape(fmtDate(s.submittedAt))}<br>` +
+        `<a href="${escape(trackUrl(s.trackingCode))}">${escape(trackUrl(s.trackingCode))}</a></li>`
+      );
+    })
     .join("");
   const html = htmlWrap(
     `<p>Here are the submissions we have on file for this email address.</p>` +

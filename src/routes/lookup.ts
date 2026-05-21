@@ -13,6 +13,7 @@ import { query } from "../db.ts";
 import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { check as rateCheck } from "../ratelimit.ts";
 import { sendLookupDigest } from "../email.ts";
+import { formatEahId } from "../eah-id.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteHandler } from "./types.ts";
 
 const EMAIL_MAX = 254;
@@ -110,6 +111,8 @@ export const lookupPost: RouteHandler = async (req, ctx) => {
   // submitters have to use the tracking-code path.
   let rows: Array<{
     public_id: string;
+    eah_number: number | null;
+    title: string | null;
     notify_token: string | null;
     ai_model: string;
     submitted_at: Date;
@@ -117,7 +120,7 @@ export const lookupPost: RouteHandler = async (req, ctx) => {
   }>;
   try {
     rows = await query(
-      `SELECT public_id, notify_token, ai_model, submitted_at, status
+      `SELECT public_id, eah_number, title, notify_token, ai_model, submitted_at, status
          FROM submissions
         WHERE submitter_email = ?
         ORDER BY submitted_at DESC`,
@@ -131,9 +134,10 @@ export const lookupPost: RouteHandler = async (req, ctx) => {
   const submissions = rows
     .filter((r) => r.notify_token !== null && r.notify_token.length > 0)
     .map((r) => ({
-      publicId: r.public_id,
+      eahId: formatEahId(r.eah_number),
       trackingCode: r.notify_token as string,
       modelLabel: r.ai_model,
+      title: r.title,
       status: r.status,
       submittedAt: new Date(r.submitted_at),
     }));

@@ -1,27 +1,47 @@
 /**
- * GET /browse — filterable, paginated listing of published submissions.
+ * GET /browse — filterable, sortable, paginated listing of published submissions.
  *
- * Supported query params: category, tag, model, q, page.
- * All filters are AND-combined. `q` does LIKE across prompt/output/model/summary
- * using parameterized placeholders only.
+ * Supported query params:
+ *   - category, tag, model, q   (filters)
+ *   - status                    (entry_status: 'active' | 'patched')
+ *   - sort                      ('new' | 'old' | 'verified' | 'id')
+ *   - page
+ *
+ * All filters are AND-combined. `q` does LIKE across title/prompt/output/model/
+ * summary using parameterized placeholders only.
  */
 import { h, raw } from "../html.ts";
 import { layout } from "../layout.ts";
 import { query, queryOne } from "../db.ts";
 import { CATEGORIES, categoryLabel, isValidCategory } from "../categories.ts";
+import { formatEahId } from "../eah-id.ts";
 import { htmlResponse, type RouteHandler } from "./types.ts";
 
 interface Row {
   public_id: string;
-  prompt: string;
-  output: string;
+  eah_number: number | null;
+  title: string | null;
   ai_model: string;
   category: string;
+  entry_status: "active" | "patched";
   submitted_at: Date;
+  verified_hits: number | null;
+  verified_total: number | null;
 }
 
-const PAGE_SIZE = 50;
-const TRUNCATE_AT = 500;
+const PAGE_SIZE = 25;
+
+type SortKey = "new" | "old" | "verified" | "id";
+
+function sortClause(sort: SortKey): string {
+  switch (sort) {
+    case "old":      return "s.submitted_at ASC, s.id ASC";
+    case "verified": return "(COALESCE(s.verified_hits,0) / NULLIF(s.verified_total,0)) DESC, s.verified_total DESC, s.submitted_at DESC";
+    case "id":       return "s.eah_number ASC";
+    case "new":
+    default:         return "s.submitted_at DESC, s.id DESC";
+  }
+}
 
 function ymd(d: Date | string): string {
   const date = d instanceof Date ? d : new Date(d);
@@ -30,11 +50,6 @@ function ymd(d: Date | string): string {
   const m = String(date.getUTCMonth() + 1).padStart(2, "0");
   const day = String(date.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-function truncate(s: string): { text: string; truncated: boolean } {
-  if (s.length <= TRUNCATE_AT) return { text: s, truncated: false };
-  return { text: s.slice(0, TRUNCATE_AT) + "…", truncated: true };
 }
 
 /** Escape LIKE wildcards in user input so they're treated as literals. */
@@ -64,6 +79,14 @@ export const browse: RouteHandler = async (_req, ctx) => {
   const model = (sp.get("model") ?? "").trim().slice(0, 120);
   const q = (sp.get("q") ?? "").trim().slice(0, 200);
 
+  const statusRaw = (sp.get("status") ?? "").trim();
+  const status: "" | "active" | "patched" =
+    statusRaw === "active" || statusRaw === "patched" ? statusRaw : "";
+
+  const sortRaw = (sp.get("sort") ?? "new").trim();
+  const sort: SortKey =
+    sortRaw === "old" || sortRaw === "verified" || sortRaw === "id" ? sortRaw : "new";
+
   const pageRaw = parseInt(sp.get("page") ?? "1", 10);
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.min(pageRaw, 10_000) : 1;
   const offset = (page - 1) * PAGE_SIZE;
@@ -81,12 +104,16 @@ export const browse: RouteHandler = async (_req, ctx) => {
     where.push("s.ai_model = ?");
     params.push(model);
   }
+  if (status) {
+    where.push("s.entry_status = ?");
+    params.push(status);
+  }
   if (q) {
     const like = `%${escapeLike(q)}%`;
     where.push(
-      "(s.prompt LIKE ? ESCAPE '\\\\' OR s.output LIKE ? ESCAPE '\\\\' OR s.ai_model LIKE ? ESCAPE '\\\\' OR s.summary LIKE ? ESCAPE '\\\\')",
+      "(s.title LIKE ? ESCAPE '\\\\' OR s.prompt LIKE ? ESCAPE '\\\\' OR s.output LIKE ? ESCAPE '\\\\' OR s.ai_model LIKE ? ESCAPE '\\\\' OR s.summary LIKE ? ESCAPE '\\\\')",
     );
-    params.push(like, like, like, like);
+    params.push(like, like, like, like, like);
   }
   if (tagValid) {
     join = "JOIN submission_tags st ON st.submission_id = s.id JOIN tags t ON t.id = st.tag_id";
@@ -104,21 +131,23 @@ export const browse: RouteHandler = async (_req, ctx) => {
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const rows = await query<Row>(
-    `SELECT DISTINCT s.public_id, s.prompt, s.output, s.ai_model, s.category, s.submitted_at, s.id
+    `SELECT DISTINCT s.public_id, s.eah_number, s.title, s.ai_model, s.category, s.entry_status,
+            s.submitted_at, s.verified_hits, s.verified_total, s.id
        FROM submissions s
        ${join}
        WHERE ${whereSql}
-       ORDER BY s.submitted_at DESC, s.id DESC
+       ORDER BY ${sortClause(sort)}
        LIMIT ? OFFSET ?`,
     [...params, PAGE_SIZE, offset],
   );
 
-  const hasFilters = Boolean(category || tagValid || model || q);
+  const hasFilters = Boolean(category || tagValid || model || q || status);
 
   const filterChips: ReturnType<typeof h>[] = [];
   if (category) filterChips.push(h`<span class="chip">category: ${categoryLabel(category)}</span>`);
   if (tagValid) filterChips.push(h`<span class="chip">tag: ${tagValid}</span>`);
   if (model) filterChips.push(h`<span class="chip">model: ${model}</span>`);
+  if (status) filterChips.push(h`<span class="chip">status: ${status}</span>`);
   if (q) filterChips.push(h`<span class="chip">search: ${q}</span>`);
 
   const filtersBlock = hasFilters
@@ -135,9 +164,36 @@ export const browse: RouteHandler = async (_req, ctx) => {
     )}
   </div>`;
 
+  const sharedQs = { category, tag: tagValid, model, q, status, sort };
+
+  const sortLink = (key: SortKey, label: string) => {
+    const active = key === sort;
+    if (active) return h`<strong>${label}</strong>`;
+    const qs = buildQs({ ...sharedQs, sort: key });
+    return h`<a href="/browse${raw(qs)}">${label}</a>`;
+  };
+
+  const statusLink = (s: "" | "active" | "patched", label: string) => {
+    const active = s === status;
+    if (active) return h`<strong>${label}</strong>`;
+    const qs = buildQs({ ...sharedQs, status: s });
+    return h`<a href="/browse${raw(qs)}">${label}</a>`;
+  };
+
+  const controlsBar = h`<p class="browse-controls">
+    <span><strong>Status:</strong> ${statusLink("", "all")} ·
+      ${statusLink("active", "active")} ·
+      ${statusLink("patched", "patched")}</span>
+    &nbsp;|&nbsp;
+    <span><strong>Sort:</strong> ${sortLink("new", "newest")} ·
+      ${sortLink("old", "oldest")} ·
+      ${sortLink("verified", "most verified")} ·
+      ${sortLink("id", "by A-number")}</span>
+  </p>`;
+
   // Pagination
-  const prevQs = page > 1 ? buildQs({ category, tag: tagValid, model, q, page: page - 1 }) : null;
-  const nextQs = page < totalPages ? buildQs({ category, tag: tagValid, model, q, page: page + 1 }) : null;
+  const prevQs = page > 1 ? buildQs({ ...sharedQs, page: page - 1 }) : null;
+  const nextQs = page < totalPages ? buildQs({ ...sharedQs, page: page + 1 }) : null;
 
   const pagination = h`<nav class="pagination">
     ${prevQs ? h`<a href="/browse${raw(prevQs)}">&larr; prev</a>` : h`<span class="disabled">&larr; prev</span>`}
@@ -147,35 +203,46 @@ export const browse: RouteHandler = async (_req, ctx) => {
 
   const list = rows.length === 0
     ? h`<p><em>No matching entries.</em></p>`
-    : h`<div class="entry-list">
-        ${rows.map((r) => {
-          const p = truncate(r.prompt);
-          const o = truncate(r.output);
-          const fullLink = h`<a href="/e/${r.public_id}">view full entry</a>`;
-          return h`<article class="entry-card">
-            <h3><a href="/e/${r.public_id}">${r.ai_model}</a>
-              <span class="meta">[${categoryLabel(r.category)}] ${ymd(r.submitted_at)}</span>
-            </h3>
-            <div class="entry-section">
-              <div class="entry-label">Prompt</div>
-              <pre>${p.text}</pre>
-              ${p.truncated ? h`<p class="muted">(prompt truncated — ${fullLink})</p>` : h``}
-            </div>
-            <div class="entry-section">
-              <div class="entry-label">Output</div>
-              <pre>${o.text}</pre>
-              ${o.truncated ? h`<p class="muted">(output truncated — ${fullLink})</p>` : h``}
-            </div>
-          </article>`;
-        })}
-      </div>`;
+    : h`<table class="browse-table">
+        <thead>
+          <tr>
+            <th>EAH ID</th>
+            <th>Title</th>
+            <th>AI Model</th>
+            <th>Category</th>
+            <th>Status</th>
+            <th>Date</th>
+            <th>Verified</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((r) => {
+            const eahId = formatEahId(r.eah_number);
+            const linkTarget = eahId ? `/e/${eahId}` : `/e/${r.public_id}`;
+            const verifText = r.verified_total !== null
+              ? `${r.verified_hits ?? 0}/${r.verified_total}`
+              : "—";
+            return h`<tr>
+              <td><a href="${linkTarget}"><code>${eahId || r.public_id}</code></a></td>
+              <td><a href="${linkTarget}">${r.title ?? h`<em>(untitled)</em>`}</a></td>
+              <td>${r.ai_model}</td>
+              <td>${categoryLabel(r.category)}</td>
+              <td><span class="entry-status entry-status-${r.entry_status}">${r.entry_status}</span></td>
+              <td>${ymd(r.submitted_at)}</td>
+              <td>${verifText}</td>
+            </tr>`;
+          })}
+        </tbody>
+      </table>`;
 
   // Re-display search form pre-filled with current q so people can refine.
   const searchForm = h`<form action="/browse" method="get" class="search-form">
-    <input type="search" name="q" value="${q}" placeholder="search prompts, outputs, models..." maxlength="200">
+    <input type="search" name="q" value="${q}" placeholder="search titles, prompts, outputs, models..." maxlength="200">
     ${category ? h`<input type="hidden" name="category" value="${category}">` : h``}
     ${tagValid ? h`<input type="hidden" name="tag" value="${tagValid}">` : h``}
     ${model ? h`<input type="hidden" name="model" value="${model}">` : h``}
+    ${status ? h`<input type="hidden" name="status" value="${status}">` : h``}
+    ${sort !== "new" ? h`<input type="hidden" name="sort" value="${sort}">` : h``}
     <button type="submit">Search</button>
   </form>`;
 
@@ -183,6 +250,7 @@ export const browse: RouteHandler = async (_req, ctx) => {
     ${searchForm}
     ${filtersBlock}
     ${categoryLinks}
+    ${controlsBar}
     <p class="result-count">${totalCount} ${totalCount === 1 ? raw("entry") : raw("entries")}</p>
     ${list}
     ${pagination}

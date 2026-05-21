@@ -2,12 +2,17 @@
  * Admin review action.
  *
  *   POST /admin/queue/:id   — approve or reject a submission
+ *
+ * On reject (and withdraw, handled elsewhere) the submission's EAH number is
+ * returned to the freed-numbers pool so the next incoming draft can claim it.
+ * On approve, the number is locked permanently.
  */
 import { h } from "../../html.ts";
 import { layout } from "../../layout.ts";
-import { execute, queryOne } from "../../db.ts";
+import { execute, transaction, queryOne } from "../../db.ts";
 import { verifyCsrf } from "../../csrf.ts";
-import { sendDecision } from "../../email.ts";
+import { sendDecision, sendReviewerMessage } from "../../email.ts";
+import { freeEahNumber, formatEahId } from "../../eah-id.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "../types.ts";
 
 function badRequest(message: string, status = 400, returnTo?: string): Response {
@@ -110,51 +115,85 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   const exists = await queryOne<{
     id: number;
     public_id: string;
+    eah_number: number | null;
     ai_model: string | null;
     submitter_email: string | null;
     notify_token: string | null;
   }>(
-    "SELECT id, public_id, ai_model, submitter_email, notify_token FROM submissions WHERE id = ?",
+    "SELECT id, public_id, eah_number, ai_model, submitter_email, notify_token FROM submissions WHERE id = ?",
     [id],
   );
   if (!exists) return badRequest("Submission not found.", 404);
 
-  if (action === "approve") {
-    await execute(
-      `UPDATE submissions
-          SET status = 'published',
-              reviewed_by = ?,
-              reviewed_at = NOW(),
-              verified_hits = ?,
-              verified_total = ?,
-              reviewer_notes = ?,
-              staff_review_message = ?,
-              rejection_reason = NULL
-        WHERE id = ?`,
-      [ctx.admin.adminId, verifiedHits, verifiedTotal, reviewerNotes, staffReviewMessage, id],
-    );
-  } else {
-    await execute(
-      `UPDATE submissions
-          SET status = 'rejected',
-              reviewed_by = ?,
-              reviewed_at = NOW(),
-              rejection_reason = ?,
-              reviewer_notes = ?,
-              staff_review_message = ?,
-              verified_hits = ?,
-              verified_total = ?
-        WHERE id = ?`,
-      [ctx.admin.adminId, rejectionReason, reviewerNotes, staffReviewMessage, verifiedHits, verifiedTotal, id],
-    );
+  // The approve/reject + (optional) free-number step must be atomic: if we
+  // freed before the status flip and then the status flip failed, we'd hand
+  // a still-pending submission's number to the next draft. Wrap in a single
+  // transaction.
+  try {
+    await transaction(async (tx) => {
+      if (action === "approve") {
+        await tx.execute(
+          `UPDATE submissions
+              SET status = 'published',
+                  reviewed_by = ?,
+                  reviewed_at = NOW(),
+                  verified_hits = ?,
+                  verified_total = ?,
+                  reviewer_notes = ?,
+                  staff_review_message = ?,
+                  rejection_reason = NULL
+            WHERE id = ?`,
+          [ctx.admin!.adminId, verifiedHits, verifiedTotal, reviewerNotes, staffReviewMessage, id],
+        );
+        // Post a 'system' message into the chat thread so the submitter sees
+        // the decision in-place.
+        await tx.execute(
+          `INSERT INTO submission_messages (submission_id, sender_type, body)
+           VALUES (?, 'system', ?)`,
+          [id, `Submission approved and published${staffReviewMessage ? ` with a note from the reviewer (see below).` : `.`}`],
+        );
+      } else {
+        await tx.execute(
+          `UPDATE submissions
+              SET status = 'rejected',
+                  reviewed_by = ?,
+                  reviewed_at = NOW(),
+                  rejection_reason = ?,
+                  reviewer_notes = ?,
+                  staff_review_message = ?,
+                  verified_hits = ?,
+                  verified_total = ?
+            WHERE id = ?`,
+          [ctx.admin!.adminId, rejectionReason, reviewerNotes, staffReviewMessage, verifiedHits, verifiedTotal, id],
+        );
+        // OEIS rule: a rejected draft's A-number returns to the pool. Do this
+        // here, inside the same transaction, so we never expose a "rejected
+        // with live A-number" state to readers.
+        await freeEahNumber(tx, id);
+        await tx.execute(
+          `INSERT INTO submission_messages (submission_id, sender_type, body)
+           VALUES (?, 'system', ?)`,
+          [id, `Submission rejected. The reserved A-number has been returned to the pool.`],
+        );
+      }
+    });
+  } catch (err) {
+    console.error("review action failed", err);
+    return badRequest("Could not save the review. Try again.", 500);
   }
 
   // Fire-and-forget decision email. Only fires if we have both an address and
   // a notify_token (the plaintext tracking code) — see submit.ts for why
-  // those two travel together.
+  // those two travel together. For approvals we use the (still-set) A-number;
+  // for rejections that number has been freed, so use the now-empty string.
   if (exists.submitter_email && exists.notify_token) {
+    const eahIdForEmail =
+      action === "approve" && exists.eah_number !== null
+        ? formatEahId(exists.eah_number)
+        : "";
     void sendDecision({
       to: exists.submitter_email,
+      eahId: eahIdForEmail,
       publicId: exists.public_id,
       trackingCode: exists.notify_token,
       modelLabel: exists.ai_model ?? "(unknown)",
@@ -165,4 +204,75 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   }
 
   return new Response(null, { status: 303, headers: { Location: "/admin/queue" } });
+}
+
+/**
+ * POST /admin/queue/:id/message — staff posts a chat message into a draft's
+ * reviewer thread. Emails the submitter if they gave us an address.
+ */
+export async function postReviewMessage(req: Request, ctx: RouteContext): Promise<Response> {
+  if (!ctx.admin) {
+    return new Response(null, { status: 303, headers: { Location: "/admin/login" } });
+  }
+
+  const idStr = ctx.params.id;
+  const id = idStr && /^\d+$/.test(idStr) ? parseInt(idStr, 10) : NaN;
+  if (!Number.isFinite(id) || id <= 0) {
+    return badRequest("Invalid submission id.", 404);
+  }
+
+  let form: URLSearchParams;
+  try {
+    form = await parseForm(req, 16 * 1024);
+  } catch {
+    return badRequest("The form submission was too large or malformed.");
+  }
+
+  if (!verifyCsrf(req, form.get("_csrf"))) return csrfErrorResponse();
+
+  const body = sanitizeText(form.get("message") ?? "").trim();
+  if (body.length === 0) {
+    return new Response(null, {
+      status: 303,
+      headers: { Location: `/admin/queue/${id}` },
+    });
+  }
+  if (body.length > 4000) {
+    return badRequest("Message is too long (max 4000 characters).");
+  }
+
+  const exists = await queryOne<{
+    id: number;
+    eah_number: number | null;
+    ai_model: string | null;
+    submitter_email: string | null;
+    notify_token: string | null;
+  }>(
+    "SELECT id, eah_number, ai_model, submitter_email, notify_token FROM submissions WHERE id = ?",
+    [id],
+  );
+  if (!exists) return badRequest("Submission not found.", 404);
+
+  await execute(
+    `INSERT INTO submission_messages (submission_id, sender_type, sender_admin_id, body)
+     VALUES (?, 'staff', ?, ?)`,
+    [id, ctx.admin.adminId, body],
+  );
+
+  // Fire-and-forget email notification to the submitter (if they gave one).
+  if (exists.submitter_email && exists.notify_token) {
+    void sendReviewerMessage({
+      to: exists.submitter_email,
+      eahId: formatEahId(exists.eah_number),
+      trackingCode: exists.notify_token,
+      modelLabel: exists.ai_model ?? "(unknown)",
+      reviewerName: ctx.admin.username,
+      bodyPreview: body,
+    });
+  }
+
+  return new Response(null, {
+    status: 303,
+    headers: { Location: `/admin/queue/${id}` },
+  });
 }

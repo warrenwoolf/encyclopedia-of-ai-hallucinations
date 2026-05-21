@@ -16,13 +16,18 @@ import { home } from "./routes/home.ts";
 import { entry } from "./routes/entry.ts";
 import { browse } from "./routes/browse.ts";
 import { submitGet, submitPost } from "./routes/submit.ts";
-import { trackGet, trackWithdrawPost } from "./routes/track.ts";
+import {
+  trackGet, trackWithdrawPost, trackMessagePost, draftGet,
+} from "./routes/track.ts";
 import { lookupGet, lookupPost } from "./routes/lookup.ts";
 import { about } from "./routes/about.ts";
 import { privacy } from "./routes/privacy.ts";
 import { getLogin, postLogin, postLogout } from "./routes/admin/login.ts";
 import { getQueue, getQueueDetail } from "./routes/admin/queue.ts";
-import { postReview } from "./routes/admin/review.ts";
+import { postReview, postReviewMessage } from "./routes/admin/review.ts";
+import {
+  getNewEntry, postNewEntry, getEditEntry, postEditEntry, postEntryStatus,
+} from "./routes/admin/entries.ts";
 import { getAll } from "./routes/admin/all.ts";
 
 interface RouteDef {
@@ -57,6 +62,8 @@ const ROUTES: RouteDef[] = [
   route("POST", "/submit", submitPost),
   route("GET", "/track", trackGet),
   route("POST", "/track/withdraw", trackWithdrawPost),
+  route("POST", "/track/message", trackMessagePost),
+  route("GET", "/draft/:token", draftGet),
   route("GET", "/lookup", lookupGet),
   route("POST", "/lookup", lookupPost),
   // Admin
@@ -66,7 +73,16 @@ const ROUTES: RouteDef[] = [
   route("GET", "/admin/queue", getQueue),
   route("GET", "/admin/queue/:id", getQueueDetail),
   route("POST", "/admin/queue/:id", postReview),
+  route("POST", "/admin/queue/:id/message", postReviewMessage),
   route("GET", "/admin/all", getAll),
+  // Direct add/edit of entries (bypasses the draft workflow). The path is
+  // /admin/entries/new and /admin/entries/:eahId/edit so it's clear these are
+  // admin-only actions, even though the public entry URL is /e/A000001.
+  route("GET", "/admin/entries/new", getNewEntry),
+  route("POST", "/admin/entries/new", postNewEntry),
+  route("GET", "/admin/entries/:eahId/edit", getEditEntry),
+  route("POST", "/admin/entries/:eahId/edit", postEditEntry),
+  route("POST", "/admin/entries/:eahId/status", postEntryStatus),
 ];
 
 const SECURITY_HEADERS: Record<string, string> = {
@@ -74,7 +90,7 @@ const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Content-Security-Policy":
-    "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
   "Permissions-Policy": "interest-cohort=()",
 };
 
@@ -114,6 +130,7 @@ function clientIp(req: Request, server: { requestIP?: (req: Request) => { addres
 // than a regex, and we never accidentally let `..` or `.` through.
 const STATIC_FILES: Record<string, { path: string; contentType: string }> = {
   "style.css": { path: "./src/static/style.css", contentType: "text/css; charset=utf-8" },
+  "theme.js": { path: "./src/static/theme.js", contentType: "application/javascript; charset=utf-8" },
   "robots.txt": { path: "./src/static/robots.txt", contentType: "text/plain; charset=utf-8" },
 };
 
