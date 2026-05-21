@@ -13,12 +13,15 @@ import { htmlResponse, type RouteHandler } from "./types.ts";
 
 interface Row {
   public_id: string;
+  prompt: string;
+  output: string;
   ai_model: string;
   category: string;
   submitted_at: Date;
 }
 
 const PAGE_SIZE = 50;
+const TRUNCATE_AT = 500;
 
 function ymd(d: Date | string): string {
   const date = d instanceof Date ? d : new Date(d);
@@ -27,6 +30,11 @@ function ymd(d: Date | string): string {
   const m = String(date.getUTCMonth() + 1).padStart(2, "0");
   const day = String(date.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function truncate(s: string): { text: string; truncated: boolean } {
+  if (s.length <= TRUNCATE_AT) return { text: s, truncated: false };
+  return { text: s.slice(0, TRUNCATE_AT) + "…", truncated: true };
 }
 
 /** Escape LIKE wildcards in user input so they're treated as literals. */
@@ -96,7 +104,7 @@ export const browse: RouteHandler = async (_req, ctx) => {
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const rows = await query<Row>(
-    `SELECT DISTINCT s.public_id, s.ai_model, s.category, s.submitted_at, s.id
+    `SELECT DISTINCT s.public_id, s.prompt, s.output, s.ai_model, s.category, s.submitted_at, s.id
        FROM submissions s
        ${join}
        WHERE ${whereSql}
@@ -139,15 +147,28 @@ export const browse: RouteHandler = async (_req, ctx) => {
 
   const list = rows.length === 0
     ? h`<p><em>No matching entries.</em></p>`
-    : h`<ul class="entry-list-compact">
-        ${rows.map(
-          (r) => h`<li>
-            <a href="/e/${r.public_id}">${r.ai_model}</a>
-            <span class="meta">[${categoryLabel(r.category)}]</span>
-            <span class="meta">${ymd(r.submitted_at)}</span>
-          </li>`,
-        )}
-      </ul>`;
+    : h`<div class="entry-list">
+        ${rows.map((r) => {
+          const p = truncate(r.prompt);
+          const o = truncate(r.output);
+          const fullLink = h`<a href="/e/${r.public_id}">view full entry</a>`;
+          return h`<article class="entry-card">
+            <h3><a href="/e/${r.public_id}">${r.ai_model}</a>
+              <span class="meta">[${categoryLabel(r.category)}] ${ymd(r.submitted_at)}</span>
+            </h3>
+            <div class="entry-section">
+              <div class="entry-label">Prompt</div>
+              <pre>${p.text}</pre>
+              ${p.truncated ? h`<p class="muted">(prompt truncated — ${fullLink})</p>` : h``}
+            </div>
+            <div class="entry-section">
+              <div class="entry-label">Output</div>
+              <pre>${o.text}</pre>
+              ${o.truncated ? h`<p class="muted">(output truncated — ${fullLink})</p>` : h``}
+            </div>
+          </article>`;
+        })}
+      </div>`;
 
   // Re-display search form pre-filled with current q so people can refine.
   const searchForm = h`<form action="/browse" method="get" class="search-form">

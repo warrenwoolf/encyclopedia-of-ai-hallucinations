@@ -1,11 +1,13 @@
 /**
  * GET /privacy — privacy policy page.
  */
+import { config } from "../config.ts";
 import { h } from "../html.ts";
 import { layout } from "../layout.ts";
 import { htmlResponse, type RouteHandler } from "./types.ts";
 
 export const privacy: RouteHandler = (_req, ctx) => {
+  const privacyEmail = config.email.privacy;
   const body = h`
     <p>This policy describes what data the Encyclopedia of AI Hallucinations
        ("EAH", "we") collects when you use the site, how we use it, and what
@@ -97,8 +99,7 @@ export const privacy: RouteHandler = (_req, ctx) => {
        ID or a description of your submission.</p>
 
     <h2>Contact</h2>
-    ${/* TODO: confirm or replace this address before going live */
-    h`<p>Privacy-related requests: <a href="mailto:privacy@hallucination.firmamental.org">privacy@hallucination.firmamental.org</a>.</p>`}
+    <p>Privacy-related requests: <a href="mailto:${privacyEmail}">${privacyEmail}</a>.</p>
 
     <h2>Changes to this policy</h2>
     <p>If we make material changes to data practices, we will update this page.
