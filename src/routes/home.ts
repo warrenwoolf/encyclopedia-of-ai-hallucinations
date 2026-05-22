@@ -6,11 +6,11 @@
  * "submit" CTA.
  */
 import { h, raw } from "../html.ts";
-import { layout } from "../layout.ts";
+import { pageResponse } from "../layout.ts";
 import { queryOne, query } from "../db.ts";
 import { CATEGORIES, categoryLabel } from "../categories.ts";
 import { formatEahId } from "../eah-id.ts";
-import { htmlResponse, type RouteHandler } from "./types.ts";
+import { type RouteHandler } from "./types.ts";
 
 interface RecentRow {
   public_id: string;
@@ -31,7 +31,7 @@ function ymd(d: Date | string): string {
   return `${y}-${m}-${day}`;
 }
 
-export const home: RouteHandler = async (_req, ctx) => {
+export const home: RouteHandler = async (req, ctx) => {
   const countRow = await queryOne<{ n: number }>(
     "SELECT COUNT(*) AS n FROM submissions WHERE status = 'published'",
   );
@@ -104,9 +104,9 @@ export const home: RouteHandler = async (_req, ctx) => {
     ${recentList}
   `;
 
-  return htmlResponse(layout({
+  return pageResponse(req, {
     title: "Encyclopedia of AI Hallucinations",
     body,
-    admin: ctx.admin,
-  }));
+    user: ctx.user,
+  });
 };

@@ -38,7 +38,7 @@ Bun.serve({
     const html = layout({
       title: "Encyclopedia of AI Hallucinations",
       body,
-      admin: null,
+      user: null,
     });
     return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
   },

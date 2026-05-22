@@ -153,7 +153,7 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
     title: status ? `All submissions — ${status}` : "All submissions",
     heading: status ? `All submissions — ${status}` : "All submissions",
     body,
-    admin: { username: ctx.admin.username, csrfToken },
+    user: ctx.user, csrfToken,
   });
   return htmlResponse(html, { setCookie });
 }

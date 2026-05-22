@@ -42,18 +42,35 @@ function isValidToken(token: string | undefined): boolean {
   return true;
 }
 
-/** Get the token already in the cookie, or generate a new one. */
+/**
+ * Get the token already in the cookie, or generate a new one.
+ *
+ * Memoized per Request via a WeakMap: callers can invoke this multiple times
+ * within the same request handler (e.g. once from the route for its own form
+ * and once from `layout.pageResponse` for the logout-button form) and will
+ * receive the same token. Without this, `setCookie` would not match the form
+ * field when the cookie is absent, because each call would mint a fresh
+ * token. The WeakMap is GC'd with the request, no leak.
+ */
+const perRequestCache = new WeakMap<Request, { token: string; setCookie: string | null }>();
+
 export function tokenForRequest(req: Request): { token: string; setCookie: string | null } {
+  const cached = perRequestCache.get(req);
+  if (cached) return cached;
   const cookieHeader = req.headers.get("cookie") ?? "";
   const existing = parseCookie(cookieHeader, COOKIE_NAME);
+  let result: { token: string; setCookie: string | null };
   if (existing && isValidToken(existing)) {
-    return { token: existing, setCookie: null };
+    result = { token: existing, setCookie: null };
+  } else {
+    const token = makeToken();
+    const setCookie =
+      `${COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; ` +
+      `Max-Age=${Math.floor(TTL_MS / 1000)}`;
+    result = { token, setCookie };
   }
-  const token = makeToken();
-  const setCookie =
-    `${COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; ` +
-    `Max-Age=${Math.floor(TTL_MS / 1000)}`;
-  return { token, setCookie };
+  perRequestCache.set(req, result);
+  return result;
 }
 
 /** Validate a POST: form `_csrf` field must match the cookie and be HMAC-valid. */

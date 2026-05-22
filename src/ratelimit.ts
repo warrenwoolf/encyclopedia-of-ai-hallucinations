@@ -24,6 +24,17 @@ const LIMITS: Record<string, LimitConfig> = {
   // becoming a spam relay (we'd be billed for the volume even if Resend's
   // suppression list saved us reputationally).
   lookup: { capacity: 5, refillPerHour: 5 },
+  // Account signup triggers an outbound verification email. Same logic as
+  // lookup: keep this tight, both to dodge abuse and to keep our 300/mo
+  // Resend budget reserved for real users.
+  signup: { capacity: 5, refillPerHour: 5 },
+  // Verification-code submission. 5 attempts per code are already enforced
+  // in the DB; this is a per-IP-floor on top so an attacker can't burn
+  // through codes across many half-finished accounts.
+  verify: { capacity: 30, refillPerHour: 30 },
+  // Google OAuth start. Mostly a paranoia check — the actual flow is
+  // signed, but capping the number of started flows prevents abuse.
+  oauth: { capacity: 30, refillPerHour: 30 },
 };
 
 const buckets = new Map<string, Bucket>();

@@ -2,11 +2,11 @@
  * GET /about — static explanatory page.
  */
 import { h } from "../html.ts";
-import { layout } from "../layout.ts";
+import { pageResponse } from "../layout.ts";
 import { CATEGORIES } from "../categories.ts";
-import { htmlResponse, type RouteHandler } from "./types.ts";
+import { type RouteHandler } from "./types.ts";
 
-export const about: RouteHandler = (_req, ctx) => {
+export const about: RouteHandler = (req, ctx) => {
   const body = h`
     <p><strong>What is EAH?</strong> The <strong>Encyclopedia of AI
        Hallucinations</strong> is a community-maintained database of real,
@@ -113,10 +113,10 @@ export const about: RouteHandler = (_req, ctx) => {
 
     <p class="muted">Initial scaffolding written by Claude (Anthropic), May 2026.</p>
   `;
-  return htmlResponse(layout({
+  return pageResponse(req, {
     title: "About · EAH",
     heading: "About",
     body,
-    admin: ctx.admin,
-  }));
+    user: ctx.user,
+  });
 };

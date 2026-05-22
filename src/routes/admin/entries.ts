@@ -277,7 +277,7 @@ export async function getNewEntry(req: Request, ctx: RouteContext): Promise<Resp
   const { token, setCookie } = tokenForRequest(req);
   const body = renderForm({ mode: "new", values: emptyForm(), csrf: token, error: null });
   return htmlResponse(
-    layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, admin: { username: ctx.admin.username, csrfToken: token } }),
+    layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
     { setCookie },
   );
 }
@@ -299,7 +299,7 @@ export async function postNewEntry(req: Request, ctx: RouteContext): Promise<Res
     const { token, setCookie } = tokenForRequest(req);
     const body = renderForm({ mode: "new", values, csrf: token, error: v.error });
     return htmlResponse(
-      layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, admin: { username: ctx.admin.username, csrfToken: token } }),
+      layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
       { status: 400, setCookie },
     );
   }
@@ -338,7 +338,7 @@ export async function postNewEntry(req: Request, ctx: RouteContext): Promise<Res
           ipHash,
           v.date,
           values.entry_status,
-          ctx.admin!.adminId,
+          ctx.admin!.userId,
           v.hits,
           v.total,
         ],
@@ -425,7 +425,7 @@ export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Res
       title: `Edit ${eahId} · EAH admin`,
       heading: `Edit ${eahId}`,
       body,
-      admin: { username: ctx.admin.username, csrfToken: token },
+      user: ctx.user, csrfToken: token,
     }),
     { setCookie },
   );
@@ -456,7 +456,7 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
         title: `Edit ${formatEahId(row.eah_number)} · EAH admin`,
         heading: `Edit ${formatEahId(row.eah_number)}`,
         body,
-        admin: { username: ctx.admin.username, csrfToken: token },
+        user: ctx.user, csrfToken: token,
       }),
       { status: 400, setCookie },
     );

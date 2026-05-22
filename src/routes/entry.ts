@@ -7,12 +7,12 @@
  * canonical A-number URL.
  */
 import { h, raw } from "../html.ts";
-import { layout } from "../layout.ts";
+import { pageResponse } from "../layout.ts";
 import { queryOne, query } from "../db.ts";
 import { categoryLabel } from "../categories.ts";
 import { config } from "../config.ts";
 import { formatEahId, parseEahId } from "../eah-id.ts";
-import { htmlResponse, type RouteHandler } from "./types.ts";
+import { type RouteHandler } from "./types.ts";
 
 interface SubmissionRow {
   id: number;
@@ -44,19 +44,20 @@ function ymd(d: Date | string): string {
   return `${y}-${m}-${day}`;
 }
 
-function notFound(ctx: { admin: any }): Response {
+function notFound(req: Request, ctx: { user: any }): Response {
   const body = h`<p>No entry with that ID, or it isn't published.</p>
     <p><a href="/browse">Browse entries</a> · <a href="/">Home</a></p>`;
-  return htmlResponse(
-    layout({ title: "Not found · EAH", heading: "Not found", body, admin: ctx.admin }),
+  return pageResponse(
+    req,
+    { title: "Not found · EAH", heading: "Not found", body, user: ctx.user },
     { status: 404 },
   );
 }
 
-export const entry: RouteHandler = async (_req, ctx) => {
+export const entry: RouteHandler = async (req, ctx) => {
   const idParam = ctx.params.public_id;
   if (!idParam || !/^[A-Za-z0-9_-]{1,32}$/.test(idParam)) {
-    return notFound(ctx);
+    return notFound(req, ctx);
   }
 
   // First try the A-number (canonical). If the param doesn't look like one,
@@ -89,7 +90,7 @@ export const entry: RouteHandler = async (_req, ctx) => {
   }
 
   if (!row || row.status !== "published") {
-    return notFound(ctx);
+    return notFound(req, ctx);
   }
 
   const tagRows = await query<{ name: string }>(
@@ -188,9 +189,9 @@ export const entry: RouteHandler = async (_req, ctx) => {
     </section>
   `;
 
-  return htmlResponse(layout({
+  return pageResponse(req, {
     title: `${eahId} · ${row.title ?? row.ai_model} · EAH`,
     body,
-    admin: ctx.admin,
-  }));
+    user: ctx.user,
+  });
 };

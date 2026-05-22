@@ -11,11 +11,11 @@
  * summary using parameterized placeholders only.
  */
 import { h, raw } from "../html.ts";
-import { layout } from "../layout.ts";
+import { pageResponse } from "../layout.ts";
 import { query, queryOne } from "../db.ts";
 import { CATEGORIES, categoryLabel, isValidCategory } from "../categories.ts";
 import { formatEahId } from "../eah-id.ts";
-import { htmlResponse, type RouteHandler } from "./types.ts";
+import { type RouteHandler } from "./types.ts";
 
 interface Row {
   public_id: string;
@@ -67,7 +67,7 @@ function buildQs(params: Record<string, string | number | undefined>): string {
   return s.length > 0 ? `?${s}` : "";
 }
 
-export const browse: RouteHandler = async (_req, ctx) => {
+export const browse: RouteHandler = async (req, ctx) => {
   const sp = ctx.url.searchParams;
 
   const rawCategory = (sp.get("category") ?? "").trim();
@@ -256,10 +256,10 @@ export const browse: RouteHandler = async (_req, ctx) => {
     ${pagination}
   `;
 
-  return htmlResponse(layout({
+  return pageResponse(req, {
     title: "Browse · EAH",
     heading: "Browse",
     body,
-    admin: ctx.admin,
-  }));
+    user: ctx.user,
+  });
 };

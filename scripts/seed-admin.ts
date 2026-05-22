@@ -1,48 +1,42 @@
 /**
- * Seeds the first admin row from ADMIN_BOOTSTRAP_USER / ADMIN_BOOTSTRAP_PASS.
- * Idempotent: if the username already exists, exits 0 without changes.
+ * Upserts the bootstrap admin from ADMIN_BOOTSTRAP_USER / _EMAIL / _PASS.
+ *
+ * Re-running is safe: if a user with the same username exists, it's updated
+ * in place (email + password). After running scripts/drop-legacy.ts, the
+ * legacy `admins` table is gone — this script writes only to `users`.
  *
  * Usage: `bun run scripts/seed-admin.ts`
  */
 import { config } from "../src/config.ts";
-import { execute, pool } from "../src/db.ts";
+import { pool, transaction } from "../src/db.ts";
 import { hashPassword } from "../src/auth.ts";
 
-const USERNAME_RE = /^[A-Za-z0-9_.]{3,40}$/;
+const USERNAME_RE = /^[A-Za-z0-9_.-]{3,40}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LEN = 10;
 
-// MariaDB / MySQL duplicate-entry error code.
-const ER_DUP_ENTRY = 1062;
-
-interface MariaError {
-  errno?: number;
-  code?: string;
-}
-
-function isDuplicateKey(err: unknown): boolean {
-  if (typeof err !== "object" || err === null) return false;
-  const e = err as MariaError;
-  return e.errno === ER_DUP_ENTRY || e.code === "ER_DUP_ENTRY";
-}
-
 async function main(): Promise<number> {
-  const user = config.adminBootstrap.user;
+  const user = config.adminBootstrap.user.trim();
+  const email = config.adminBootstrap.email.trim().toLowerCase();
   const pass = config.adminBootstrap.pass;
 
-  if (!user || !pass) {
+  if (!user || !pass || !email) {
     console.error(
-      "error: ADMIN_BOOTSTRAP_USER and ADMIN_BOOTSTRAP_PASS must both be set",
+      "error: ADMIN_BOOTSTRAP_USER, ADMIN_BOOTSTRAP_EMAIL, and " +
+        "ADMIN_BOOTSTRAP_PASS must all be set",
     );
     return 1;
   }
-
   if (!USERNAME_RE.test(user)) {
     console.error(
-      "error: username must be 3-40 chars of ASCII letters, digits, underscore, or dot",
+      "error: username must be 3-40 chars of ASCII letters, digits, underscore, dot, or hyphen",
     );
     return 1;
   }
-
+  if (!EMAIL_RE.test(email) || email.length > 254) {
+    console.error("error: ADMIN_BOOTSTRAP_EMAIL must be a valid email address");
+    return 1;
+  }
   if (pass.length < MIN_PASSWORD_LEN) {
     console.error(`error: password must be at least ${MIN_PASSWORD_LEN} characters`);
     return 1;
@@ -50,21 +44,46 @@ async function main(): Promise<number> {
 
   const passwordHash = await hashPassword(pass);
 
-  try {
-    await execute(
-      "INSERT INTO admins (username, password_hash) VALUES (?, ?)",
-      [user, passwordHash],
+  await transaction(async (tx) => {
+    const existing = await tx.queryOne<{ id: number }>(
+      "SELECT id FROM users WHERE username = ? LIMIT 1",
+      [user],
     );
-    console.log(`created admin ${user}`);
-    return 0;
-  } catch (err: unknown) {
-    if (isDuplicateKey(err)) {
-      console.log("admin already exists, doing nothing");
-      return 0;
+
+    if (existing) {
+      // Make sure the new email isn't on a different user.
+      const conflict = await tx.queryOne<{ id: number }>(
+        "SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND id <> ? LIMIT 1",
+        [email, existing.id],
+      );
+      if (conflict) {
+        throw new Error(`email ${email} is already used by another user`);
+      }
+      await tx.execute(
+        `UPDATE users
+           SET email = ?, email_verified = 1, password_hash = ?, is_admin = 1
+         WHERE id = ?`,
+        [email, passwordHash, existing.id],
+      );
+      console.log(`updated admin ${user} (id=${existing.id})`);
+    } else {
+      const emailConflict = await tx.queryOne<{ id: number }>(
+        "SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1",
+        [email],
+      );
+      if (emailConflict) {
+        throw new Error(`email ${email} is already used by user id=${emailConflict.id}`);
+      }
+      const ins = await tx.execute(
+        `INSERT INTO users (username, email, email_verified, password_hash, is_admin)
+         VALUES (?, ?, 1, ?, 1)`,
+        [user, email, passwordHash],
+      );
+      console.log(`created admin ${user} (id=${ins.insertId})`);
     }
-    console.error("seed-admin failed:", err);
-    return 1;
-  }
+  });
+
+  return 0;
 }
 
 main()

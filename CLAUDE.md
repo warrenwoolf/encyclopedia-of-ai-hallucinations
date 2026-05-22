@@ -11,8 +11,8 @@ Co-founders: **Rudra Jadhav** and **Warren Woolf** (`Interrobang` / `warrenwoolf
 - **MariaDB** via the `mariadb` npm driver. Everything goes through `src/db.ts` (`query`, `queryOne`, `execute`, `transaction`). Always pass user values as `?` parameters; never interpolate into SQL.
 - **HTML rendering is XSS-safe via `h\`...\``** in `src/html.ts`. ALL HTML output goes through `h\`\`` or `raw()`. `raw()` is for constants you fully control — never on user input. Do not concatenate user strings into HTML, ever.
 - **CSRF:** HMAC-signed double-submit cookie + hidden field. Every form must include `<input type="hidden" name="_csrf" value="${csrfToken}">` and the handler must call `verifyCsrf(req, form.get("_csrf"))` before doing anything mutating.
-- **Rate-limiting:** in-memory token bucket per IP in `src/ratelimit.ts`. Buckets: `submit`, `login`, `withdraw`, `lookup`. Add a new bucket entry if you add a new POST that hits external services or writes to the DB on behalf of anonymous users.
-- **Sessions:** admin only. Cookie holds a random token; DB stores only its sha256. Logic in `src/auth.ts`.
+- **Rate-limiting:** in-memory token bucket per IP in `src/ratelimit.ts`. Buckets: `submit`, `login`, `signup`, `verify`, `oauth`, `withdraw`, `lookup`. Add a new bucket entry if you add a new POST that hits external services or writes to the DB on behalf of anonymous users.
+- **Sessions:** all users (admins are users with `is_admin=1`). Cookie holds a random token; DB stores only its sha256. Logic in `src/auth.ts`.
 
 ## Security model — do not weaken
 
@@ -39,6 +39,26 @@ The migration's `backfillEahNumbers()` step assigns numbers to existing `pending
 
 Legacy `submissions.public_id` (random 10-char base64url) is still generated for new rows for back-compat with any URL that was shared while the old scheme was live. `GET /e/:id` accepts either an A-number or a legacy public_id; the legacy path 301-redirects to the canonical `A######` URL.
 
+## Accounts
+
+Single `users` table — admins are just `is_admin=1` rows. There is no separate admins table (it was dropped via `scripts/drop-legacy.ts`).
+
+Auth model:
+
+- **Passwords:** argon2id via `Bun.password.hash` / `Bun.password.verify`. **No bcrypt** — verification of any non-argon2 hash returns false. If you find yourself needing to import bcryptjs, stop and add a password-reset flow instead.
+- **Google OAuth:** `arctic` (`src/oauth-google.ts`). State + PKCE verifier persisted in a 10-minute HMAC-signed HttpOnly cookie scoped to `/oauth/google/callback` — no DB table. `email_verified` claim must be true; sub is stored in `users.google_sub`. Linking policy: if Google email matches an existing verified password account, attach `google_sub` to that account.
+- **Email verification:** 6-digit code, 15-minute TTL, 5-attempt cap, in `email_verifications`. Codes are sha256-hashed in the DB; `consumeVerificationCode` does the timing-safe compare and the attempt-counter bookkeeping inside a transaction.
+- **Pending-verify cookie:** `eah_pending_verify` is an HMAC-signed cookie carrying `userId` that scopes to `/verify` only. Issued by `/signup` and `/login` when the target user is unverified. `/verify` reads it — sessions are NOT created until verification succeeds.
+- **Enumeration resistance:** `/signup` and `/verify/resend` MUST return the same response shape regardless of whether the email is already in use. The /signup POST always redirects to `/verify` with a pending-verify cookie (pointing at the existing user if any, or the newly-created one). Username collisions DO leak — usernames are public and the user needs to know to pick another.
+
+### Resend monthly cap
+
+Free tier is 300 sends/month. We read Resend's `x-resend-monthly-quota` response header after every API call and cache it in `src/email.ts`. `emailCapReached()` returns true when the cached value is ≥ `EMAIL_MONTHLY_CAP` (default 280; set 0 to disable). On cold start `primeQuotaCache()` does a best-effort `GET /domains` to seed the cache; if Resend is unreachable the gate fails open. If we're at cap, `/signup` hides the password form (Google is still offered) and returns 503 when both are unavailable.
+
+### Bootstrap admin
+
+`scripts/seed-admin.ts` upserts a single admin row from `ADMIN_BOOTSTRAP_{USER,EMAIL,PASS}`. It writes only to `users`. Re-running with new values updates the existing row.
+
 ## Submission & review flow
 
 - `/submit` enforces: 4-pending-drafts cap per email (only if email provided), required fields, all length caps, valid category, tag format `^[a-z0-9-]+$`, date parsing, URL validation.
@@ -60,7 +80,7 @@ Key columns on `submissions`:
 - `reviewed_by`, `reviewed_at`, `reviewer_notes` (private), `rejection_reason` (shown to submitter), `staff_review_message` (shown to submitter, included in decision email).
 - `ip_hash` (BINARY(32)).
 
-Other tables: `tags` + `submission_tags` join, `admins` + `admin_sessions`, `submission_messages` (chat), `freed_eah_numbers` (A-number pool).
+Other tables: `users` + `user_sessions` (account auth), `email_verifications` (signup codes), `tags` + `submission_tags` join, `submission_messages` (chat; `sender_user_id` FKs `users(id)`), `freed_eah_numbers` (A-number pool).
 
 ## Email (Resend)
 
@@ -91,9 +111,16 @@ Trigger points (all fire-and-forget):
 | GET    | `/draft/:token`                     | `routes/track.ts` (same view, friendlier URL) |
 | GET    | `/lookup`                           | `routes/lookup.ts` |
 | POST   | `/lookup`                           | `routes/lookup.ts` (email digest) |
-| GET    | `/admin/login`                      | `routes/admin/login.ts` |
-| POST   | `/admin/login`                      | `routes/admin/login.ts` |
-| POST   | `/admin/logout`                     | `routes/admin/login.ts` |
+| GET    | `/login`                            | `routes/login.ts` |
+| POST   | `/login`                            | `routes/login.ts` |
+| POST   | `/logout`                           | `routes/login.ts` |
+| GET    | `/signup`                           | `routes/signup.ts` |
+| POST   | `/signup`                           | `routes/signup.ts` |
+| GET    | `/verify`                           | `routes/verify.ts` |
+| POST   | `/verify`                           | `routes/verify.ts` |
+| POST   | `/verify/resend`                    | `routes/verify.ts` |
+| POST   | `/oauth/google/start`               | `routes/oauth-google-routes.ts` |
+| GET    | `/oauth/google/callback`            | `routes/oauth-google-routes.ts` |
 | GET    | `/admin/queue`                      | `routes/admin/queue.ts` |
 | GET    | `/admin/queue/:id`                  | `routes/admin/queue.ts` (detail + chat) |
 | POST   | `/admin/queue/:id`                  | `routes/admin/review.ts` (approve/reject) |
@@ -120,7 +147,9 @@ ssh eah '
 '
 ```
 
-`migrate.ts` is idempotent. `seed-admin.ts` is idempotent (DUP_ENTRY → no-op).
+`migrate.ts` is idempotent and additive (per the policy below). `seed-admin.ts` is idempotent (upserts the named admin into `users`).
+
+`scripts/drop-legacy.ts` is the one-shot destructive migration that retired the old `admins` / `admin_sessions` / `email_sends` tables and renamed `submission_messages.sender_admin_id` → `sender_user_id`. It's idempotent — re-running prints "nothing to do" — and should be run once after the accounts deploy. If any admin had a bcrypt password hash, it's NULLed by this script; re-run `seed-admin.ts` to restore it as argon2id.
 
 The deployment target may move at some point — keep the deploy commands flexible (an `eah` SSH alias, a generic `~/eah` path). Don't bake hostnames or absolute paths into source code; read from env where possible.
 

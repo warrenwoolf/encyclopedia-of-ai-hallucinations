@@ -160,16 +160,37 @@ header nav {
   align-items: baseline;
 }
 
-.admin-nav {
+/* Right-hand block in the header nav. The vertical separator bar is the
+ * `border-left` and is rendered whether the user is logged in or not, so
+ * the layout doesn't jump when authentication state changes. */
+.user-nav {
   color: var(--muted);
   font-size: 0.9em;
   margin-left: 1em;
   border-left: 1px solid var(--rule);
   padding-left: 1em;
   display: inline-flex;
-  gap: 0.8em;
+  gap: 0.5em;
+  align-items: baseline;
 }
-.admin-nav a:link, .admin-nav a:visited { color: var(--muted); }
+.user-nav a:link, .user-nav a:visited { color: var(--muted); }
+
+/* "Continue with Google" — same vibe as the rest of the site; no Google blue,
+ * no logo. Pure form, sits above the password fields. */
+.oauth-form { margin: 0 0 0.6em 0; padding: 0; }
+.oauth-button {
+  font: inherit;
+  background: var(--bg, transparent);
+  border: 1px solid var(--rule);
+  padding: 0.5em 0.9em;
+  cursor: pointer;
+  color: inherit;
+}
+.oauth-divider {
+  text-align: center;
+  margin: 0.4em 0 0.8em 0;
+  font-size: 0.9em;
+}
 
 .linkbutton {
   background: none;

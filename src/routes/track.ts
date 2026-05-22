@@ -11,7 +11,7 @@
  */
 import { createHash } from "node:crypto";
 import { h, raw, type SafeHtml } from "../html.ts";
-import { layout } from "../layout.ts";
+import { layout, pageResponse } from "../layout.ts";
 import { query, queryOne, transaction } from "../db.ts";
 import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { check as rateCheck } from "../ratelimit.ts";
@@ -135,7 +135,7 @@ function chatThread(opts: {
 }
 
 /** Common renderer for "draft view" reachable via either GET /track?code= or /draft/:token. */
-async function renderDraftView(req: Request, ctx: { admin: any }, code: string): Promise<Response> {
+async function renderDraftView(req: Request, ctx: { user: any }, code: string): Promise<Response> {
   const { token: csrf, setCookie } = tokenForRequest(req);
 
   if (!code || code.length > CODE_MAXLEN) {
@@ -143,8 +143,8 @@ async function renderDraftView(req: Request, ctx: { admin: any }, code: string):
       ${lookupForm({ csrf, code: "" })}
       ${code ? h`<p>No submission with that code.</p>` : trackExplainer()}
     `;
-    return htmlResponse(
-      layout({ title: "Track · EAH", heading: "Track a submission", body, admin: ctx.admin }),
+    return pageResponse(req,
+      { title: "Track · EAH", heading: "Track a submission", body, user: ctx.user },
       { setCookie },
     );
   }
@@ -163,17 +163,17 @@ async function renderDraftView(req: Request, ctx: { admin: any }, code: string):
       ${lookupForm({ csrf, code })}
       <p>No submission with that code.</p>
     `;
-    return htmlResponse(
-      layout({ title: "Track · EAH", heading: "Track a submission", body, admin: ctx.admin }),
+    return pageResponse(req,
+      { title: "Track · EAH", heading: "Track a submission", body, user: ctx.user },
       { setCookie },
     );
   }
 
   // Fetch the chat thread.
   const messages = await query<MessageRow>(
-    `SELECT m.id, m.sender_type, a.username AS sender_admin_username, m.body, m.created_at
+    `SELECT m.id, m.sender_type, u.username AS sender_admin_username, m.body, m.created_at
        FROM submission_messages m
-       LEFT JOIN admins a ON a.id = m.sender_admin_id
+       LEFT JOIN users u ON u.id = m.sender_user_id
        WHERE m.submission_id = ?
        ORDER BY m.created_at ASC, m.id ASC`,
     [row.id],
@@ -244,10 +244,10 @@ async function renderDraftView(req: Request, ctx: { admin: any }, code: string):
     ${chatThread({ messages, csrf, code, canReply: row.status === "pending" })}
   `;
 
-  return htmlResponse(
-    layout({ title: "Track · EAH", heading: "Track a submission", body, admin: ctx.admin }),
-    { setCookie },
-  );
+  return pageResponse(req,
+      { title: "Track · EAH", heading: "Track a submission", body, user: ctx.user },
+      { setCookie },
+    );
 }
 
 export const trackGet: RouteHandler = async (req, ctx) => {
@@ -258,8 +258,8 @@ export const trackGet: RouteHandler = async (req, ctx) => {
       ${trackExplainer()}
       ${lookupForm({ csrf: token, code: "" })}
     `;
-    return htmlResponse(
-      layout({ title: "Track · EAH", heading: "Track a submission", body, admin: ctx.admin }),
+    return pageResponse(req,
+      { title: "Track · EAH", heading: "Track a submission", body, user: ctx.user },
       { setCookie },
     );
   }
@@ -276,8 +276,8 @@ export const trackWithdrawPost: RouteHandler = async (req, ctx) => {
   const rl = rateCheck("withdraw", ctx.ip);
   if (!rl.allowed) {
     const body = h`<p>Too many withdrawal requests. Please retry in ${rl.retryAfterSec ?? 60} seconds.</p>`;
-    return htmlResponse(
-      layout({ title: "Rate limited · EAH", heading: "Slow down", body, admin: ctx.admin }),
+    return pageResponse(req,
+      { title: "Rate limited · EAH", heading: "Slow down", body, user: ctx.user },
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } },
     );
   }
@@ -287,16 +287,16 @@ export const trackWithdrawPost: RouteHandler = async (req, ctx) => {
     form = await parseForm(req, 8 * 1024);
   } catch {
     const body = h`<p>Request too large.</p>`;
-    return htmlResponse(
-      layout({ title: "Error · EAH", heading: "Error", body, admin: ctx.admin }),
+    return pageResponse(req,
+      { title: "Error · EAH", heading: "Error", body, user: ctx.user },
       { status: 413 },
     );
   }
 
   if (!verifyCsrf(req, form.get("_csrf"))) {
     const body = h`<p>Invalid CSRF token. Reload the form and try again.</p>`;
-    return htmlResponse(
-      layout({ title: "Forbidden · EAH", heading: "Forbidden", body, admin: ctx.admin }),
+    return pageResponse(req,
+      { title: "Forbidden · EAH", heading: "Forbidden", body, user: ctx.user },
       { status: 403 },
     );
   }
@@ -348,8 +348,8 @@ export const trackMessagePost: RouteHandler = async (req, ctx) => {
   const rl = rateCheck("withdraw", ctx.ip);
   if (!rl.allowed) {
     const body = h`<p>Too many messages from this IP. Please retry in ${rl.retryAfterSec ?? 60} seconds.</p>`;
-    return htmlResponse(
-      layout({ title: "Rate limited · EAH", heading: "Slow down", body, admin: ctx.admin }),
+    return pageResponse(req,
+      { title: "Rate limited · EAH", heading: "Slow down", body, user: ctx.user },
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } },
     );
   }
@@ -363,8 +363,8 @@ export const trackMessagePost: RouteHandler = async (req, ctx) => {
 
   if (!verifyCsrf(req, form.get("_csrf"))) {
     const body = h`<p>Invalid CSRF token. Reload the form and try again.</p>`;
-    return htmlResponse(
-      layout({ title: "Forbidden · EAH", heading: "Forbidden", body, admin: ctx.admin }),
+    return pageResponse(req,
+      { title: "Forbidden · EAH", heading: "Forbidden", body, user: ctx.user },
       { status: 403 },
     );
   }

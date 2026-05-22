@@ -29,6 +29,61 @@ interface SendArgs {
 
 let warnedNoKey = false;
 
+/**
+ * Used monthly quota, as reported by Resend in the `x-resend-monthly-quota`
+ * response header. Updated after every Resend call (success or failure),
+ * and seeded by a best-effort startup probe in `primeQuotaCache`.
+ *
+ * `null` = we haven't heard from Resend yet this process. In that case
+ * `emailCapReached()` fails open (allow the send). The next Resend response
+ * will update the cache; if we're actually at cap, we'll get a 422 and the
+ * subsequent decision-time check will block.
+ *
+ * Reset to 0 silently at the start of each calendar month — the cap is a
+ * monthly counter on Resend's side, and our cache mirrors that.
+ */
+let cachedMonthlyUsed: number | null = null;
+let cachedMonthKey: string = "";
+
+function currentMonthKey(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${(d.getUTCMonth() + 1).toString().padStart(2, "0")}`;
+}
+
+/** Update the cache from a Resend response's headers. Tolerates missing values. */
+function updateQuotaFromHeaders(headers: Headers): void {
+  // The header is documented as "your used monthly email sending quota" —
+  // an integer count. Tolerate missing-or-bad values by leaving the cache.
+  const raw = headers.get("x-resend-monthly-quota");
+  if (raw === null) return;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return;
+  cachedMonthlyUsed = n;
+  cachedMonthKey = currentMonthKey();
+}
+
+/**
+ * Fire-and-forget startup probe to fetch the current quota before we've
+ * sent anything. Hits GET /domains because it's idempotent, free, and
+ * Resend's gateway still attaches the quota headers.
+ *
+ * Called from server.ts on boot. Failure is silent — first real send will
+ * populate the cache instead.
+ */
+export async function primeQuotaCache(): Promise<void> {
+  if (!config.email.resendApiKey) return;
+  try {
+    const resp = await fetch("https://api.resend.com/domains", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${config.email.resendApiKey}` },
+      signal: AbortSignal.timeout(8_000),
+    });
+    updateQuotaFromHeaders(resp.headers);
+  } catch {
+    // Best-effort.
+  }
+}
+
 async function send(args: SendArgs): Promise<void> {
   if (!config.email.resendApiKey) {
     if (!warnedNoKey) {
@@ -61,6 +116,8 @@ async function send(args: SendArgs): Promise<void> {
       // Cap the wait so a stuck request can't hang an admin review POST.
       signal: AbortSignal.timeout(10_000),
     });
+    // Quota headers are returned on success AND error responses. Always read.
+    updateQuotaFromHeaders(resp.headers);
     if (!resp.ok) {
       const text = await resp.text().catch(() => "<unreadable>");
       console.error(
@@ -70,6 +127,34 @@ async function send(args: SendArgs): Promise<void> {
   } catch (err) {
     console.error(`[email] send failed for ${redactEmail(args.to)}:`, err);
   }
+}
+
+/**
+ * Best-known used monthly quota. Null if we haven't observed Resend yet —
+ * fall back to fail-open in that case.
+ *
+ * The cache resets silently at month boundaries so a long-running process
+ * doesn't keep an old quota across the reset point.
+ */
+export function emailsSentThisMonth(): number | null {
+  if (cachedMonthKey !== currentMonthKey()) {
+    // New month rolled over since we last cached; Resend's count will reset.
+    return null;
+  }
+  return cachedMonthlyUsed;
+}
+
+/**
+ * True iff we know we're at or past the configured cap. False on null
+ * (unknown) — first send will populate the cache and a subsequent attempt
+ * will see the truth.
+ */
+export function emailCapReached(): boolean {
+  const cap = config.email.monthlyCap;
+  if (cap <= 0) return false; // 0 disables the gate
+  const used = emailsSentThisMonth();
+  if (used === null) return false;
+  return used >= cap;
 }
 
 /** Show 'b***@example.com' in logs so a stray log dump doesn't leak addresses. */
@@ -240,6 +325,39 @@ export async function sendDecision(opts: {
   htmlParts.push(`<p><a href="${escape(trackUrl(trackingCode))}">Track this submission</a></p>`);
 
   await send({ to, subject, text, html: htmlWrap(htmlParts.join("")) });
+}
+
+/**
+ * Sent during email-based signup. Body contains the 6-digit code. Anyone with
+ * the code can take over the half-finished account before it's verified, so
+ * the cap on attempts (5) + TTL (15 min) live in auth.ts and are enforced
+ * server-side; this function just delivers the digits.
+ */
+export async function sendVerificationCode(opts: {
+  to: string;
+  code: string;
+  username: string;
+}): Promise<void> {
+  const { to, code, username } = opts;
+  const subject = `EAH: your verification code is ${code}`;
+  const text =
+    `Hi ${username},\n\n` +
+    `Your verification code for the Encyclopedia of AI Hallucinations is:\n\n` +
+    `    ${code}\n\n` +
+    `It expires in 15 minutes. Enter it on the verification page to finish ` +
+    `creating your account.\n\n` +
+    `If you didn't try to create an account, ignore this email — the half-` +
+    `finished account will be deleted automatically.\n`;
+  const html = htmlWrap(
+    `<p>Hi <strong>${escape(username)}</strong>,</p>` +
+      `<p>Your verification code for the <strong>Encyclopedia of AI Hallucinations</strong> is:</p>` +
+      `<p style="font-size:1.6em;font-family:monospace;letter-spacing:0.2em;padding:0.6em 0;text-align:center">` +
+      `${escape(code)}</p>` +
+      `<p>It expires in 15 minutes. Enter it on the verification page to finish creating your account.</p>` +
+      `<p><small>If you didn't try to create an account, ignore this email — the half-finished ` +
+      `account will be deleted automatically.</small></p>`,
+  );
+  await send({ to, subject, text, html });
 }
 
 /**

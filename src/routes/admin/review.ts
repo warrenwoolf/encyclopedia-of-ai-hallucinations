@@ -143,7 +143,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
                   staff_review_message = ?,
                   rejection_reason = NULL
             WHERE id = ?`,
-          [ctx.admin!.adminId, verifiedHits, verifiedTotal, reviewerNotes, staffReviewMessage, id],
+          [ctx.admin!.userId, verifiedHits, verifiedTotal, reviewerNotes, staffReviewMessage, id],
         );
         // Post a 'system' message into the chat thread so the submitter sees
         // the decision in-place.
@@ -164,7 +164,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
                   verified_hits = ?,
                   verified_total = ?
             WHERE id = ?`,
-          [ctx.admin!.adminId, rejectionReason, reviewerNotes, staffReviewMessage, verifiedHits, verifiedTotal, id],
+          [ctx.admin!.userId, rejectionReason, reviewerNotes, staffReviewMessage, verifiedHits, verifiedTotal, id],
         );
         // OEIS rule: a rejected draft's A-number returns to the pool. Do this
         // here, inside the same transaction, so we never expose a "rejected
@@ -254,9 +254,9 @@ export async function postReviewMessage(req: Request, ctx: RouteContext): Promis
   if (!exists) return badRequest("Submission not found.", 404);
 
   await execute(
-    `INSERT INTO submission_messages (submission_id, sender_type, sender_admin_id, body)
+    `INSERT INTO submission_messages (submission_id, sender_type, sender_user_id, body)
      VALUES (?, 'staff', ?, ?)`,
-    [id, ctx.admin.adminId, body],
+    [id, ctx.admin.userId, body],
   );
 
   // Fire-and-forget email notification to the submitter (if they gave one).

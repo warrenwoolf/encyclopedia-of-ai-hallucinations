@@ -5,7 +5,7 @@
  */
 import { randomBytes, createHash } from "node:crypto";
 import { h, raw, type SafeHtml } from "../html.ts";
-import { layout } from "../layout.ts";
+import { layout, pageResponse } from "../layout.ts";
 import { execute, transaction, queryOne } from "../db.ts";
 import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { check as rateCheck } from "../ratelimit.ts";
@@ -163,17 +163,17 @@ function renderForm(opts: {
   `;
 }
 
-function showForm(req: Request, ctx: { admin: any }, opts: { values?: FormValues; error?: string | null; status?: number } = {}): Response {
+function showForm(req: Request, ctx: { user: any }, opts: { values?: FormValues; error?: string | null; status?: number } = {}): Response {
   const { token, setCookie } = tokenForRequest(req);
   const body = renderForm({
     values: opts.values ?? emptyForm(),
     csrf: token,
     error: opts.error ?? null,
   });
-  return htmlResponse(
-    layout({ title: "Submit · EAH", heading: "Submit a hallucination", body, admin: ctx.admin }),
-    { status: opts.status ?? 200, setCookie },
-  );
+  return pageResponse(req,
+      { title: "Submit · EAH", heading: "Submit a hallucination", body, user: ctx.user },
+      { status: opts.status ?? 200, setCookie },
+    );
 }
 
 function urlSafeId(bytes: number, length: number): string {
@@ -247,8 +247,8 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   const rl = rateCheck("submit", ctx.ip);
   if (!rl.allowed) {
     const body = h`<p>Too many submissions. Please retry in ${rl.retryAfterSec ?? 60} seconds.</p>`;
-    return htmlResponse(
-      layout({ title: "Rate limited · EAH", heading: "Slow down", body, admin: ctx.admin }),
+    return pageResponse(req,
+      { title: "Rate limited · EAH", heading: "Slow down", body, user: ctx.user },
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } },
     );
   }
@@ -263,8 +263,8 @@ export const submitPost: RouteHandler = async (req, ctx) => {
 
   if (!verifyCsrf(req, form.get("_csrf"))) {
     const body = h`<p>Invalid CSRF token. Reload the form and try again.</p>`;
-    return htmlResponse(
-      layout({ title: "Forbidden · EAH", heading: "Forbidden", body, admin: ctx.admin }),
+    return pageResponse(req,
+      { title: "Forbidden · EAH", heading: "Forbidden", body, user: ctx.user },
       { status: 403 },
     );
   }
@@ -483,10 +483,10 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     <p>If approved, your entry will live at <code>/e/${eahId}</code>.</p>
     <p><a href="/">Back to home</a> · <a href="/submit">Submit another</a></p>
   `;
-  return htmlResponse(layout({
+  return pageResponse(req, {
     title: "Submission received · EAH",
     heading: "Submission received",
     body,
-    admin: ctx.admin,
-  }));
+    user: ctx.user,
+  });
 };

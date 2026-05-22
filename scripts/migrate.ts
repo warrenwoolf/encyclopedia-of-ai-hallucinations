@@ -56,22 +56,52 @@ const TABLES: TableSpec[] = [
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   },
   {
-    name: "admins",
-    sql: `CREATE TABLE IF NOT EXISTS admins (
-      id            INT AUTO_INCREMENT PRIMARY KEY,
-      username      VARCHAR(40) UNIQUE NOT NULL,
-      password_hash VARCHAR(120) NOT NULL,
-      created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+    // Unified user accounts. An admin is a user with is_admin=1.
+    //
+    //   - `password_hash` is nullable: Google-only users have no password.
+    //     Passwords are argon2id only (Bun.password.hash).
+    //   - `google_sub` is Google's stable subject ID (NOT the email; emails
+    //     can be reassigned, sub cannot).
+    //   - `email_verified` is set to 1 after a successful 6-digit code
+    //     confirmation, or immediately for Google sign-ins (Google verified
+    //     the email for us).
+    name: "users",
+    sql: `CREATE TABLE IF NOT EXISTS users (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      username        VARCHAR(40) UNIQUE NOT NULL,
+      email           VARCHAR(254) UNIQUE NOT NULL,
+      email_verified  TINYINT(1) NOT NULL DEFAULT 0,
+      password_hash   VARCHAR(120) NULL,
+      google_sub      VARCHAR(255) UNIQUE NULL,
+      is_admin        TINYINT(1) NOT NULL DEFAULT 0,
+      created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_login_at   DATETIME NULL
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   },
   {
-    name: "admin_sessions",
-    sql: `CREATE TABLE IF NOT EXISTS admin_sessions (
+    // Session cookie -> user mapping. Only sha256(token) is stored. A row's
+    // existence + non-expired expires_at is what authenticates a request.
+    name: "user_sessions",
+    sql: `CREATE TABLE IF NOT EXISTS user_sessions (
       token_hash   BINARY(32) PRIMARY KEY,
-      admin_id     INT NOT NULL,
+      user_id      INT NOT NULL,
       created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
       expires_at   DATETIME NOT NULL,
-      FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      INDEX idx_user_expires (user_id, expires_at)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+  },
+  {
+    // 6-digit email verification codes. One row per outstanding code per user;
+    // sending a new one DELETEs the previous row (see auth.ts). `attempts` is
+    // a check counter to defeat brute-force of the 6-digit space.
+    name: "email_verifications",
+    sql: `CREATE TABLE IF NOT EXISTS email_verifications (
+      user_id     INT PRIMARY KEY,
+      code_hash   BINARY(32) NOT NULL,
+      expires_at  DATETIME NOT NULL,
+      attempts    INT NOT NULL DEFAULT 0,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   },
   {
@@ -89,21 +119,22 @@ const TABLES: TableSpec[] = [
     //   - /track?code=… (the submitter's view)
     //   - /admin/queue/:id (the staff view)
     //
-    // sender_type: 'staff' messages come from an admin (sender_admin_id set);
-    // 'user' messages come from the submitter authenticated by their tracking
-    // code (sender_admin_id is NULL). 'system' is reserved for status-change
-    // notes posted automatically on accept/reject/withdraw.
+    // sender_type: 'staff' messages come from an admin (sender_user_id set
+    // to a users.id with is_admin=1); 'user' messages come from the submitter
+    // authenticated by their tracking code (sender_user_id may be NULL or set
+    // if the submitter is a logged-in user). 'system' is reserved for
+    // status-change notes posted automatically on accept/reject/withdraw.
     name: "submission_messages",
     sql: `CREATE TABLE IF NOT EXISTS submission_messages (
       id              INT AUTO_INCREMENT PRIMARY KEY,
       submission_id   INT NOT NULL,
       sender_type     ENUM('staff','user','system') NOT NULL,
-      sender_admin_id INT NULL,
+      sender_user_id  INT NULL,
       body            TEXT NOT NULL,
       created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_submission (submission_id, created_at),
-      FOREIGN KEY (submission_id)   REFERENCES submissions(id) ON DELETE CASCADE,
-      FOREIGN KEY (sender_admin_id) REFERENCES admins(id)      ON DELETE SET NULL
+      FOREIGN KEY (submission_id)  REFERENCES submissions(id) ON DELETE CASCADE,
+      FOREIGN KEY (sender_user_id) REFERENCES users(id)       ON DELETE SET NULL
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   },
 ];

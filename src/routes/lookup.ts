@@ -8,7 +8,7 @@
  * We do NOT show the tracking codes on the page. They go only via email.
  */
 import { h } from "../html.ts";
-import { layout } from "../layout.ts";
+import { layout, pageResponse } from "../layout.ts";
 import { query } from "../db.ts";
 import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { check as rateCheck } from "../ratelimit.ts";
@@ -45,15 +45,16 @@ function lookupForm(csrf: string, value: string) {
   `;
 }
 
-function confirmationPage(ctx: { admin: any }, setCookie?: string | null): Response {
+function confirmationPage(req: Request, ctx: { user: any }, setCookie?: string | null): Response {
   const body = h`
     <p>If we have any submissions on file for that email address, we've sent
        you an email with tracking links for each of them.</p>
     <p>Check your inbox (and spam folder). It may take a minute or two.</p>
     <p><a href="/">Home</a> · <a href="/track">Track by code instead</a></p>
   `;
-  return htmlResponse(
-    layout({ title: "Lookup · EAH", heading: "Check your inbox", body, admin: ctx.admin }),
+  return pageResponse(
+    req,
+    { title: "Lookup · EAH", heading: "Check your inbox", body, user: ctx.user },
     { setCookie: setCookie ?? null },
   );
 }
@@ -65,7 +66,7 @@ export const lookupGet: RouteHandler = (req, ctx) => {
     ${lookupForm(token, "")}
   `;
   return htmlResponse(
-    layout({ title: "Lookup by email · EAH", heading: "Lookup by email", body, admin: ctx.admin }),
+    layout({ title: "Lookup by email · EAH", heading: "Lookup by email", body, user: ctx.user, csrfToken: token }),
     { setCookie },
   );
 };
@@ -76,8 +77,8 @@ export const lookupPost: RouteHandler = async (req, ctx) => {
   const rl = rateCheck("lookup", ctx.ip);
   if (!rl.allowed) {
     const body = h`<p>Too many lookup requests. Please retry in ${rl.retryAfterSec ?? 60} seconds.</p>`;
-    return htmlResponse(
-      layout({ title: "Rate limited · EAH", heading: "Slow down", body, admin: ctx.admin }),
+    return pageResponse(req,
+      { title: "Rate limited · EAH", heading: "Slow down", body, user: ctx.user },
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } },
     );
   }
@@ -91,8 +92,8 @@ export const lookupPost: RouteHandler = async (req, ctx) => {
 
   if (!verifyCsrf(req, form.get("_csrf"))) {
     const body = h`<p>Invalid CSRF token. Reload the form and try again.</p>`;
-    return htmlResponse(
-      layout({ title: "Forbidden · EAH", heading: "Forbidden", body, admin: ctx.admin }),
+    return pageResponse(req,
+      { title: "Forbidden · EAH", heading: "Forbidden", body, user: ctx.user },
       { status: 403 },
     );
   }
@@ -102,7 +103,7 @@ export const lookupPost: RouteHandler = async (req, ctx) => {
   // Soft validation only — we don't tell the user the email was malformed,
   // because that's an enumeration leak. We just show the same confirmation.
   if (email.length === 0 || email.length > EMAIL_MAX || !EMAIL_RE.test(email)) {
-    return confirmationPage(ctx);
+    return confirmationPage(req, ctx);
   }
 
   // submissions.notify_token holds the plaintext tracking code when (and
@@ -128,7 +129,7 @@ export const lookupPost: RouteHandler = async (req, ctx) => {
     );
   } catch (err) {
     console.error("[lookup] query failed:", err);
-    return confirmationPage(ctx);
+    return confirmationPage(req, ctx);
   }
 
   const submissions = rows
@@ -147,5 +148,5 @@ export const lookupPost: RouteHandler = async (req, ctx) => {
     await sendLookupDigest({ to: email, submissions });
   }
 
-  return confirmationPage(ctx);
+  return confirmationPage(req, ctx);
 };

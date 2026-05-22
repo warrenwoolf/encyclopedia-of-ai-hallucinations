@@ -133,7 +133,7 @@ export async function getQueue(req: Request, ctx: RouteContext): Promise<Respons
     title: "Admin queue",
     heading: "Pending submissions",
     body,
-    admin: { username: ctx.admin.username, csrfToken },
+    user: ctx.user, csrfToken,
   });
   return htmlResponse(html, { setCookie });
 }
@@ -168,9 +168,9 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
   );
 
   const messages = await query<MessageRow>(
-    `SELECT m.id, m.sender_type, a.username AS sender_admin_username, m.body, m.created_at
+    `SELECT m.id, m.sender_type, u.username AS sender_admin_username, m.body, m.created_at
        FROM submission_messages m
-       LEFT JOIN admins a ON a.id = m.sender_admin_id
+       LEFT JOIN users u ON u.id = m.sender_user_id
        WHERE m.submission_id = ?
        ORDER BY m.created_at ASC, m.id ASC`,
     [id],
@@ -334,7 +334,7 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
     title: `Submission #${row.id}`,
     heading: `${eahId || "(unnumbered)"} — ${row.title ?? "(no title)"} ${statusBadge(row.status)}`,
     body,
-    admin: { username: ctx.admin.username, csrfToken },
+    user: ctx.user, csrfToken,
   });
   return htmlResponse(html, { setCookie: csrfSetCookie });
 }
@@ -344,7 +344,7 @@ function notFound(ctx: RouteContext): Response {
     title: "Not found",
     heading: "Submission not found",
     body: h`<p>No submission with that id. <a href="/admin/queue">Back to queue</a>.</p>`,
-    admin: ctx.admin ? { username: ctx.admin.username } : null,
+    user: ctx.user,
   });
   return htmlResponse(body, { status: 404 });
 }

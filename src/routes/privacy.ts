@@ -3,10 +3,10 @@
  */
 import { config } from "../config.ts";
 import { h } from "../html.ts";
-import { layout } from "../layout.ts";
-import { htmlResponse, type RouteHandler } from "./types.ts";
+import { pageResponse } from "../layout.ts";
+import { type RouteHandler } from "./types.ts";
 
-export const privacy: RouteHandler = (_req, ctx) => {
+export const privacy: RouteHandler = (req, ctx) => {
   const privacyEmail = config.email.privacy;
   const body = h`
     <p>This policy describes what data the Encyclopedia of AI Hallucinations
@@ -107,10 +107,10 @@ export const privacy: RouteHandler = (_req, ctx) => {
 
     <p class="muted">Last updated: 2026-05-20.</p>
   `;
-  return htmlResponse(layout({
+  return pageResponse(req, {
     title: "Privacy · EAH",
     heading: "Privacy",
     body,
-    admin: ctx.admin,
-  }));
+    user: ctx.user,
+  });
 };

@@ -10,6 +10,7 @@
 import { config, isProd } from "./config.ts";
 import { gc as ratelimitGc } from "./ratelimit.ts";
 import { getSessionFromRequest, purgeExpiredSessions } from "./auth.ts";
+import { primeQuotaCache } from "./email.ts";
 import type { RouteContext, RouteHandler } from "./routes/types.ts";
 
 import { home } from "./routes/home.ts";
@@ -22,7 +23,10 @@ import {
 import { lookupGet, lookupPost } from "./routes/lookup.ts";
 import { about } from "./routes/about.ts";
 import { privacy } from "./routes/privacy.ts";
-import { getLogin, postLogin, postLogout } from "./routes/admin/login.ts";
+import { getLogin, postLogin, postLogout } from "./routes/login.ts";
+import { getSignup, postSignup } from "./routes/signup.ts";
+import { getVerify, postVerify, postVerifyResend } from "./routes/verify.ts";
+import { postOauthStart, getOauthCallback } from "./routes/oauth-google-routes.ts";
 import { getQueue, getQueueDetail } from "./routes/admin/queue.ts";
 import { postReview, postReviewMessage } from "./routes/admin/review.ts";
 import {
@@ -66,10 +70,17 @@ const ROUTES: RouteDef[] = [
   route("GET", "/draft/:token", draftGet),
   route("GET", "/lookup", lookupGet),
   route("POST", "/lookup", lookupPost),
-  // Admin
-  route("GET", "/admin/login", getLogin),
-  route("POST", "/admin/login", postLogin),
-  route("POST", "/admin/logout", postLogout),
+  // Accounts (users + admins use the same login surface)
+  route("GET", "/login", getLogin),
+  route("POST", "/login", postLogin),
+  route("POST", "/logout", postLogout),
+  route("GET", "/signup", getSignup),
+  route("POST", "/signup", postSignup),
+  route("GET", "/verify", getVerify),
+  route("POST", "/verify", postVerify),
+  route("POST", "/verify/resend", postVerifyResend),
+  route("POST", "/oauth/google/start", postOauthStart),
+  route("GET", "/oauth/google/callback", getOauthCallback),
   route("GET", "/admin/queue", getQueue),
   route("GET", "/admin/queue/:id", getQueueDetail),
   route("POST", "/admin/queue/:id", postReview),
@@ -187,9 +198,13 @@ async function handle(req: Request, server: any): Promise<Response> {
     }
   }
 
-  // Load admin session for every request (cheap; one indexed lookup at most).
+  // Load user session for every request (cheap; one indexed lookup at most).
   // If the cookie isn't present, this returns null quickly without hitting the DB.
-  const admin = await getSessionFromRequest(req).catch(() => null);
+  const user = await getSessionFromRequest(req).catch(() => null);
+  // `admin` is the same session, but only set when the user is an admin —
+  // lets admin route handlers keep their `if (!ctx.admin) return authRedirect()`
+  // gating pattern without an isAdmin check at every site.
+  const admin = user && user.isAdmin ? user : null;
 
   if (!matched) {
     // 404 — try to render a styled page via the layout module.
@@ -199,7 +214,7 @@ async function handle(req: Request, server: any): Promise<Response> {
     const body = h`<p>The page you requested does not exist.</p>
       <p><a href="/">Home</a> · <a href="/browse">Browse</a></p>`;
     return htmlResponse(
-      layout({ title: "Not found · EAH", heading: "Not found", body, admin }),
+      layout({ title: "Not found · EAH", heading: "Not found", body, user }),
       { status: 404 },
     );
   }
@@ -220,6 +235,7 @@ async function handle(req: Request, server: any): Promise<Response> {
     params,
     url,
     ip: clientIp(req, server),
+    user,
     admin,
   };
 
@@ -232,7 +248,7 @@ async function handle(req: Request, server: any): Promise<Response> {
     const { htmlResponse } = await import("./routes/types.ts");
     const body = h`<p>Something went wrong on our end. Please try again later.</p>`;
     return htmlResponse(
-      layout({ title: "Server error · EAH", heading: "Server error", body, admin }),
+      layout({ title: "Server error · EAH", heading: "Server error", body, user }),
       { status: 500 },
     );
   }
@@ -252,6 +268,11 @@ const server = Bun.serve({
 });
 
 console.log(`EAH listening on http://${server.hostname}:${server.port}`);
+
+// Best-effort probe of Resend's `x-resend-monthly-quota` header on cold start
+// so the signup form knows whether we're at cap before any send happens. Fire
+// and forget; a failure here just leaves the cache empty (fail-open).
+void primeQuotaCache();
 
 // Periodic GC for in-memory rate-limit buckets and expired sessions.
 setInterval(() => {

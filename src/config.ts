@@ -66,10 +66,35 @@ export const config = {
     replyTo: optional("EMAIL_REPLY_TO", "noreply@eah.warrenwoolf.com"),
     /** Public-facing address for privacy / data-deletion requests. Shown on /privacy. */
     privacy: optional("PRIVACY_EMAIL", "privacy@eah.warrenwoolf.com"),
+    /**
+     * Monthly send cap. Free Resend tier is 300/month; we default to 280 to
+     * leave headroom for transactional review-decision mail after we hide
+     * the email-signup option. Set to 0 to disable the gate entirely.
+     */
+    monthlyCap: parseInt(optional("EMAIL_MONTHLY_CAP", "280"), 10),
+  },
+
+  /**
+   * Google OAuth 2.0 client. When either id or secret is unset, the
+   * "Continue with Google" button is hidden and the routes return 404.
+   */
+  googleOAuth: {
+    clientId: optional("GOOGLE_CLIENT_ID", ""),
+    clientSecret: optionalFile("GOOGLE_CLIENT_SECRET", ""),
+    /**
+     * Must match a "Authorized redirect URI" in the Cloud Console exactly,
+     * including scheme and trailing slash. Computed from publicBaseUrl by
+     * default but explicit override is supported.
+     */
+    redirectUri: optional(
+      "GOOGLE_REDIRECT_URI",
+      `${optional("PUBLIC_BASE_URL", "https://eah.warrenwoolf.com")}/oauth/google/callback`,
+    ),
   },
 
   adminBootstrap: {
     user: optional("ADMIN_BOOTSTRAP_USER", ""),
+    email: optional("ADMIN_BOOTSTRAP_EMAIL", ""),
     pass: optional("ADMIN_BOOTSTRAP_PASS", ""),
   },
 } as const;

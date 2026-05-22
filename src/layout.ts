@@ -1,10 +1,12 @@
 /** Base HTML layout. */
 import { h, raw, renderToString, SafeHtml } from "./html.ts";
 import { config } from "./config.ts";
+import type { UserSession } from "./auth.ts";
+import { tokenForRequest } from "./csrf.ts";
+import { htmlResponse } from "./routes/types.ts";
 
 // Inlined so it inherits `currentColor` from .site-title (works in dark mode).
-// Original source: a hand-drawn strawberry outline (black on transparent).
-const STRAWBERRY_SVG = raw(`<svg class="site-logo" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 86.687119 119.88264" fill="currentColor"><g transform="translate(-68.656442,-48.045543)"><path transform="translate(-5.16016,-6.0622311)" d="m 117.16016,54.111328 c -1.25118,-0.0613 -2.49453,0.670109 -3.83985,2.214844 -3.22658,3.704838 -5.09808,8.077316 -6.59375,13.021484 -6.28128,-3.513 -12.364911,-6.549587 -19.474607,-6.257812 -5.749763,0.235966 -6.74279,1.588913 -5.431641,7.103515 1.270867,5.3452 7.842756,13.343664 8.294922,13.810547 -14.502195,6.649729 -20.209159,25.174744 -13.509765,41.992184 5.851975,14.69019 14.204365,27.85257 24.347651,39.87891 4.73278,5.61139 10.36552,8.31883 16.20704,8.10352 v -6.72657 c -4.23611,0.0804 -8.46368,-2.47515 -12.59961,-7.68945 -8.407015,-10.59894 -15.607807,-22.00705 -20.962894,-34.48438 -5.887299,-13.71735 -3.323318,-24.69568 7.675782,-33.441401 2.211273,-1.166587 3.836006,-1.954614 6.164062,-3.083985 -0.789993,3.178001 -1.587921,5.637429 -1.988281,8.160157 -0.806869,5.084179 0.904403,6.728999 6.001951,6.249999 5.84351,-0.61905 11.42225,-4.272927 15.70899,-8.734374 v -14.125 c -3.41329,-3.166667 -4.96908,-10.504443 0,-16.203125 z M 89.642578,70.261719 c 6.32267,0.449875 12.930272,3.101524 16.013672,9.68164 -5.54372,0.570946 -13.861687,-3.572845 -16.013672,-9.68164 z m 23.521482,14.308593 c -1.35242,6.306916 -5.01654,9.717346 -10.58008,10.470704 0.53997,-6.007918 4.41432,-9.688054 10.58008,-10.470704 z M 91.539062,110.70703 c -1.533331,0 -2.794921,1.26159 -2.794921,2.79492 v 3.5625 c 0,1.53333 1.261591,2.79492 2.794921,2.79493 h 0.128907 c 1.533331,0 2.794922,-1.2616 2.794922,-2.79493 v -3.5625 c 0,-1.53333 -1.261591,-2.79492 -2.794922,-2.79492 z m 10.845708,21.7793 c -1.53334,0 -2.794926,1.26354 -2.794926,2.79687 v 3.56055 c 0,1.53333 1.261586,2.79687 2.794926,2.79687 h 0.1289 c 1.53333,0 2.79492,-1.26354 2.79492,-2.79687 v -3.56055 c 0,-1.53333 -1.26159,-2.79687 -2.79492,-2.79687 z m 14.77539,-78.375002 c 1.25118,-0.0613 2.49453,0.670109 3.83985,2.214844 3.22658,3.704838 5.09808,8.077316 6.59375,13.021484 6.28128,-3.513 12.36491,-6.549587 19.47461,-6.257812 5.74976,0.235966 6.74279,1.588913 5.43164,7.103515 -1.27087,5.3452 -7.84276,13.343664 -8.29492,13.810547 14.50219,6.649729 20.20915,25.174744 13.50976,41.992184 -5.85197,14.69019 -14.20436,27.85257 -24.34765,39.87891 -4.73278,5.61139 -10.36552,8.31883 -16.20704,8.10352 v -6.72657 c 4.23611,0.0804 8.46368,-2.47515 12.59961,-7.68945 8.40701,-10.59894 15.60781,-22.00705 20.96289,-34.48438 5.8873,-13.71735 3.32332,-24.69568 -7.67578,-33.441401 -2.21127,-1.166587 -3.836,-1.954614 -6.16406,-3.083985 0.78999,3.178001 1.58792,5.637429 1.98828,8.160157 0.80687,5.084179 -0.9044,6.728999 -6.00195,6.249999 -5.84351,-0.61905 -11.42225,-4.272927 -15.70899,-8.734374 v -14.125 c 3.41329,-3.166667 4.96908,-10.504443 0,-16.203125 z m 27.51758,16.150391 c -6.32267,0.449875 -12.93027,3.101524 -16.01367,9.68164 5.54372,0.570946 13.86169,-3.572845 16.01367,-9.68164 z m -23.52148,14.308593 c 1.35242,6.306916 5.01654,9.717346 10.58008,10.470704 -0.53997,-6.007918 -4.41432,-9.688054 -10.58008,-10.470704 z m 21.625,26.136718 c 1.53333,0 2.79492,1.26159 2.79492,2.79492 v 3.5625 c 0,1.53333 -1.26159,2.79492 -2.79492,2.79493 h -0.12891 c -1.53333,0 -2.79492,-1.2616 -2.79492,-2.79493 v -3.5625 c 0,-1.53333 1.26159,-2.79492 2.79492,-2.79492 z m -10.84571,21.7793 c 1.53334,0 2.79493,1.26354 2.79493,2.79687 v 3.56055 c 0,1.53333 -1.26159,2.79687 -2.79493,2.79687 h -0.1289 c -1.53333,0 -2.79492,-1.26354 -2.79492,-2.79687 v -3.56055 c 0,-1.53333 1.26159,-2.79687 2.79492,-2.79687 z"/></g><g transform="translate(-73.816602,-54.107774)"><path d="m 117.16016,159.25 v -9.15234 c -0.002,-1e-5 -0.004,0 -0.006,0 h -0.12891 c -1.53333,0 -2.79492,1.26159 -2.79492,2.79492 v 3.56054 c 0,1.53335 1.26159,2.79688 2.79492,2.79688 h 0.12891 z m 0,0 v -9.15234 c 0.002,-1e-5 0.004,0 0.006,0 h 0.12891 c 1.53333,0 2.79492,1.26159 2.79492,2.79492 v 3.56054 c 0,1.53335 -1.26159,2.79688 -2.79492,2.79688 h -0.12891 z"/><path d="m 117.16016,119.85938 v -9.15235 h -0.006 -0.12891 c -1.53333,0 -2.79492,1.26159 -2.79492,2.79492 v 3.5625 c 0,1.53333 1.26159,2.79493 2.79492,2.79493 h 0.12891 z m 0,0 v -9.15235 h 0.006 0.12891 c 1.53333,0 2.79492,1.26159 2.79492,2.79492 v 3.5625 c 0,1.53333 -1.26159,2.79493 -2.79492,2.79493 h -0.12891 z"/></g></svg>`);
+const STRAWBERRY_SVG = raw(await Bun.file("./src/static/logo.svg").text());
 
 export interface LayoutOptions {
   title: string;
@@ -12,13 +14,45 @@ export interface LayoutOptions {
   /** If set, shown as an h1 above the body. */
   heading?: string;
   /**
-   * Show admin nav (only if logged-in admin context). The csrfToken is used by
-   * the logout form so the POST passes CSRF verification. If omitted, the
-   * logout button is rendered without it and will be 403'd by the handler.
+   * Signed-in user (admin or not). The user-nav block shows either
+   * "log in · sign up" (when null) or "signed in as X · [admin links if
+   * isAdmin] · log out" (otherwise). A vertical separator bar is always
+   * present so the layout doesn't jump when state changes.
+   *
+   * `csrfToken` is used by the logout form so the POST passes verification.
+   * If omitted, logout still renders but will be 403'd by the handler.
    */
-  admin?: { username: string; csrfToken?: string } | null;
+  user?: UserSession | null;
+  csrfToken?: string;
   /** Optional sub-nav links above the body. */
   subnav?: SafeHtml | null;
+}
+
+/**
+ * Convenience wrapper that combines layout + tokenForRequest + htmlResponse.
+ *
+ * Use this from routes that don't otherwise need to manage the CSRF cookie
+ * themselves. It guarantees the logout form in the nav has a valid CSRF
+ * token even on pages whose own bodies don't render any forms.
+ *
+ * Routes that DO render their own forms typically call tokenForRequest +
+ * htmlResponse explicitly and pass `csrfToken` into `layout()`; those keep
+ * working unchanged.
+ */
+export function pageResponse(
+  req: Request,
+  opts: Omit<LayoutOptions, "csrfToken">,
+  init?: { status?: number; headers?: Record<string, string>; setCookie?: string | null },
+): Response {
+  const { token, setCookie } = tokenForRequest(req);
+  const html = layout({ ...opts, csrfToken: token });
+  return htmlResponse(html, {
+    status: init?.status,
+    headers: init?.headers,
+    // Caller-supplied setCookie wins (e.g. a session cookie being set on
+    // the same response); fall back to the CSRF cookie if we minted one.
+    setCookie: init?.setCookie ?? setCookie,
+  });
 }
 
 export function layout(opts: LayoutOptions): string {
@@ -29,17 +63,30 @@ export function layout(opts: LayoutOptions): string {
       </div>`
     : raw("");
 
-  const adminNav = opts.admin
-    ? h`<span class="admin-nav">
-        signed in as <strong>${opts.admin.username}</strong> ·
-        <a href="/admin/queue">queue</a> ·
-        <a href="/admin/all">all</a> ·
-        <form class="inline-form" method="post" action="/admin/logout">
-          <input type="hidden" name="_csrf" value="${opts.admin.csrfToken ?? ""}">
+  // User nav: always rendered (so the separator bar is always visible).
+  // - logged out → "log in · sign up"
+  // - logged in → "signed in as X · [admin links] · log out"
+  const csrfToken = opts.csrfToken ?? "";
+  let userNav: SafeHtml;
+  if (opts.user) {
+    const adminLinks = opts.user.isAdmin
+      ? h`<a href="/admin/queue">queue</a> ·
+          <a href="/admin/all">all</a> ·`
+      : raw("");
+    userNav = h`<span class="user-nav">
+        signed in as <strong>${opts.user.username}</strong> ·
+        ${adminLinks}
+        <form class="inline-form" method="post" action="/logout">
+          <input type="hidden" name="_csrf" value="${csrfToken}">
           <button class="linkbutton" type="submit">log out</button>
         </form>
-      </span>`
-    : raw("");
+      </span>`;
+  } else {
+    userNav = h`<span class="user-nav">
+        <a href="/login">log in</a> ·
+        <a href="/signup">sign up</a>
+      </span>`;
+  }
 
   const heading = opts.heading
     ? h`<h1>${opts.heading}</h1>`
@@ -77,7 +124,7 @@ export function layout(opts: LayoutOptions): string {
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">
           <span class="theme-icon">◐</span><span class="theme-label">theme</span>
         </button>
-        ${adminNav}
+        ${userNav}
       </nav>
     </header>
     <main>

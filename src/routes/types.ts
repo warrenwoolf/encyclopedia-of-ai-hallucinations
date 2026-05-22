@@ -1,13 +1,21 @@
 /**
  * Shared route handler types and small HTTP helpers used by every route.
  */
-import type { AdminSession } from "../auth.ts";
+import type { UserSession } from "../auth.ts";
 
 export interface RouteContext {
   params: Record<string, string>;
   url: URL;
   ip: string;
-  admin: AdminSession | null;
+  /** Logged-in user (admin or not), or null. */
+  user: UserSession | null;
+  /**
+   * Same data as `user` but only set when the user is an admin. Lets admin
+   * route handlers keep their `if (!ctx.admin) return authRedirect()` pattern
+   * without an `isAdmin` check at every site. Non-admin users see this as
+   * null even when logged in.
+   */
+  admin: UserSession | null;
 }
 
 export type RouteHandler = (req: Request, ctx: RouteContext) => Promise<Response> | Response;
