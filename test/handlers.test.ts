@@ -6,8 +6,10 @@
  * avoid cross-file mock leakage; per-test behavior is controlled via the
  * mutable `db` object and reset in beforeEach.
  */
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import type { RouteContext } from "../src/routes/types.ts";
+
+const handlerDescribe = process.env.EAH_TEST_DB === "1" ? describe.skip : describe;
 
 // ── mutable db behavior, closed over by the mock factory ──────────────────────
 const db = {
@@ -22,21 +24,75 @@ const db = {
     }),
 };
 
-mock.module("../src/db.ts", () => ({
-  pool: { getConnection: async () => ({}) },
-  query: (sql: string, params?: unknown[]) => db.query(sql, params),
-  queryOne: (sql: string, params?: unknown[]) => db.queryOne(sql, params),
-  execute: (sql: string, params?: unknown[]) => db.execute(sql, params),
-  transaction: (fn: any) => db.transaction(fn),
-}));
+// Handler references populated in beforeAll, after the mock is installed.
+let usernameCheck: any;
+let rss: any;
+let sitemap: any;
+let entry: any;
+let postReview: any;
+let postReviewMessage: any;
+let postBulk: any;
 
-// Import handlers AFTER the mock is registered.
-const { usernameCheck } = await import("../src/routes/api.ts");
-const { rss } = await import("../src/routes/rss.ts");
-const { sitemap } = await import("../src/routes/sitemap.ts");
-const { entry } = await import("../src/routes/entry.ts");
-const { postReview, postReviewMessage } = await import("../src/routes/admin/review.ts");
-const { postBulk } = await import("../src/routes/admin/bulk.ts");
+// Saved real module — captured under a separate import key so Bun does not
+// live-update it when the mocked `../src/db.ts` binding changes.
+let _savedRealDb: any;
+const realDbUrl = new URL("../src/db.ts?real=1", import.meta.url).href;
+
+// Install the db mock and import handlers inside beforeAll rather than at
+// module-load time. This is critical: all test files are evaluated (static
+// imports resolved) before any beforeAll runs. By deferring mock.module to
+// beforeAll, db.test.ts's static `import from "../../src/db.ts"` sees the
+// REAL module when the file is first evaluated, not the mock. Without this,
+// mock.module at module level would contaminate the integration tests.
+//
+// We also save the real module BEFORE calling mock.module so that afterAll
+// can reliably restore it via mock.module again (restoring live bindings for
+// all modules that imported src/db.ts, including the integration harness).
+beforeAll(async () => {
+  // Save the real implementation before installing the mock.
+  _savedRealDb = await import(realDbUrl);
+
+  // When running the full test suite with a real integration DB (EAH_TEST_DB=1)
+  // we must NOT install the db mock here. Installing a mock at runtime can
+  // race with other test files and contaminate the integration harness. In
+  // that mode we simply import the handlers normally so they use the real
+  // `src/db.ts` implementation created by the preload.
+  if (process.env.EAH_TEST_DB === "1") {
+    usernameCheck = (await import("../src/routes/api.ts")).usernameCheck;
+    rss = (await import("../src/routes/rss.ts")).rss;
+    sitemap = (await import("../src/routes/sitemap.ts")).sitemap;
+    entry = (await import("../src/routes/entry.ts")).entry;
+    ({ postReview, postReviewMessage } = await import("../src/routes/admin/review.ts"));
+    postBulk = (await import("../src/routes/admin/bulk.ts")).postBulk;
+    return;
+  }
+
+  mock.module("../src/db.ts", () => ({
+    pool: { getConnection: async () => ({}), end: async () => {} },
+    query: (sql: string, params?: unknown[]) => db.query(sql, params),
+    queryOne: (sql: string, params?: unknown[]) => db.queryOne(sql, params),
+    execute: (sql: string, params?: unknown[]) => db.execute(sql, params),
+    transaction: (fn: any) => db.transaction(fn),
+  }));
+
+  // Import handlers AFTER the mock is registered so they pick up the mock.
+  usernameCheck = (await import("../src/routes/api.ts")).usernameCheck;
+  rss = (await import("../src/routes/rss.ts")).rss;
+  sitemap = (await import("../src/routes/sitemap.ts")).sitemap;
+  entry = (await import("../src/routes/entry.ts")).entry;
+  ({ postReview, postReviewMessage } = await import("../src/routes/admin/review.ts"));
+  postBulk = (await import("../src/routes/admin/bulk.ts")).postBulk;
+});
+
+// Restore the real src/db.ts after all handler tests complete so the
+// integration suite (which runs in the same Bun process) sees the real pool.
+// Without this restore, mock.module's live-binding replacement would cause
+// the integration test's already-resolved static imports to point at the mock.
+afterAll(() => {
+  if (_savedRealDb) {
+    mock.module("../src/db.ts", () => ({ ..._savedRealDb }));
+  }
+});
 
 function ctx(opts: Partial<RouteContext> & { path?: string; ip?: string } = {}): RouteContext {
   const url = new URL(opts.path ?? "http://localhost:8090/");
@@ -57,7 +113,7 @@ beforeEach(() => {
 
 // ── /api/username-check ───────────────────────────────────────────────────────
 
-describe("GET /api/username-check", () => {
+handlerDescribe("GET /api/username-check", () => {
   test("returns JSON content type", async () => {
     const res = await usernameCheck(
       new Request("http://x/api/username-check?u=newname"),
@@ -113,7 +169,7 @@ describe("GET /api/username-check", () => {
 
 // ── /rss ──────────────────────────────────────────────────────────────────────
 
-describe("GET /rss", () => {
+handlerDescribe("GET /rss", () => {
   test("sets the RSS content type and is well-formed at the top level", async () => {
     db.query = async () => [];
     const res = await rss(new Request("http://x/rss"), ctx());
@@ -169,7 +225,7 @@ describe("GET /rss", () => {
 
 // ── /sitemap.xml ────────────────────────────────────────────────────────────
 
-describe("GET /sitemap.xml", () => {
+handlerDescribe("GET /sitemap.xml", () => {
   test("returns XML with the static pages and published entry URLs", async () => {
     db.query = async () => [
       { eah_number: 1, lastmod: new Date("2026-05-21T00:00:00Z") },
@@ -187,7 +243,7 @@ describe("GET /sitemap.xml", () => {
 
 // ── /e/:public_id ─────────────────────────────────────────────────────────────
 
-describe("GET /e/:public_id", () => {
+handlerDescribe("GET /e/:public_id", () => {
   test("404 for a malformed id (no DB hit)", async () => {
     let hit = false;
     db.queryOne = async () => {
@@ -232,7 +288,7 @@ describe("GET /e/:public_id", () => {
 
 // ── admin auth gate (no DB hit on the unauthenticated path) ───────────────────
 
-describe("admin actions redirect unauthenticated requests to a REAL login route", () => {
+handlerDescribe("admin actions redirect unauthenticated requests to a REAL login route", () => {
   // BUG D (see TESTING_HANDOFF.md): postReview / postReviewMessage / postBulk
   // redirect to "/admin/login", which is NOT a registered route (the login page
   // is "/login"). So an unauthenticated admin POST lands on a 404. The

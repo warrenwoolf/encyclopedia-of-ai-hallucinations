@@ -62,7 +62,7 @@ function parseText(raw: string | null, name: string, max: number): string | null
 
 export async function postReview(req: Request, ctx: RouteContext): Promise<Response> {
   if (!ctx.admin) {
-    return new Response(null, { status: 303, headers: { Location: "/admin/login" } });
+    return new Response(null, { status: 303, headers: { Location: "/login" } });
   }
 
   const idStr = ctx.params.id;
@@ -131,8 +131,10 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   try {
     await transaction(async (tx) => {
       if (action === "approve") {
-        // Reminder: verify mathematical correctness before approving. See submit.ts note.
-        await tx.execute(
+        // Only publish rows that are still pending. This prevents an already-
+        // decided submission (rejected/withdrawn) from being republished and
+        // losing its A-number (Bug E).
+        const res = await tx.execute(
           `UPDATE submissions
               SET status = 'published',
                   reviewed_by = ?,
@@ -142,18 +144,18 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
                   reviewer_notes = ?,
                   staff_review_message = ?,
                   rejection_reason = NULL
-            WHERE id = ?`,
+            WHERE id = ? AND status = 'pending'`,
           [ctx.admin!.userId, verifiedHits, verifiedTotal, reviewerNotes, staffReviewMessage, id],
         );
-        // Post a 'system' message into the chat thread so the submitter sees
-        // the decision in-place.
-        await tx.execute(
-          `INSERT INTO submission_messages (submission_id, sender_type, body)
-           VALUES (?, 'system', ?)`,
-          [id, `Submission approved and published${staffReviewMessage ? ` with a note from the reviewer (see below).` : `.`}`],
-        );
+        if (res.affectedRows > 0) {
+          await tx.execute(
+            `INSERT INTO submission_messages (submission_id, sender_type, body)
+             VALUES (?, 'system', ?)`,
+            [id, `Submission approved and published${staffReviewMessage ? ` with a note from the reviewer (see below).` : `.`}`],
+          );
+        }
       } else {
-        await tx.execute(
+        const res = await tx.execute(
           `UPDATE submissions
               SET status = 'rejected',
                   reviewed_by = ?,
@@ -163,18 +165,20 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
                   staff_review_message = ?,
                   verified_hits = ?,
                   verified_total = ?
-            WHERE id = ?`,
+            WHERE id = ? AND status = 'pending'`,
           [ctx.admin!.userId, rejectionReason, reviewerNotes, staffReviewMessage, verifiedHits, verifiedTotal, id],
         );
-        // OEIS rule: a rejected draft's A-number returns to the pool. Do this
-        // here, inside the same transaction, so we never expose a "rejected
-        // with live A-number" state to readers.
-        await freeEahNumber(tx, id);
-        await tx.execute(
-          `INSERT INTO submission_messages (submission_id, sender_type, body)
-           VALUES (?, 'system', ?)`,
-          [id, `Submission rejected. The reserved A-number has been returned to the pool.`],
-        );
+        if (res.affectedRows > 0) {
+          // OEIS rule: a rejected draft's A-number returns to the pool. Do
+          // this inside the same transaction so we never expose a "rejected
+          // with live A-number" state to readers.
+          await freeEahNumber(tx, id);
+          await tx.execute(
+            `INSERT INTO submission_messages (submission_id, sender_type, body)
+             VALUES (?, 'system', ?)`,
+            [id, `Submission rejected. The reserved A-number has been returned to the pool.`],
+          );
+        }
       }
     });
   } catch (err) {
@@ -210,7 +214,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
  */
 export async function postReviewMessage(req: Request, ctx: RouteContext): Promise<Response> {
   if (!ctx.admin) {
-    return new Response(null, { status: 303, headers: { Location: "/admin/login" } });
+    return new Response(null, { status: 303, headers: { Location: "/login" } });
   }
 
   const idStr = ctx.params.id;

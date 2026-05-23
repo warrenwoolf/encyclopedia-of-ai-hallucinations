@@ -25,7 +25,7 @@ const MAX_IDS = 50;
 
 export async function postBulk(req: Request, ctx: RouteContext): Promise<Response> {
   if (!ctx.admin) {
-    return new Response(null, { status: 303, headers: { Location: "/admin/login" } });
+    return new Response(null, { status: 303, headers: { Location: "/login" } });
   }
 
   let form: URLSearchParams;
@@ -62,7 +62,7 @@ export async function postBulk(req: Request, ctx: RouteContext): Promise<Respons
     try {
       await transaction(async (tx) => {
         if (action === "approve") {
-          await tx.execute(
+          const res = await tx.execute(
             `UPDATE submissions
                 SET status = 'published',
                     reviewed_by = ?,
@@ -71,13 +71,15 @@ export async function postBulk(req: Request, ctx: RouteContext): Promise<Respons
               WHERE id = ? AND status = 'pending'`,
             [reviewedBy, id],
           );
-          await tx.execute(
-            `INSERT INTO submission_messages (submission_id, sender_type, body)
-             VALUES (?, 'system', 'Submission approved and published (bulk action).')`,
-            [id],
-          );
+          if (res.affectedRows > 0) {
+            await tx.execute(
+              `INSERT INTO submission_messages (submission_id, sender_type, body)
+               VALUES (?, 'system', 'Submission approved and published (bulk action).')`,
+              [id],
+            );
+          }
         } else {
-          await tx.execute(
+          const res = await tx.execute(
             `UPDATE submissions
                 SET status = 'rejected',
                     reviewed_by = ?,
@@ -85,13 +87,15 @@ export async function postBulk(req: Request, ctx: RouteContext): Promise<Respons
               WHERE id = ? AND status = 'pending'`,
             [reviewedBy, id],
           );
-          // OEIS rule: freed numbers return to the pool in the same tx.
-          await freeEahNumber(tx, id);
-          await tx.execute(
-            `INSERT INTO submission_messages (submission_id, sender_type, body)
-             VALUES (?, 'system', 'Submission rejected (bulk action). The reserved A-number has been returned to the pool.')`,
-            [id],
-          );
+          if (res.affectedRows > 0) {
+            // OEIS rule: freed numbers return to the pool in the same tx.
+            await freeEahNumber(tx, id);
+            await tx.execute(
+              `INSERT INTO submission_messages (submission_id, sender_type, body)
+               VALUES (?, 'system', 'Submission rejected (bulk action). The reserved A-number has been returned to the pool.')`,
+              [id],
+            );
+          }
         }
       });
     } catch (err) {

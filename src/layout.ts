@@ -76,6 +76,7 @@ export function layout(opts: LayoutOptions): string {
     userNav = h`<span class="user-nav">
         signed in as <strong>${opts.user.username}</strong> ·
         ${adminLinks}
+        <a href="/my/submissions">my drafts</a> ·
         <form class="inline-form" method="post" action="/logout">
           <input type="hidden" name="_csrf" value="${csrfToken}">
           <button class="linkbutton" type="submit">log out</button>
@@ -102,6 +103,7 @@ export function layout(opts: LayoutOptions): string {
     <meta name="robots" content="noindex,nofollow">
     <title>${opts.title}</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="alternate" type="application/rss+xml" title="Encyclopedia of AI Hallucinations" href="/rss">
     <script src="/static/theme.js"></script>
   </head>
   <body>
@@ -118,8 +120,6 @@ export function layout(opts: LayoutOptions): string {
       <nav>
         <a href="/browse">browse</a>
         <a href="/submit">submit</a>
-        <a href="/track">track</a>
-        <a href="/lookup">lookup</a>
         <a href="/about">about</a>
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">
           <span class="theme-icon">◐</span><span class="theme-label">theme</span>
@@ -133,7 +133,7 @@ export function layout(opts: LayoutOptions): string {
       ${opts.body}
     </main>
     <footer>
-      <p><a href="/about">about</a> · <a href="/privacy">privacy</a></p>
+      <p><a href="/about">about</a> · <a href="/privacy">privacy</a> · <a href="/rss">rss</a></p>
       <p class="muted">Founded in 2026 by Rudra Jadhav and Warren Woolf.</p>
     </footer>
   </body>
