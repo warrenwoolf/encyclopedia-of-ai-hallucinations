@@ -26,7 +26,7 @@ import { postOauthStart, getOauthCallback } from "./routes/oauth-google-routes.t
 import { getQueue, getQueueDetail } from "./routes/admin/queue.ts";
 import { postReview, postReviewMessage } from "./routes/admin/review.ts";
 import {
-  getNewEntry, postNewEntry, getEditEntry, postEditEntry, postEntryStatus,
+  getNewEntry, postNewEntry, getEditEntry, postEditEntry, postEntryStatus, redirectToEntry,
 } from "./routes/admin/entries.ts";
 import { getAll } from "./routes/admin/all.ts";
 import {
@@ -107,10 +107,10 @@ const ROUTES: RouteDef[] = [
   route("GET", "/admin/entries/:eahId/edit", getEditEntry),
   route("POST", "/admin/entries/:eahId/edit", postEditEntry),
   route("POST", "/admin/entries/:eahId/status", postEntryStatus),
+  // Jump-to-entry helper used by the admin jump-to form.
+  route("GET", "/admin/entries/redirect", redirectToEntry),
   // Bulk approve/reject from the admin all-submissions view.
-  route("POST", "/admin/bulk",                  postBulk),
-  // NOTE: GET /admin/entries/redirect (redirectToEntry) will be added by B4
-  // once that handler is implemented in src/routes/admin/entries.ts.
+  route("POST", "/admin/bulk", postBulk),
 ];
 
 const SECURITY_HEADERS: Record<string, string> = {
