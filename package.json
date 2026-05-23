@@ -11,7 +11,7 @@
     "drop-legacy": "bun scripts/drop-legacy.ts"
   },
   "dependencies": {
-    "arctic": "^3.7.0",
+    
     "mariadb": "^3.4.0"
   },
   "devDependencies": {

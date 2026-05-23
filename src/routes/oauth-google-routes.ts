@@ -51,20 +51,6 @@ async function failure(reason: string): Promise<Response> {
 export async function postOauthStart(req: Request, ctx: RouteContext): Promise<Response> {
   // Legacy redirect flow is no longer supported; encourage the embedded GIS flow.
   return await notConfigured();
-
-  const rl = rateLimitCheck("oauth", ctx.ip);
-  if (!rl.allowed) {
-    return htmlResponse(
-      await layout({
-        title: "Too many attempts",
-        heading: "Slow down",
-        body: h`<p>Please wait a bit before retrying.</p>`,
-      }),
-      { status: 429 },
-    );
-  }
-
-}
 }
 
 /**
