@@ -153,6 +153,13 @@ ssh eah '
 
 The deployment target may move at some point — keep the deploy commands flexible (an `eah` SSH alias, a generic `~/eah` path). Don't bake hostnames or absolute paths into source code; read from env where possible.
 
+## Testing
+
+- `bun test` runs the unit suite against a **mocked `src/db.ts`** (no MariaDB). `EAH_TEST_DB=1 bun test test/integration/` spins up a throwaway MariaDB in Docker (see `test/setup.ts`).
+- **`mock.module` bleeds across test files.** Bun resolves every test file's static imports before any `beforeAll` runs, and `mock.module` installs a *live binding* that updates already-imported references process-wide. So if file A mocks a widely-imported module (`src/config.ts`, `src/db.ts`), file B's `import { config }` sees the mock too — even across files. Two consequences worth remembering:
+  - When you mock such a module, save the real one first and restore it in `afterAll` (the `handlers.test.ts` db-mock and `oauth-google.test.ts` config-mock both do this).
+  - Don't write assertions in one file that depend on the *default value* of something another file mocks (e.g. `config.googleOAuth.clientId === ""`). Assert the **shape**, not the value, or the test is order-dependent and flaky. This bit during the JWKS migration: `oauth-google.test.ts` mocks `config` to give `clientId` a value, which broke a value-assertion in `config.test.ts`.
+
 ## House style
 
 - **No hover effects, no animations, no fancy CSS.** OEIS-flavored: serif body, plain forms, simple tables.
