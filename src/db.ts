@@ -31,7 +31,9 @@ export async function query<T = any>(sql: string, params: unknown[] = []): Promi
       for (const r of rows) cleaned.push(r);
       return cleaned;
     }
-    return rows as T[];
+    // Normalize single-object results into a one-element array so callers
+    // (and queryOne) can always index into the returned value safely.
+    return [rows] as unknown as T[];
   } finally {
     conn.release();
   }
@@ -73,9 +75,17 @@ export async function transaction<T>(
     await conn.beginTransaction();
     const txQuery = async <U = any>(sql: string, params: unknown[] = []): Promise<U[]> => {
       const rows = await conn.query(sql, params);
-      const cleaned: U[] = [];
-      if (Array.isArray(rows)) for (const r of rows) cleaned.push(r);
-      return cleaned;
+      // mariadb driver sometimes returns a single object for aggregate/selects
+      // instead of an array. Mirror the top-level `query()` behaviour: when
+      // an array is returned, return a cleaned array; otherwise wrap the
+      // single-row result in an array so callers always get a consistent
+      // array shape.
+      if (Array.isArray(rows)) {
+        const cleaned: U[] = [];
+        for (const r of rows) cleaned.push(r);
+        return cleaned;
+      }
+      return [rows] as unknown as U[];
     };
     const result = await fn({
       query: txQuery,
