@@ -137,6 +137,30 @@ const TABLES: TableSpec[] = [
       FOREIGN KEY (sender_user_id) REFERENCES users(id)       ON DELETE SET NULL
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   },
+  {
+    // Audit log of field-by-field diffs on user-owned draft submissions.
+    // Grouped by version_num (all fields changed in a single edit share the
+    // same version_num). version_num is scoped per submission_id. Rows are
+    // inserted by src/versions.ts → recordVersionDiffs(), which must be called
+    // inside the same transaction as the UPDATE on submissions so the snapshot
+    // is consistent.
+    //
+    // Must appear AFTER submissions and users in TABLES so FK resolution works.
+    name: "submission_versions",
+    sql: `CREATE TABLE IF NOT EXISTS submission_versions (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      submission_id   INT NOT NULL,
+      version_num     INT NOT NULL,
+      changed_by      INT NULL,
+      changed_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      field_name      VARCHAR(60) NOT NULL,
+      old_value       MEDIUMTEXT,
+      new_value       MEDIUMTEXT,
+      INDEX idx_sub_ver (submission_id, version_num),
+      FOREIGN KEY (submission_id) REFERENCES submissions(id) ON DELETE CASCADE,
+      FOREIGN KEY (changed_by)    REFERENCES users(id) ON DELETE SET NULL
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+  },
 ];
 
 /**
@@ -228,6 +252,44 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; sql: string }> = 
     table: "submissions",
     column: "idx_eah_number",
     sql: "ALTER TABLE submissions ADD INDEX IF NOT EXISTS idx_eah_number (eah_number)",
+  },
+  // ── Draft-overhaul additions (Bug L fix) ─────────────────────────────────────
+  // submit.ts, my.ts, and versions.ts depend on these. Without them the draft
+  // workflow and even anonymous submit fail against a freshly-migrated DB.
+  {
+    // Links a logged-in user's draft to their account. NULL for anonymous
+    // submissions. SET NULL on user deletion so the submission outlives the
+    // account (an admin can still review/publish it).
+    table: "submissions",
+    column: "owner_user_id",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS owner_user_id INT NULL",
+  },
+  {
+    // FK must be a separate ALTER because MariaDB's ADD COLUMN IF NOT EXISTS
+    // does not support an inline REFERENCES clause. ADD FOREIGN KEY IF NOT
+    // EXISTS is the idempotent form (ADD CONSTRAINT IF NOT EXISTS is not
+    // supported in MariaDB 11.4 for FOREIGN KEY).
+    table: "submissions",
+    column: "fk_sub_owner",
+    sql: "ALTER TABLE submissions ADD FOREIGN KEY IF NOT EXISTS fk_sub_owner (owner_user_id) REFERENCES users(id) ON DELETE SET NULL",
+  },
+  {
+    // Speeds up /my/submissions queries that filter by owner_user_id.
+    table: "submissions",
+    column: "idx_owner",
+    sql: "ALTER TABLE submissions ADD INDEX IF NOT EXISTS idx_owner (owner_user_id)",
+  },
+  {
+    // Extend the moderation status enum to include 'draft'. MODIFY COLUMN is
+    // safe here — adding a new enum value does not change existing rows, and
+    // MariaDB can perform it in-place without a table rebuild.
+    //
+    // Default changes from 'pending' to 'draft': logged-in submitters now land
+    // in draft status; anonymous submitters are explicitly set to 'pending' in
+    // submit.ts, so the default is only reached for draft inserts.
+    table: "submissions",
+    column: "status_with_draft",
+    sql: "ALTER TABLE submissions MODIFY COLUMN status ENUM('draft','pending','published','rejected','withdrawn') NOT NULL DEFAULT 'draft'",
   },
 ];
 
