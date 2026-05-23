@@ -21,6 +21,7 @@ import {
 import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { check as rateLimitCheck } from "../ratelimit.ts";
 import { googleOAuthEnabled } from "../oauth-google.ts";
+import { config } from "../config.ts";
 import { htmlResponse, parseForm, type RouteContext } from "./types.ts";
 
 function csrfErrorResponse(): Response {
@@ -35,10 +36,21 @@ function csrfErrorResponse(): Response {
 function googleButton(csrfToken: string): SafeHtml {
   if (!googleOAuthEnabled()) return raw("");
   return h`
-    <form method="post" action="/oauth/google/start" class="oauth-form">
-      <input type="hidden" name="_csrf" value="${csrfToken}">
-      <button type="submit" class="oauth-button">Continue with Google</button>
-    </form>
+    <div id="g_id_onload" data-client_id="${config.googleOAuth.clientId}" data-auto_prompt="false" data-callback="handleGisCredential"></div>
+    <div id="g_id_signin"></div>
+    <script>
+      function handleGisCredential(resp) {
+        const token = resp?.credential;
+        if (!token) return window.location.reload();
+        const f = new FormData();
+        f.append('credential', token);
+        f.append('_csrf', '${csrfToken}');
+        fetch('/oauth/google/verify', { method: 'POST', body: f, credentials: 'same-origin' })
+          .then(() => { window.location.href = '/'; })
+          .catch(() => { window.location.href = '/login'; });
+      }
+      window.handleGisCredential = handleGisCredential;
+    </script>
     <p class="muted oauth-divider">or sign in with username/email and password</p>
   `;
 }

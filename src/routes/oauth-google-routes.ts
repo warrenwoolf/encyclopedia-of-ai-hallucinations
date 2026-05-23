@@ -17,9 +17,7 @@ import { verifyCsrf } from "../csrf.ts";
 import { check as rateLimitCheck } from "../ratelimit.ts";
 import {
   googleOAuthEnabled,
-  startAuthorization,
-  handleCallback,
-  clearStateCookie,
+  verifyIdToken,
 } from "../oauth-google.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "./types.ts";
 
@@ -46,12 +44,13 @@ async function failure(reason: string): Promise<Response> {
       body: h`<p>Google sign-in didn't complete. Try again or use a password.</p>
               <p><a href="/login">Back to sign in</a></p>`,
     }),
-    { status: 400, setCookie: clearStateCookie() },
+    { status: 400 },
   );
 }
 
 export async function postOauthStart(req: Request, ctx: RouteContext): Promise<Response> {
-  if (!googleOAuthEnabled()) return await notConfigured();
+  // Legacy redirect flow is no longer supported; encourage the embedded GIS flow.
+  return await notConfigured();
 
   const rl = rateLimitCheck("oauth", ctx.ip);
   if (!rl.allowed) {
@@ -65,57 +64,52 @@ export async function postOauthStart(req: Request, ctx: RouteContext): Promise<R
     );
   }
 
+}
+}
+
+/**
+ * POST handler for GIS credential verification. Expects a form POST with
+ * `credential` (the ID token) and `_csrf` (CSRF token). The client-side
+ * widget should post the credential and include the CSRF token so the
+ * request is protected from CSRF.
+ */
+export async function postGisVerify(req: Request, ctx: RouteContext): Promise<Response> {
+  if (!googleOAuthEnabled()) return await notConfigured();
+
+  const rl = rateLimitCheck("oauth", ctx.ip);
+  if (!rl.allowed) {
+    return htmlResponse(
+      await layout({ title: "Too many attempts", heading: "Slow down", body: h`<p>Please wait a bit before retrying.</p>` }),
+      { status: 429 },
+    );
+  }
+
   let form: URLSearchParams;
   try {
     form = await parseForm(req);
   } catch {
     return htmlResponse(
-      await layout({
-        title: "Bad request",
-        heading: "Bad request",
-        body: h`<p>The form submission was too large or malformed.</p>`,
-      }),
+      await layout({ title: "Bad request", heading: "Bad request", body: h`<p>The form submission was too large or malformed.</p>` }),
       { status: 400 },
     );
   }
+
   if (!verifyCsrf(req, form.get("_csrf"))) {
     return htmlResponse(
-      await layout({
-        title: "Invalid CSRF token",
-        heading: "Invalid CSRF token",
-        body: h`<p>Please go back and try again.</p>`,
-      }),
+      await layout({ title: "Invalid CSRF token", heading: "Invalid CSRF token", body: h`<p>Please go back and try again.</p>` }),
       { status: 403 },
     );
   }
 
-  const { url, setCookie } = startAuthorization();
-  return new Response(null, {
-    status: 303,
-    headers: { Location: url, "Set-Cookie": setCookie },
-  });
-}
+  const credential = form.get("credential");
+  if (!credential || typeof credential !== "string") return await failure("missing credential");
 
-export async function getOauthCallback(req: Request, ctx: RouteContext): Promise<Response> {
-  if (!googleOAuthEnabled()) return await notConfigured();
+  const identity = await verifyIdToken(credential);
+  if (!identity) return await failure("invalid token");
 
-  // If Google sent ?error= (user denied, etc), short-circuit.
-  const oauthError = ctx.url.searchParams.get("error");
-  if (oauthError) return await failure(`google returned error=${oauthError}`);
-
-  const identity = await handleCallback(req, ctx.url);
-  if (!identity) return await failure("invalid callback (state/code/identity)");
-
-  // Find or create the user. Three cases:
-  //   (1) google_sub already maps to a user — that's the canonical path. Log in.
-  //   (2) no google_sub match, but email matches an existing verified user —
-  //       LINK: stamp google_sub onto that user. (Account-link policy: yes.)
-  //   (3) no match either way — CREATE a new user with a synthesized username.
+  // Reuse the same user resolution logic from the old callback path.
   const userId: number = await transaction(async (tx) => {
-    const bySub = await tx.queryOne<{ id: number }>(
-      "SELECT id FROM users WHERE google_sub = ? LIMIT 1",
-      [identity.sub],
-    );
+    const bySub = await tx.queryOne<{ id: number }>("SELECT id FROM users WHERE google_sub = ? LIMIT 1", [identity.sub]);
     if (bySub) return bySub.id;
 
     const byEmail = await tx.queryOne<{ id: number; email_verified: number; google_sub: string | null }>(
@@ -123,27 +117,16 @@ export async function getOauthCallback(req: Request, ctx: RouteContext): Promise
       [identity.email],
     );
     if (byEmail) {
-      // Refuse linking if that email is on a *Google* account already (would
-      // mean two distinct google_subs share an email — shouldn't happen, but
-      // defend anyway). Refuse linking if email isn't verified — that path
-      // is supposed to be the user demonstrating they own the email, but
-      // they haven't yet, so linking is unsafe.
       if (byEmail.google_sub !== null) {
         throw new Error("oauth link conflict (different google_sub already linked)");
       }
       if (byEmail.email_verified !== 1) {
         throw new Error("oauth link conflict (existing unverified password account)");
       }
-      await tx.execute(
-        "UPDATE users SET google_sub = ? WHERE id = ?",
-        [identity.sub, byEmail.id],
-      );
+      await tx.execute("UPDATE users SET google_sub = ? WHERE id = ?", [identity.sub, byEmail.id]);
       return byEmail.id;
     }
 
-    // Create a new user. Synthesize a username from email-local-part, retrying
-    // on collision with a numeric suffix. Username won't be perfect — the
-    // user can be given a "change username" UI later if it matters.
     const base = synthesizeUsername(identity.email);
     let username = base;
     for (let i = 0; i < 20; i++) {
@@ -155,7 +138,6 @@ export async function getOauthCallback(req: Request, ctx: RouteContext): Promise
         );
         return res.insertId;
       } catch (err: any) {
-        // Duplicate-key — try a fresh suffix.
         if (err?.code === "ER_DUP_ENTRY" || err?.errno === 1062) {
           username = `${base}${Math.floor(1000 + Math.random() * 9000)}`;
           continue;
@@ -172,13 +154,8 @@ export async function getOauthCallback(req: Request, ctx: RouteContext): Promise
   if (userId < 0) return await failure("user resolution failed");
 
   const { cookie: sessionCookie } = await createSession(userId);
-
-  // Two Set-Cookie headers: clear the oauth-state cookie AND set the session.
-  // `Headers` is fine, but `Response` constructor's headers init dedupes
-  // duplicates — we use `Headers.append` to keep both.
   const headers = new Headers({ Location: "/" });
   headers.append("Set-Cookie", sessionCookie);
-  headers.append("Set-Cookie", clearStateCookie());
   return new Response(null, { status: 303, headers });
 }
 

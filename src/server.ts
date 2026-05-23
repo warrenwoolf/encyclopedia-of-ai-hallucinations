@@ -22,7 +22,7 @@ import { privacy } from "./routes/privacy.ts";
 import { getLogin, postLogin, postLogout } from "./routes/login.ts";
 import { getSignup, postSignup } from "./routes/signup.ts";
 import { getVerify, postVerify, postVerifyResend } from "./routes/verify.ts";
-import { postOauthStart, getOauthCallback } from "./routes/oauth-google-routes.ts";
+import { postGisVerify } from "./routes/oauth-google-routes.ts";
 import { getQueue, getQueueDetail } from "./routes/admin/queue.ts";
 import { postReview, postReviewMessage } from "./routes/admin/review.ts";
 import {
@@ -77,8 +77,7 @@ const ROUTES: RouteDef[] = [
   route("GET", "/verify", getVerify),
   route("POST", "/verify", postVerify),
   route("POST", "/verify/resend", postVerifyResend),
-  route("POST", "/oauth/google/start", postOauthStart),
-  route("GET", "/oauth/google/callback", getOauthCallback),
+  route("POST", "/oauth/google/verify", postGisVerify),
   // User draft dashboard. The :eahId segment is always in A-number format so it
   // never collides with literal path segments like "new" used in admin routes.
   route("GET",  "/my/submissions",                    mySubmissions),
@@ -118,7 +117,7 @@ const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Content-Security-Policy":
-    "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'none'",
+    "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self' https://accounts.google.com; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'none'",
   "Permissions-Policy": "interest-cohort=()",
 };
 

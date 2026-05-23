@@ -4,6 +4,7 @@ import { config } from "./config.ts";
 import type { UserSession } from "./auth.ts";
 import { tokenForRequest } from "./csrf.ts";
 import { htmlResponse } from "./routes/types.ts";
+import { googleOAuthEnabled } from "./oauth-google.ts";
 
 // Inlined so it inherits `currentColor` from .site-title (works in dark mode).
 const STRAWBERRY_SVG = raw(await Bun.file("./src/static/logo.svg").text());
@@ -104,6 +105,7 @@ export function layout(opts: LayoutOptions): string {
     <title>${opts.title}</title>
     <link rel="stylesheet" href="/static/style.css">
     <link rel="alternate" type="application/rss+xml" title="Encyclopedia of AI Hallucinations" href="/rss">
+    ${googleOAuthEnabled() ? raw('<script src="https://accounts.google.com/gsi/client" async defer></script>') : raw('')}
     <script src="/static/theme.js"></script>
   </head>
   <body>
