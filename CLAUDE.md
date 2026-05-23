@@ -16,7 +16,7 @@ Co-founders: **Rudra Jadhav** and **Warren Woolf** (`Interrobang` / `warrenwoolf
 
 ## Security model — do not weaken
 
-- **CSP:** strict. `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'none'`. `script-src 'self'` exists for the theme toggle only. Don't relax to `'unsafe-inline'` without a very good reason.
+- **CSP:** strict. Don't relax to `'unsafe-inline'` without a very good reason.
 - **No raw IPs stored.** `ip_hash` is `sha256(SESSION_SECRET || ip)`. The Cloudflare `cf-connecting-ip` header is honored ONLY when the immediate TCP peer is loopback (cloudflared on the same host). Never trust `X-Forwarded-For`.
 - **Tracking codes** are 24-char base64url. Only the sha256 is stored in `submissions.tracking_hash`. The plaintext is additionally stored in `submissions.notify_token` BUT ONLY when the submitter gave an email (so `/lookup` can rebuild tracking links). Submissions without an email keep the hash-only model.
 - **Trojan-source / control-char scrub:** all user text passes through `sanitizeText()` in `src/routes/types.ts` before storage. Strips C0/C1 controls (except tab/LF/CR), BiDi overrides, zero-width chars, BOM.
@@ -46,7 +46,7 @@ Single `users` table — admins are just `is_admin=1` rows. There is no separate
 Auth model:
 
 - **Passwords:** argon2id via `Bun.password.hash` / `Bun.password.verify`. **No bcrypt** — verification of any non-argon2 hash returns false. If you find yourself needing to import bcryptjs, stop and add a password-reset flow instead.
-- **Google OAuth:** `arctic` (`src/oauth-google.ts`). State + PKCE verifier persisted in a 10-minute HMAC-signed HttpOnly cookie scoped to `/oauth/google/callback` — no DB table. `email_verified` claim must be true; sub is stored in `users.google_sub`. Linking policy: if Google email matches an existing verified password account, attach `google_sub` to that account.
+- **Google OAuth / Sign-in:** now uses Google Identity Services (GIS) embedded button (`src/oauth-google.ts` verifies ID tokens). The client renders the official GIS button and posts the ID token (credential) to `/oauth/google/verify`; the server verifies the token, enforces `email_verified`, then links or creates the user and issues a session. The legacy arctic-based redirect/PKCE flow has been removed.
 - **Email verification:** 6-digit code, 15-minute TTL, 5-attempt cap, in `email_verifications`. Codes are sha256-hashed in the DB; `consumeVerificationCode` does the timing-safe compare and the attempt-counter bookkeeping inside a transaction.
 - **Pending-verify cookie:** `eah_pending_verify` is an HMAC-signed cookie carrying `userId` that scopes to `/verify` only. Issued by `/signup` and `/login` when the target user is unverified. `/verify` reads it — sessions are NOT created until verification succeeds.
 - **Enumeration resistance:** `/signup` and `/verify/resend` MUST return the same response shape regardless of whether the email is already in use. The /signup POST always redirects to `/verify` with a pending-verify cookie (pointing at the existing user if any, or the newly-created one). Username collisions DO leak — usernames are public and the user needs to know to pick another.
