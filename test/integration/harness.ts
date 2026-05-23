@@ -7,7 +7,7 @@
  * real entry.
  */
 import { randomBytes } from "node:crypto";
-import { execute } from "../../src/db.ts";
+import { execute, queryOne } from "../../src/db.ts";
 
 /** True when the integration DB is configured. The suite is skipped otherwise. */
 export const DB_ENABLED = process.env.EAH_TEST_DB === "1";
@@ -48,18 +48,48 @@ export function randomPublicId(): string {
 
 /**
  * Insert a minimal submission row using only columns migrate.ts actually
- * creates. Returns the new row's primary-key id.
+ * creates. Returns the new row's primary-key id. All text is placeholder.
  */
 export async function insertSubmission(
-  opts: { eahNumber?: number | null; status?: string } = {},
+  opts: {
+    eahNumber?: number | null;
+    status?: string;
+    publicId?: string;
+    title?: string | null;
+  } = {},
 ): Promise<number> {
   const { insertId } = await execute(
     `INSERT INTO submissions
-       (public_id, eah_number, tracking_hash, prompt, output, ai_model, category, status)
-     VALUES (?, ?, ?, 'test', 'test', 'test', 'other', ?)`,
-    [randomPublicId(), opts.eahNumber ?? null, randomBytes(32), opts.status ?? "pending"],
+       (public_id, eah_number, tracking_hash, prompt, output, ai_model, category, status, title)
+     VALUES (?, ?, ?, 'test', 'test', 'test', 'other', ?, ?)`,
+    [
+      opts.publicId ?? randomPublicId(),
+      opts.eahNumber ?? null,
+      randomBytes(32),
+      opts.status ?? "pending",
+      opts.title ?? null,
+    ],
   );
   return insertId;
+}
+
+/** Attach a tag (by name) to a submission, creating the tag row if needed. */
+export async function addTag(submissionId: number, name: string): Promise<void> {
+  await execute("INSERT IGNORE INTO tags (name) VALUES (?)", [name]);
+  const tag = await queryOne<{ id: number }>("SELECT id FROM tags WHERE name = ?", [name]);
+  await execute(
+    "INSERT IGNORE INTO submission_tags (submission_id, tag_id) VALUES (?, ?)",
+    [submissionId, tag!.id],
+  );
+}
+
+/** Count chat-thread messages for a submission. */
+export async function messageCount(submissionId: number): Promise<number> {
+  const row = await queryOne<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM submission_messages WHERE submission_id = ?",
+    [submissionId],
+  );
+  return Number(row?.n ?? 0);
 }
 
 /**
