@@ -17,10 +17,6 @@ import { home } from "./routes/home.ts";
 import { entry } from "./routes/entry.ts";
 import { browse } from "./routes/browse.ts";
 import { submitGet, submitPost } from "./routes/submit.ts";
-import {
-  trackGet, trackWithdrawPost, trackMessagePost, draftGet,
-} from "./routes/track.ts";
-import { lookupGet, lookupPost } from "./routes/lookup.ts";
 import { about } from "./routes/about.ts";
 import { privacy } from "./routes/privacy.ts";
 import { getLogin, postLogin, postLogout } from "./routes/login.ts";
@@ -64,12 +60,6 @@ const ROUTES: RouteDef[] = [
   route("GET", "/e/:public_id", entry),
   route("GET", "/submit", submitGet),
   route("POST", "/submit", submitPost),
-  route("GET", "/track", trackGet),
-  route("POST", "/track/withdraw", trackWithdrawPost),
-  route("POST", "/track/message", trackMessagePost),
-  route("GET", "/draft/:token", draftGet),
-  route("GET", "/lookup", lookupGet),
-  route("POST", "/lookup", lookupPost),
   // Accounts (users + admins use the same login surface)
   route("GET", "/login", getLogin),
   route("POST", "/login", postLogin),
@@ -214,7 +204,7 @@ async function handle(req: Request, server: any): Promise<Response> {
     const body = h`<p>The page you requested does not exist.</p>
       <p><a href="/">Home</a> · <a href="/browse">Browse</a></p>`;
     return htmlResponse(
-      layout({ title: "Not found · EAH", heading: "Not found", body, user }),
+      await layout({ title: "Not found · EAH", heading: "Not found", body, user }),
       { status: 404 },
     );
   }
@@ -248,7 +238,7 @@ async function handle(req: Request, server: any): Promise<Response> {
     const { htmlResponse } = await import("./routes/types.ts");
     const body = h`<p>Something went wrong on our end. Please try again later.</p>`;
     return htmlResponse(
-      layout({ title: "Server error · EAH", heading: "Server error", body, user }),
+      await layout({ title: "Server error · EAH", heading: "Server error", body, user }),
       { status: 500 },
     );
   }

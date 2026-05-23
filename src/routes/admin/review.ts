@@ -111,16 +111,15 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
 
   // Confirm the submission exists before update so we can return a proper 404.
   // Also pull the fields we'll need to compose the outbound email so we can
-  // skip the email entirely when there's no submitter_email or notify_token.
+  // skip the email entirely when there's no submitter_email.
   const exists = await queryOne<{
     id: number;
     public_id: string;
     eah_number: number | null;
     ai_model: string | null;
     submitter_email: string | null;
-    notify_token: string | null;
   }>(
-    "SELECT id, public_id, eah_number, ai_model, submitter_email, notify_token FROM submissions WHERE id = ?",
+    "SELECT id, public_id, eah_number, ai_model, submitter_email FROM submissions WHERE id = ?",
     [id],
   );
   if (!exists) return await badRequest("Submission not found.", 404);
@@ -182,11 +181,10 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     return await badRequest("Could not save the review. Try again.", 500);
   }
 
-  // Fire-and-forget decision email. Only fires if we have both an address and
-  // a notify_token (the plaintext tracking code) — see submit.ts for why
-  // those two travel together. For approvals we use the (still-set) A-number;
-  // for rejections that number has been freed, so use the now-empty string.
-  if (exists.submitter_email && exists.notify_token) {
+  // Fire-and-forget decision email. Only fires if we have a submitter_email.
+  // For approvals we use the (still-set) A-number; for rejections that number
+  // has been freed, so use an empty string.
+  if (exists.submitter_email) {
     const eahIdForEmail =
       action === "approve" && exists.eah_number !== null
         ? formatEahId(exists.eah_number)
@@ -195,7 +193,6 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
       to: exists.submitter_email,
       eahId: eahIdForEmail,
       publicId: exists.public_id,
-      trackingCode: exists.notify_token,
       modelLabel: exists.ai_model ?? "(unknown)",
       decision: action === "approve" ? "approved" : "rejected",
       staffReviewMessage,
@@ -246,9 +243,8 @@ export async function postReviewMessage(req: Request, ctx: RouteContext): Promis
     eah_number: number | null;
     ai_model: string | null;
     submitter_email: string | null;
-    notify_token: string | null;
   }>(
-    "SELECT id, eah_number, ai_model, submitter_email, notify_token FROM submissions WHERE id = ?",
+    "SELECT id, eah_number, ai_model, submitter_email FROM submissions WHERE id = ?",
     [id],
   );
   if (!exists) return await badRequest("Submission not found.", 404);
@@ -260,11 +256,10 @@ export async function postReviewMessage(req: Request, ctx: RouteContext): Promis
   );
 
   // Fire-and-forget email notification to the submitter (if they gave one).
-  if (exists.submitter_email && exists.notify_token) {
+  if (exists.submitter_email) {
     void sendReviewerMessage({
       to: exists.submitter_email,
       eahId: formatEahId(exists.eah_number),
-      trackingCode: exists.notify_token,
       modelLabel: exists.ai_model ?? "(unknown)",
       reviewerName: ctx.admin.username,
       bodyPreview: body,

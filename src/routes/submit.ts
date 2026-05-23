@@ -11,7 +11,6 @@ import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { check as rateCheck } from "../ratelimit.ts";
 import { CATEGORIES, isValidCategory } from "../categories.ts";
 import { config } from "../config.ts";
-import { sendSubmissionReceived } from "../email.ts";
 import { allocateEahNumber, formatEahId } from "../eah-id.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteHandler } from "./types.ts";
 
@@ -135,13 +134,12 @@ function renderForm(opts: {
       <label for="submitter_email">Email <small>(optional, never shown publicly)</small></label>
       <input id="submitter_email" name="submitter_email" type="email" maxlength="${LIMITS.submitter_email}"
              value="${values.submitter_email}" placeholder="you@example.com" autocomplete="email">
-      <p class="field-hint"><small>If you give us an email, we'll send a
-        confirmation right away (with your tracking link, so you don't have to
-        save the code by hand), notify you when a reviewer leaves a comment,
-        and email you the decision when staff accept or reject your submission.
-        You'll also be able to look up all your submissions at
-        <a href="/lookup">/lookup</a>. See our <a href="/privacy">privacy
-        policy</a> for what we do with this.</small></p>
+      <p class="field-hint"><small>If you give us an email, we'll notify you
+        when a reviewer leaves a comment and email you the decision when staff
+        accept or reject your submission. You'll be able to see all your
+        submissions at <a href="/my/submissions">/my/submissions</a> when
+        logged in. See our <a href="/privacy">privacy policy</a> for what we
+        do with this.</small></p>
 
       <p class="field-checkbox">
         <label class="checkbox-label">
@@ -155,10 +153,11 @@ function renderForm(opts: {
       <button type="submit">Submit</button>
     </form>
 
-    <p><small>Submissions are reviewed by staff before being published. You'll
-    receive a tracking code (and an email, if you gave us one) to check status,
-    chat with reviewers, or withdraw. While your submission is pending, you may
-    have at most ${MAX_PENDING_PER_EMAIL} drafts open at once per email
+    <p><small>Submissions are reviewed by staff before being published. Logged-in
+    users can track, edit, and chat with reviewers from
+    <a href="/my/submissions">/my/submissions</a>. Anonymous submissions get
+    a confirmation page with the assigned ID. While your submission is pending,
+    you may have at most ${MAX_PENDING_PER_EMAIL} drafts open at once per email
     address.</small></p>
   `;
 }
@@ -371,19 +370,17 @@ export const submitPost: RouteHandler = async (req, ctx) => {
 
   // Generate IDs and hashes.
   const publicId = await generateUniquePublicId();
-  const trackingCode = randomBytes(15).toString("base64url"); // 20 chars typical; ensure 24.
-  const trackingCodeFull = (trackingCode + randomBytes(6).toString("base64url")).slice(0, 24);
-  const trackingHash = createHash("sha256").update(trackingCodeFull).digest();
+  // Legacy NOT NULL column; no one reads it anymore. Random bytes satisfy the constraint.
+  const dummyTrackingHash = createHash("sha256").update(randomBytes(32)).digest();
   const ipHash = createHash("sha256")
     .update(`${config.sessionSecret}:${ctx.ip}`)
     .digest();
 
-  // notify_token holds the PLAINTEXT tracking code, but only if the submitter
-  // gave us an email. This lets /lookup rebuild /track?code=… links later.
-  // Submissions without an email keep the hash-only model intact.
   const hasEmail = values.submitter_email.length > 0;
   const submitterEmail = hasEmail ? values.submitter_email : null;
-  const notifyToken = hasEmail ? trackingCodeFull : null;
+  const isLoggedIn = ctx.user !== null;
+  const submissionStatus = isLoggedIn ? "draft" : "pending";
+  const ownerUserId = isLoggedIn ? ctx.user!.userId : null;
 
   let eahNumber: number;
   // Insert in a single transaction so partial inserts don't leak orphan tag rows.
@@ -397,13 +394,13 @@ export const submitPost: RouteHandler = async (req, ctx) => {
         `INSERT INTO submissions
           (public_id, eah_number, title, tracking_hash, prompt, output, ai_model, summary, notes,
            shared_chat_url, category, author_name, submitted_at, status, ip_hash,
-           submitter_email, notify_token, hallucination_date, allow_author_edits)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'pending', ?, ?, ?, ?, ?)`,
+           submitter_email, hallucination_date, allow_author_edits, owner_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?)`,
         [
           publicId,
           n,
           values.title,
-          trackingHash,
+          dummyTrackingHash,
           values.prompt,
           values.output,
           values.ai_model,
@@ -412,11 +409,12 @@ export const submitPost: RouteHandler = async (req, ctx) => {
           values.shared_chat_url.length > 0 ? values.shared_chat_url : null,
           values.category,
           values.author_name.length > 0 ? values.author_name : null,
+          submissionStatus,
           ipHash,
           submitterEmail,
-          notifyToken,
           hallucinationDate,
           values.allow_author_edits ? 1 : 0,
+          ownerUserId,
         ],
       );
       const submissionId = ins.insertId;
@@ -448,45 +446,24 @@ export const submitPost: RouteHandler = async (req, ctx) => {
 
   const eahId = formatEahId(eahNumber);
 
-  // Fire-and-forget email notification. Never throws; failures only log.
-  if (hasEmail) {
-    void sendSubmissionReceived({
-      to: values.submitter_email,
-      eahId,
-      publicId,
-      trackingCode: trackingCodeFull,
-      modelLabel: values.ai_model,
-      title: values.title,
+  // Logged-in users go straight to their draft edit page so they can refine it
+  // before it enters the review queue. Anonymous submitters get a confirmation
+  // page with no tracking code (we don't have one anymore) and a nudge to
+  // create an account.
+  if (isLoggedIn) {
+    return new Response(null, {
+      status: 303,
+      headers: { Location: `/my/submissions/${eahId}/edit` },
     });
   }
 
-  const emailLine = hasEmail
-    ? h`<p>We've also sent a copy to <code>${values.submitter_email}</code>.
-        You'll get more email when reviewers comment, and again when staff
-        accept or reject your submission.</p>`
-    : h``;
-
   const body = h`
-    <p>Thanks — your submission is in the review queue with the ID
-       <code>${eahId}</code>. It won't appear publicly until a staff member
-       approves it. If they reject or you withdraw it, that A-number is
-       returned to the pool for the next incoming draft.</p>
-
-    <div class="tracking-code-block">
-      <p><strong>Your tracking code to chat with reviewers, check status, or withdraw the submission (save this — we won't show it again):</strong></p>
-      <pre class="tracking-code">${trackingCodeFull}</pre>
-      <p>Use it at <a href="/track">/track</a> any time.</p>
-    </div>
-
-    ${emailLine}
-
-    <p>If approved, your entry will live at <code>/e/${eahId}</code>.</p>
-    <p><a href="/">Back to home</a> · <a href="/submit">Submit another</a></p>
+    <p>Your submission has been received with ID <code>${eahId}</code>.</p>
+    <p>A staff reviewer will look at it before it appears publicly.</p>
+    <p><strong>Want to track your submission?</strong>
+       <a href="/signup">Create an account</a> to see all your submissions,
+       edit drafts, and chat with reviewers.</p>
+    <p><a href="/">Home</a> · <a href="/submit">Submit another</a></p>
   `;
-  return pageResponse(req, {
-    title: "Submission received · EAH",
-    heading: "Submission received",
-    body,
-    user: ctx.user,
-  });
+  return pageResponse(req, { title: "Submission received · EAH", heading: "Submission received", body, user: ctx.user });
 };

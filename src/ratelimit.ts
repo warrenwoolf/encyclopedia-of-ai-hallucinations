@@ -20,14 +20,11 @@ const LIMITS: Record<string, LimitConfig> = {
   submit: { capacity: 60, refillPerHour: 60 },
   login: { capacity: 10, refillPerHour: 10 },
   withdraw: { capacity: 20, refillPerHour: 20 },
-  // Lookup-by-email triggers an outbound email. Cap aggressively to avoid
-  // becoming a spam relay (we'd be billed for the volume even if Resend's
-  // suppression list saved us reputationally).
-  lookup: { capacity: 5, refillPerHour: 5 },
-  // Account signup triggers an outbound verification email. Same logic as
-  // lookup: keep this tight, both to dodge abuse and to keep our 300/mo
-  // Resend budget reserved for real users.
+  // Account signup triggers an outbound verification email. Keep tight to
+  // avoid abuse and preserve our 300/mo Resend budget for real users.
   signup: { capacity: 5, refillPerHour: 5 },
+  // API endpoints — somewhat generous since they're read-only or low-cost.
+  api: { capacity: 20, refillPerHour: 20 },
   // Verification-code submission. 5 attempts per code are already enforced
   // in the DB; this is a per-IP-floor on top so an attacker can't burn
   // through codes across many half-finished accounts.
