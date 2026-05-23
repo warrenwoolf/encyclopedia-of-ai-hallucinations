@@ -15,6 +15,7 @@ import { tokenForRequest, verifyCsrf } from "../../csrf.ts";
 import { CATEGORIES, categoryLabel, isValidCategory } from "../../categories.ts";
 import { config } from "../../config.ts";
 import { allocateEahNumber, formatEahId, parseEahId } from "../../eah-id.ts";
+import { recordVersionDiffs, type TrackedValues } from "../../versions.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "../types.ts";
 
 const LIMITS = {
@@ -61,8 +62,8 @@ function authRedirect(): Response {
   return new Response(null, { status: 303, headers: { Location: "/admin/login" } });
 }
 
-function badRequest(message: string, status = 400): Response {
-  const body = layout({
+async function badRequest(message: string, status = 400): Promise<Response> {
+  const body = await layout({
     title: "Bad request",
     heading: "Bad request",
     body: h`<p>${message} <a href="/admin/queue">Back to admin queue</a>.</p>`,
@@ -277,7 +278,7 @@ export async function getNewEntry(req: Request, ctx: RouteContext): Promise<Resp
   const { token, setCookie } = tokenForRequest(req);
   const body = renderForm({ mode: "new", values: emptyForm(), csrf: token, error: null });
   return htmlResponse(
-    layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
+    await layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
     { setCookie },
   );
 }
@@ -289,9 +290,9 @@ export async function postNewEntry(req: Request, ctx: RouteContext): Promise<Res
   try {
     form = await parseForm(req, 128 * 1024);
   } catch {
-    return badRequest("Form too large.", 413);
+    return await badRequest("Form too large.", 413);
   }
-  if (!verifyCsrf(req, form.get("_csrf"))) return badRequest("Invalid CSRF token.", 403);
+  if (!verifyCsrf(req, form.get("_csrf"))) return await badRequest("Invalid CSRF token.", 403);
 
   const values = readForm(form);
   const v = validate(values);
@@ -299,7 +300,7 @@ export async function postNewEntry(req: Request, ctx: RouteContext): Promise<Res
     const { token, setCookie } = tokenForRequest(req);
     const body = renderForm({ mode: "new", values, csrf: token, error: v.error });
     return htmlResponse(
-      layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
+      await layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
       { status: 400, setCookie },
     );
   }
@@ -350,7 +351,7 @@ export async function postNewEntry(req: Request, ctx: RouteContext): Promise<Res
     });
   } catch (err) {
     console.error("admin direct-add failed", err);
-    return badRequest("Could not save the entry.", 500);
+    return await badRequest("Could not save the entry.", 500);
   }
 
   const eahId = formatEahId(eahNumber);
@@ -392,7 +393,7 @@ async function loadByEahId(eahIdParam: string): Promise<{
 export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Response> {
   if (!ctx.admin) return authRedirect();
   const row = await loadByEahId(ctx.params.eahId ?? "");
-  if (!row) return badRequest("No entry with that A-number.", 404);
+  if (!row) return await badRequest("No entry with that A-number.", 404);
 
   const tagRows = await query<{ name: string }>(
     `SELECT t.name FROM submission_tags st JOIN tags t ON t.id = st.tag_id
@@ -421,7 +422,7 @@ export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Res
   const { token, setCookie } = tokenForRequest(req);
   const body = renderForm({ mode: "edit", eahId, values, csrf: token, error: null });
   return htmlResponse(
-    layout({
+    await layout({
       title: `Edit ${eahId} · EAH admin`,
       heading: `Edit ${eahId}`,
       body,
@@ -436,15 +437,15 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
 
   const eahIdParam = ctx.params.eahId ?? "";
   const row = await loadByEahId(eahIdParam);
-  if (!row) return badRequest("No entry with that A-number.", 404);
+  if (!row) return await badRequest("No entry with that A-number.", 404);
 
   let form: URLSearchParams;
   try {
     form = await parseForm(req, 128 * 1024);
   } catch {
-    return badRequest("Form too large.", 413);
+    return await badRequest("Form too large.", 413);
   }
-  if (!verifyCsrf(req, form.get("_csrf"))) return badRequest("Invalid CSRF token.", 403);
+  if (!verifyCsrf(req, form.get("_csrf"))) return await badRequest("Invalid CSRF token.", 403);
 
   const values = readForm(form);
   const v = validate(values);
@@ -452,7 +453,7 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
     const { token, setCookie } = tokenForRequest(req);
     const body = renderForm({ mode: "edit", eahId: formatEahId(row.eah_number), values, csrf: token, error: v.error });
     return htmlResponse(
-      layout({
+      await layout({
         title: `Edit ${formatEahId(row.eah_number)} · EAH admin`,
         heading: `Edit ${formatEahId(row.eah_number)}`,
         body,
@@ -462,8 +463,50 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
     );
   }
 
+  // Fetch current tag set before entering the transaction so we can diff them.
+  const currentTagRows = await query<{ name: string }>(
+    `SELECT t.name FROM submission_tags st JOIN tags t ON t.id = st.tag_id
+     WHERE st.submission_id = ? ORDER BY t.name ASC`,
+    [row.id],
+  );
+  const currentTagString = currentTagRows.map((r) => r.name).join(",");
+  const newTagString = [...v.tags].sort().join(",");
+
+  const currentValues: TrackedValues = {
+    title: row.title ?? null,
+    prompt: row.prompt,
+    output: row.output,
+    ai_model: row.ai_model,
+    summary: row.summary ?? null,
+    notes: row.notes ?? null,
+    shared_chat_url: row.shared_chat_url ?? null,
+    category: row.category,
+    author_name: row.author_name ?? null,
+    hallucination_date: row.hallucination_date ?? null,
+    entry_status: row.entry_status,
+    tags: currentTagString || null,
+  };
+
+  const newValues: TrackedValues = {
+    title: values.title || null,
+    prompt: values.prompt,
+    output: values.output,
+    ai_model: values.ai_model,
+    summary: values.summary.length > 0 ? values.summary : null,
+    notes: values.notes.length > 0 ? values.notes : null,
+    shared_chat_url: values.shared_chat_url.length > 0 ? values.shared_chat_url : null,
+    category: values.category,
+    author_name: values.author_name.length > 0 ? values.author_name : null,
+    hallucination_date: v.date,
+    entry_status: values.entry_status,
+    tags: newTagString || null,
+  };
+
   try {
     await transaction(async (tx) => {
+      // Record diffs before updating so currentValues is still accurate.
+      await recordVersionDiffs(tx, row.id, ctx.admin!.userId, currentValues, newValues);
+
       await tx.execute(
         `UPDATE submissions
             SET title = ?, prompt = ?, output = ?, ai_model = ?, summary = ?, notes = ?,
@@ -491,7 +534,7 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
     });
   } catch (err) {
     console.error("admin entry edit failed", err);
-    return badRequest("Could not save changes.", 500);
+    return await badRequest("Could not save changes.", 500);
   }
 
   return new Response(null, { status: 303, headers: { Location: `/e/${formatEahId(row.eah_number)}` } });
@@ -506,7 +549,7 @@ export async function postEntryStatus(req: Request, ctx: RouteContext): Promise<
   try {
     form = await parseForm(req, 8 * 1024);
   } catch {
-    return badRequest("Form too large.", 413);
+    return await badRequest("Form too large.", 413);
   }
   if (!verifyCsrf(req, form.get("_csrf"))) return badRequest("Invalid CSRF token.", 403);
 
@@ -515,7 +558,7 @@ export async function postEntryStatus(req: Request, ctx: RouteContext): Promise<
 
   const next = form.get("entry_status");
   if (next !== "active" && next !== "patched") {
-    return badRequest("Invalid entry status.");
+    return await badRequest("Invalid entry status.");
   }
 
   const result = await execute(
@@ -528,6 +571,29 @@ export async function postEntryStatus(req: Request, ctx: RouteContext): Promise<
     status: 303,
     headers: { Location: `/e/${formatEahId(n)}` },
   });
+}
+
+// ─── redirect to entry ──────────────────────────────────────────────────────
+
+/**
+ * GET /admin/entries/redirect?id=A000001
+ *
+ * Used by the admin "jump to" form. Parses the A-number and redirects to
+ * the public entry page if published, or to the admin edit page otherwise.
+ */
+export async function redirectToEntry(req: Request, ctx: RouteContext): Promise<Response> {
+  if (!ctx.admin) return new Response(null, { status: 303, headers: { Location: "/admin/login" } });
+  const idStr = (ctx.url.searchParams.get("id") ?? "").trim();
+  const n = parseEahId(idStr);
+  if (n === null) return new Response(null, { status: 303, headers: { Location: "/admin/all" } });
+  const eahId = formatEahId(n);
+  // If published, go to the public entry; otherwise to admin edit.
+  const row = await queryOne<{ status: string }>("SELECT status FROM submissions WHERE eah_number = ?", [n]);
+  if (!row) return new Response(null, { status: 303, headers: { Location: "/admin/all" } });
+  if (row.status === "published") {
+    return new Response(null, { status: 303, headers: { Location: `/e/${eahId}` } });
+  }
+  return new Response(null, { status: 303, headers: { Location: `/admin/entries/${eahId}/edit` } });
 }
 
 // Suppress unused-import warning at the bottom (categoryLabel is part of the

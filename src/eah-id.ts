@@ -18,7 +18,7 @@ import type { query as Query, execute as Execute, queryOne as QueryOne } from ".
 /** A submission/draft has been rejected or withdrawn — free its number. */
 export type FreeReason = "rejected" | "withdrawn";
 
-interface TxLike {
+export interface TxLike {
   query: <U = any>(sql: string, params?: unknown[]) => Promise<U[]>;
   queryOne: <U = any>(sql: string, params?: unknown[]) => Promise<U | undefined>;
   execute: (sql: string, params?: unknown[]) => Promise<{ affectedRows: number; insertId: number }>;
@@ -34,8 +34,9 @@ interface TxLike {
  * transaction; otherwise it'll be re-used on the next call.
  */
 export async function allocateEahNumber(tx: TxLike): Promise<number> {
+  // FOR UPDATE prevents concurrent transactions from claiming the same freed number. This function MUST be called inside a transaction.
   const freed = await tx.queryOne<{ n: number }>(
-    "SELECT n FROM freed_eah_numbers ORDER BY n ASC LIMIT 1",
+    "SELECT n FROM freed_eah_numbers ORDER BY n ASC LIMIT 1 FOR UPDATE",
   );
   if (freed) {
     await tx.execute("DELETE FROM freed_eah_numbers WHERE n = ?", [freed.n]);

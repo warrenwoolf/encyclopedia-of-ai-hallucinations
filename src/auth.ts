@@ -159,6 +159,9 @@ export async function purgeExpiredSessions(): Promise<void> {
     // attempt leaves the original row to expire naturally). 24h is well
     // past the 15-minute pending-verify cookie TTL and well past any
     // legitimate "I'll finish later" window.
+    // Safe for Google OAuth users: they have email_verified=1 (set at OAuth callback),
+    // so the WHERE email_verified=0 clause excludes them even if google_sub IS NULL
+    // were somehow true (it can't be for OAuth users, but defense in depth).
     await execute(
       `DELETE FROM users
         WHERE email_verified = 0

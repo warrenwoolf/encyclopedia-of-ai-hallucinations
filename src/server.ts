@@ -17,10 +17,6 @@ import { home } from "./routes/home.ts";
 import { entry } from "./routes/entry.ts";
 import { browse } from "./routes/browse.ts";
 import { submitGet, submitPost } from "./routes/submit.ts";
-import {
-  trackGet, trackWithdrawPost, trackMessagePost, draftGet,
-} from "./routes/track.ts";
-import { lookupGet, lookupPost } from "./routes/lookup.ts";
 import { about } from "./routes/about.ts";
 import { privacy } from "./routes/privacy.ts";
 import { getLogin, postLogin, postLogout } from "./routes/login.ts";
@@ -30,9 +26,17 @@ import { postOauthStart, getOauthCallback } from "./routes/oauth-google-routes.t
 import { getQueue, getQueueDetail } from "./routes/admin/queue.ts";
 import { postReview, postReviewMessage } from "./routes/admin/review.ts";
 import {
-  getNewEntry, postNewEntry, getEditEntry, postEditEntry, postEntryStatus,
+  getNewEntry, postNewEntry, getEditEntry, postEditEntry, postEntryStatus, redirectToEntry,
 } from "./routes/admin/entries.ts";
 import { getAll } from "./routes/admin/all.ts";
+import {
+  mySubmissions, myEditGet, myEditPost, myPropose, myWithdraw, myHistory,
+} from "./routes/my.ts";
+import { myDiscussionGet, myDiscussionPost } from "./routes/my-discussion.ts";
+import { usernameCheck } from "./routes/api.ts";
+import { rss } from "./routes/rss.ts";
+import { sitemap } from "./routes/sitemap.ts";
+import { postBulk } from "./routes/admin/bulk.ts";
 
 interface RouteDef {
   method: "GET" | "POST";
@@ -64,12 +68,6 @@ const ROUTES: RouteDef[] = [
   route("GET", "/e/:public_id", entry),
   route("GET", "/submit", submitGet),
   route("POST", "/submit", submitPost),
-  route("GET", "/track", trackGet),
-  route("POST", "/track/withdraw", trackWithdrawPost),
-  route("POST", "/track/message", trackMessagePost),
-  route("GET", "/draft/:token", draftGet),
-  route("GET", "/lookup", lookupGet),
-  route("POST", "/lookup", lookupPost),
   // Accounts (users + admins use the same login surface)
   route("GET", "/login", getLogin),
   route("POST", "/login", postLogin),
@@ -81,6 +79,21 @@ const ROUTES: RouteDef[] = [
   route("POST", "/verify/resend", postVerifyResend),
   route("POST", "/oauth/google/start", postOauthStart),
   route("GET", "/oauth/google/callback", getOauthCallback),
+  // User draft dashboard. The :eahId segment is always in A-number format so it
+  // never collides with literal path segments like "new" used in admin routes.
+  route("GET",  "/my/submissions",                    mySubmissions),
+  route("GET",  "/my/submissions/:eahId/edit",        myEditGet),
+  route("POST", "/my/submissions/:eahId/edit",        myEditPost),
+  route("POST", "/my/submissions/:eahId/propose",     myPropose),
+  route("POST", "/my/submissions/:eahId/withdraw",    myWithdraw),
+  route("GET",  "/my/submissions/:eahId/history",     myHistory),
+  route("GET",  "/my/submissions/:eahId/discussion",  myDiscussionGet),
+  route("POST", "/my/submissions/:eahId/message",     myDiscussionPost),
+  // API endpoints
+  route("GET",  "/api/username-check",  usernameCheck),
+  // Feeds / discovery
+  route("GET",  "/rss",                 rss),
+  route("GET",  "/sitemap.xml",         sitemap),
   route("GET", "/admin/queue", getQueue),
   route("GET", "/admin/queue/:id", getQueueDetail),
   route("POST", "/admin/queue/:id", postReview),
@@ -94,6 +107,10 @@ const ROUTES: RouteDef[] = [
   route("GET", "/admin/entries/:eahId/edit", getEditEntry),
   route("POST", "/admin/entries/:eahId/edit", postEditEntry),
   route("POST", "/admin/entries/:eahId/status", postEntryStatus),
+  // Jump-to-entry helper used by the admin jump-to form.
+  route("GET", "/admin/entries/redirect", redirectToEntry),
+  // Bulk approve/reject from the admin all-submissions view.
+  route("POST", "/admin/bulk", postBulk),
 ];
 
 const SECURITY_HEADERS: Record<string, string> = {
@@ -208,13 +225,34 @@ async function handle(req: Request, server: any): Promise<Response> {
 
   if (!matched) {
     // 404 — try to render a styled page via the layout module.
-    const { h } = await import("./html.ts");
+    const { h, raw } = await import("./html.ts");
     const { layout } = await import("./layout.ts");
     const { htmlResponse } = await import("./routes/types.ts");
-    const body = h`<p>The page you requested does not exist.</p>
-      <p><a href="/">Home</a> · <a href="/browse">Browse</a></p>`;
+    const { query } = await import("./db.ts");
+    const { formatEahId } = await import("./eah-id.ts");
+    let suggestions: Array<{ eah_number: number | null; title: string | null; public_id: string }> = [];
+    try {
+      suggestions = await query("SELECT eah_number, title, public_id FROM submissions WHERE status='published' ORDER BY RAND() LIMIT 3");
+    } catch {}
+    const suggestionList = suggestions.length === 0
+      ? raw("")
+      : h`<p>Or try one of these:</p><ul>${suggestions.map(s => {
+          const eahId = formatEahId(s.eah_number);
+          const url = eahId ? `/e/${eahId}` : `/e/${s.public_id}`;
+          const label = eahId ? `${eahId}${s.title ? ` — ${s.title}` : ""}` : (s.title ?? s.public_id);
+          return h`<li><a href="${url}">${label}</a></li>`;
+        })}</ul>`;
+    const body = h`
+      <p>The page you requested does not exist.</p>
+      <form method="get" action="/browse">
+        <input type="search" name="q" placeholder="Search entries" autofocus>
+        <button type="submit">Search</button>
+      </form>
+      ${suggestionList}
+      <p><a href="/">Home</a> · <a href="/browse">Browse</a></p>
+    `;
     return htmlResponse(
-      layout({ title: "Not found · EAH", heading: "Not found", body, user }),
+      await layout({ title: "Not found · EAH", heading: "Not found", body, user }),
       { status: 404 },
     );
   }
@@ -248,7 +286,7 @@ async function handle(req: Request, server: any): Promise<Response> {
     const { htmlResponse } = await import("./routes/types.ts");
     const body = h`<p>Something went wrong on our end. Please try again later.</p>`;
     return htmlResponse(
-      layout({ title: "Server error · EAH", heading: "Server error", body, user }),
+      await layout({ title: "Server error · EAH", heading: "Server error", body, user }),
       { status: 500 },
     );
   }
@@ -272,7 +310,7 @@ console.log(`EAH listening on http://${server.hostname}:${server.port}`);
 // Best-effort probe of Resend's `x-resend-monthly-quota` header on cold start
 // so the signup form knows whether we're at cap before any send happens. Fire
 // and forget; a failure here just leaves the cache empty (fail-open).
-void primeQuotaCache();
+void primeQuotaCache().catch(e => console.warn("[startup] primeQuotaCache failed:", e));
 
 // Periodic GC for in-memory rate-limit buckets and expired sessions.
 setInterval(() => {

@@ -15,11 +15,11 @@ import { sendDecision, sendReviewerMessage } from "../../email.ts";
 import { freeEahNumber, formatEahId } from "../../eah-id.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "../types.ts";
 
-function badRequest(message: string, status = 400, returnTo?: string): Response {
+async function badRequest(message: string, status = 400, returnTo?: string): Promise<Response> {
   const link = returnTo
     ? h` <a href="${returnTo}">Return to the queue</a>.`
     : h` <a href="/admin/queue">Return to the queue</a>.`;
-  const body = layout({
+  const body = await layout({
     title: "Bad request",
     heading: "Bad request",
     body: h`<p>${message}${link}</p>`,
@@ -27,8 +27,8 @@ function badRequest(message: string, status = 400, returnTo?: string): Response 
   return htmlResponse(body, { status });
 }
 
-function csrfErrorResponse(): Response {
-  const body = layout({
+async function csrfErrorResponse(): Promise<Response> {
+  const body = await layout({
     title: "Invalid CSRF token",
     heading: "Invalid CSRF token",
     body: h`<p>Your form submission could not be verified. Please go back and try again.</p>`,
@@ -68,21 +68,21 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   const idStr = ctx.params.id;
   const id = idStr && /^\d+$/.test(idStr) ? parseInt(idStr, 10) : NaN;
   if (!Number.isFinite(id) || id <= 0) {
-    return badRequest("Invalid submission id.", 404);
+    return await badRequest("Invalid submission id.", 404);
   }
 
   let form: URLSearchParams;
   try {
     form = await parseForm(req);
   } catch {
-    return badRequest("The form submission was too large or malformed.");
+    return await badRequest("The form submission was too large or malformed.");
   }
 
-  if (!verifyCsrf(req, form.get("_csrf"))) return csrfErrorResponse();
+  if (!verifyCsrf(req, form.get("_csrf"))) return await csrfErrorResponse();
 
   const action = form.get("action");
   if (action !== "approve" && action !== "reject") {
-    return badRequest("Unknown review action.");
+    return await badRequest("Unknown review action.");
   }
 
   let verifiedHits: number | null;
@@ -97,33 +97,32 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     rejectionReason = parseText(form.get("rejection_reason"), "rejection_reason", 1000);
     staffReviewMessage = parseText(form.get("staff_review_message"), "staff_review_message", 4000);
   } catch (err) {
-    return badRequest(err instanceof Error ? err.message : "Invalid form input.");
+    return await badRequest(err instanceof Error ? err.message : "Invalid form input.");
   }
 
   // Sanity: total must be >= hits when both supplied.
   if (verifiedHits !== null && verifiedTotal !== null && verifiedTotal < verifiedHits) {
-    return badRequest("verified_total must be greater than or equal to verified_hits.");
+    return await badRequest("verified_total must be greater than or equal to verified_hits.");
   }
   // If only hits is supplied without total, that's nonsensical — reject.
   if (verifiedHits !== null && verifiedTotal === null) {
-    return badRequest("Provide verified_total if verified_hits is set.");
+    return await badRequest("Provide verified_total if verified_hits is set.");
   }
 
   // Confirm the submission exists before update so we can return a proper 404.
   // Also pull the fields we'll need to compose the outbound email so we can
-  // skip the email entirely when there's no submitter_email or notify_token.
+  // skip the email entirely when there's no submitter_email.
   const exists = await queryOne<{
     id: number;
     public_id: string;
     eah_number: number | null;
     ai_model: string | null;
     submitter_email: string | null;
-    notify_token: string | null;
   }>(
-    "SELECT id, public_id, eah_number, ai_model, submitter_email, notify_token FROM submissions WHERE id = ?",
+    "SELECT id, public_id, eah_number, ai_model, submitter_email FROM submissions WHERE id = ?",
     [id],
   );
-  if (!exists) return badRequest("Submission not found.", 404);
+  if (!exists) return await badRequest("Submission not found.", 404);
 
   // The approve/reject + (optional) free-number step must be atomic: if we
   // freed before the status flip and then the status flip failed, we'd hand
@@ -132,6 +131,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   try {
     await transaction(async (tx) => {
       if (action === "approve") {
+        // Reminder: verify mathematical correctness before approving. See submit.ts note.
         await tx.execute(
           `UPDATE submissions
               SET status = 'published',
@@ -179,14 +179,13 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     });
   } catch (err) {
     console.error("review action failed", err);
-    return badRequest("Could not save the review. Try again.", 500);
+    return await badRequest("Could not save the review. Try again.", 500);
   }
 
-  // Fire-and-forget decision email. Only fires if we have both an address and
-  // a notify_token (the plaintext tracking code) — see submit.ts for why
-  // those two travel together. For approvals we use the (still-set) A-number;
-  // for rejections that number has been freed, so use the now-empty string.
-  if (exists.submitter_email && exists.notify_token) {
+  // Fire-and-forget decision email. Only fires if we have a submitter_email.
+  // For approvals we use the (still-set) A-number; for rejections that number
+  // has been freed, so use an empty string.
+  if (exists.submitter_email) {
     const eahIdForEmail =
       action === "approve" && exists.eah_number !== null
         ? formatEahId(exists.eah_number)
@@ -195,7 +194,6 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
       to: exists.submitter_email,
       eahId: eahIdForEmail,
       publicId: exists.public_id,
-      trackingCode: exists.notify_token,
       modelLabel: exists.ai_model ?? "(unknown)",
       decision: action === "approve" ? "approved" : "rejected",
       staffReviewMessage,
@@ -218,17 +216,17 @@ export async function postReviewMessage(req: Request, ctx: RouteContext): Promis
   const idStr = ctx.params.id;
   const id = idStr && /^\d+$/.test(idStr) ? parseInt(idStr, 10) : NaN;
   if (!Number.isFinite(id) || id <= 0) {
-    return badRequest("Invalid submission id.", 404);
+    return await badRequest("Invalid submission id.", 404);
   }
 
   let form: URLSearchParams;
   try {
     form = await parseForm(req, 16 * 1024);
   } catch {
-    return badRequest("The form submission was too large or malformed.");
+    return await badRequest("The form submission was too large or malformed.");
   }
 
-  if (!verifyCsrf(req, form.get("_csrf"))) return csrfErrorResponse();
+  if (!verifyCsrf(req, form.get("_csrf"))) return await csrfErrorResponse();
 
   const body = sanitizeText(form.get("message") ?? "").trim();
   if (body.length === 0) {
@@ -238,7 +236,7 @@ export async function postReviewMessage(req: Request, ctx: RouteContext): Promis
     });
   }
   if (body.length > 4000) {
-    return badRequest("Message is too long (max 4000 characters).");
+    return await badRequest("Message is too long (max 4000 characters).");
   }
 
   const exists = await queryOne<{
@@ -246,12 +244,11 @@ export async function postReviewMessage(req: Request, ctx: RouteContext): Promis
     eah_number: number | null;
     ai_model: string | null;
     submitter_email: string | null;
-    notify_token: string | null;
   }>(
-    "SELECT id, eah_number, ai_model, submitter_email, notify_token FROM submissions WHERE id = ?",
+    "SELECT id, eah_number, ai_model, submitter_email FROM submissions WHERE id = ?",
     [id],
   );
-  if (!exists) return badRequest("Submission not found.", 404);
+  if (!exists) return await badRequest("Submission not found.", 404);
 
   await execute(
     `INSERT INTO submission_messages (submission_id, sender_type, sender_user_id, body)
@@ -260,11 +257,10 @@ export async function postReviewMessage(req: Request, ctx: RouteContext): Promis
   );
 
   // Fire-and-forget email notification to the submitter (if they gave one).
-  if (exists.submitter_email && exists.notify_token) {
+  if (exists.submitter_email) {
     void sendReviewerMessage({
       to: exists.submitter_email,
       eahId: formatEahId(exists.eah_number),
-      trackingCode: exists.notify_token,
       modelLabel: exists.ai_model ?? "(unknown)",
       reviewerName: ctx.admin.username,
       bodyPreview: body,

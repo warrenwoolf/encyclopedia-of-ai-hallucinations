@@ -1,2 +1,4 @@
 User-agent: *
 Disallow: /
+
+Sitemap: https://eah.warrenwoolf.com/sitemap.xml

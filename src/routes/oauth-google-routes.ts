@@ -23,9 +23,9 @@ import {
 } from "../oauth-google.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "./types.ts";
 
-function notConfigured(): Response {
+async function notConfigured(): Promise<Response> {
   return htmlResponse(
-    layout({
+    await layout({
       title: "Not found · EAH",
       heading: "Not found",
       body: h`<p>Google sign-in isn't configured on this server.</p>`,
@@ -34,13 +34,13 @@ function notConfigured(): Response {
   );
 }
 
-function failure(reason: string): Response {
+async function failure(reason: string): Promise<Response> {
   // Generic message — we don't leak which check failed (state mismatch vs.
   // Google rejection vs. cookie missing). The console log carries the detail
   // for operators.
   console.warn(`[oauth google] failed:`, reason);
   return htmlResponse(
-    layout({
+    await layout({
       title: "Sign-in failed · EAH",
       heading: "Sign-in failed",
       body: h`<p>Google sign-in didn't complete. Try again or use a password.</p>
@@ -51,12 +51,12 @@ function failure(reason: string): Response {
 }
 
 export async function postOauthStart(req: Request, ctx: RouteContext): Promise<Response> {
-  if (!googleOAuthEnabled()) return notConfigured();
+  if (!googleOAuthEnabled()) return await notConfigured();
 
   const rl = rateLimitCheck("oauth", ctx.ip);
   if (!rl.allowed) {
     return htmlResponse(
-      layout({
+      await layout({
         title: "Too many attempts",
         heading: "Slow down",
         body: h`<p>Please wait a bit before retrying.</p>`,
@@ -70,7 +70,7 @@ export async function postOauthStart(req: Request, ctx: RouteContext): Promise<R
     form = await parseForm(req);
   } catch {
     return htmlResponse(
-      layout({
+      await layout({
         title: "Bad request",
         heading: "Bad request",
         body: h`<p>The form submission was too large or malformed.</p>`,
@@ -80,7 +80,7 @@ export async function postOauthStart(req: Request, ctx: RouteContext): Promise<R
   }
   if (!verifyCsrf(req, form.get("_csrf"))) {
     return htmlResponse(
-      layout({
+      await layout({
         title: "Invalid CSRF token",
         heading: "Invalid CSRF token",
         body: h`<p>Please go back and try again.</p>`,
@@ -97,14 +97,14 @@ export async function postOauthStart(req: Request, ctx: RouteContext): Promise<R
 }
 
 export async function getOauthCallback(req: Request, ctx: RouteContext): Promise<Response> {
-  if (!googleOAuthEnabled()) return notConfigured();
+  if (!googleOAuthEnabled()) return await notConfigured();
 
   // If Google sent ?error= (user denied, etc), short-circuit.
   const oauthError = ctx.url.searchParams.get("error");
-  if (oauthError) return failure(`google returned error=${oauthError}`);
+  if (oauthError) return await failure(`google returned error=${oauthError}`);
 
   const identity = await handleCallback(req, ctx.url);
-  if (!identity) return failure("invalid callback (state/code/identity)");
+  if (!identity) return await failure("invalid callback (state/code/identity)");
 
   // Find or create the user. Three cases:
   //   (1) google_sub already maps to a user — that's the canonical path. Log in.
@@ -169,7 +169,7 @@ export async function getOauthCallback(req: Request, ctx: RouteContext): Promise
     return -1;
   });
 
-  if (userId < 0) return failure("user resolution failed");
+  if (userId < 0) return await failure("user resolution failed");
 
   const { cookie: sessionCookie } = await createSession(userId);
 
@@ -187,6 +187,8 @@ export async function getOauthCallback(req: Request, ctx: RouteContext): Promise
  * matching the username charset, then clamp length. Falls back to "user"
  * if everything was stripped.
  */
+// Math.random() is used for username suffix disambiguation — this is not a
+// security-sensitive value (username is public), so crypto-random is not required.
 function synthesizeUsername(email: string): string {
   const at = email.indexOf("@");
   const local = at > 0 ? email.slice(0, at) : email;

@@ -1,377 +1,816 @@
-/* Encyclopedia of AI Hallucinations
- * Deliberately plain styling.
- * No JS, no hover effects, no animations.
+/* Encyclopedia of AI Hallucinations — style.css
+ * OEIS-spare aesthetic: no animations, no transitions, no hover scale,
+ * no border-radius > 2px, no inline JS, no client framework.
+ * Organized per spec §8a–§8m.
  */
 
+/* === 8a CSS variables — light (default) === */
 :root {
   --bg: #ffffff;
-  --fg: #111111;
-  --muted: #666666;
-  --link: #0033cc;
-  --visited: #551a8b;
-  --rule: #cccccc;
-  --pre-bg: #f2f2f2;
-  --stripe: #f7f7f7;
-  --banner-bg: #ffe600;
-  --banner-fg: #000000;
-  --banner-border: #000000;
+  --bg-alt: #f8f8f8;
+  --bg-banner: #e8e8e8;
+  --border: #cccccc;
+  --border-light: #eeeeee;
+  --text: #000000;
+  --text-muted: #666666;
+  --link: #0000cc;
+  --link-visited: #551a8b;
+  --link-hover: #0000ff;
+  --accent: #2255aa;
+  --error: #cc0000;
+  --success: #006600;
+  --warning: #cc6600;
+  --ins-bg: #e6ffe6;
+  --del-bg: #ffe6e6;
+  --ins-color: #003300;
+  --del-color: #330000;
+  --status-draft: #888888;
+  --status-pending: #cc6600;
+  --status-published: #006600;
+  --status-rejected: #cc0000;
+  --status-withdrawn: #888888;
+  --font-body: Georgia, 'Times New Roman', serif;
+  --font-mono: 'Courier New', Courier, monospace;
+  --font-ui: system-ui, -apple-system, sans-serif;
+  --content-width: 900px;
 }
 
+/* Dark mode via OS preference — only when not explicitly forced light */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0c0c0c;
-    --fg: #e8e8e8;
-    --muted: #999999;
-    --link: #88aaff;
-    --visited: #c9a3ff;
-    --rule: #333333;
-    --pre-bg: #1a1a1a;
-    --stripe: #161616;
-    --banner-bg: #b89700;
-    --banner-fg: #000000;
-    --banner-border: #000000;
+  :root:not([data-theme="light"]) {
+    --bg: #1a1a1a;
+    --bg-alt: #222222;
+    --bg-banner: #2a2a2a;
+    --border: #444444;
+    --border-light: #333333;
+    --text: #e8e8e8;
+    --text-muted: #999999;
+    --link: #7799ff;
+    --link-visited: #bb88ff;
+    --link-hover: #aabbff;
+    --accent: #5588cc;
+    --ins-bg: #0a2a0a;
+    --del-bg: #2a0a0a;
+    --ins-color: #88cc88;
+    --del-color: #cc8888;
   }
 }
 
-/* Explicit theme overrides (set by /static/theme.js via <html data-theme="...">).
- * These take precedence over the prefers-color-scheme media query so the
- * user's saved choice wins. When data-theme is absent, the OS preference
- * still drives the colors via the @media block above. */
-html[data-theme="light"] {
-  --bg: #ffffff;
-  --fg: #111111;
-  --muted: #666666;
-  --link: #0033cc;
-  --visited: #551a8b;
-  --rule: #cccccc;
-  --pre-bg: #f2f2f2;
-  --stripe: #f7f7f7;
-  --banner-bg: #ffe600;
-  --banner-fg: #000000;
-  --banner-border: #000000;
+/* Dark mode via explicit data-theme attribute (theme toggle sets this) */
+:root[data-theme="dark"] {
+  --bg: #1a1a1a;
+  --bg-alt: #222222;
+  --bg-banner: #2a2a2a;
+  --border: #444444;
+  --border-light: #333333;
+  --text: #e8e8e8;
+  --text-muted: #999999;
+  --link: #7799ff;
+  --link-visited: #bb88ff;
+  --link-hover: #aabbff;
+  --accent: #5588cc;
+  --ins-bg: #0a2a0a;
+  --del-bg: #2a0a0a;
+  --ins-color: #88cc88;
+  --del-color: #cc8888;
 }
 
-html[data-theme="dark"] {
-  --bg: #0c0c0c;
-  --fg: #e8e8e8;
-  --muted: #999999;
-  --link: #88aaff;
-  --visited: #c9a3ff;
-  --rule: #333333;
-  --pre-bg: #1a1a1a;
-  --stripe: #161616;
-  --banner-bg: #b89700;
-  --banner-fg: #000000;
-  --banner-border: #000000;
+/* Force light when explicitly requested */
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-alt: #f8f8f8;
+  --bg-banner: #e8e8e8;
+  --border: #cccccc;
+  --border-light: #eeeeee;
+  --text: #000000;
+  --text-muted: #666666;
+  --link: #0000cc;
+  --link-visited: #551a8b;
+  --link-hover: #0000ff;
+  --accent: #2255aa;
+  --error: #cc0000;
+  --success: #006600;
+  --warning: #cc6600;
+  --ins-bg: #e6ffe6;
+  --del-bg: #ffe6e6;
+  --ins-color: #003300;
+  --del-color: #330000;
+  --status-draft: #888888;
+  --status-pending: #cc6600;
+  --status-published: #006600;
+  --status-rejected: #cc0000;
+  --status-withdrawn: #888888;
 }
+
+/* === 8b Base reset + typography === */
+*, *::before, *::after { box-sizing: border-box; }
 
 html, body {
   margin: 0;
   padding: 0;
   background: var(--bg);
-  color: var(--fg);
+  color: var(--text);
 }
 
 body {
-  font-family: Georgia, "Times New Roman", Times, serif;
-  font-size: 16px;
-  line-height: 1.5;
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
 }
 
-pre, code, kbd, samp, tt {
-  font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
-  font-size: 15px;
+@media (max-width: 600px) {
+  body { font-size: 16px; }
 }
 
-a:link { color: var(--link); text-decoration: underline; }
-a:visited { color: var(--visited); }
-a:active { color: var(--link); }
+a { color: var(--link); }
+a:visited { color: var(--link-visited); }
+a:hover { color: var(--link-hover); }
 
-.banner {
-  background: var(--banner-bg);
-  color: var(--banner-fg);
-  border-bottom: 2px solid var(--banner-border);
-  padding: 0.6em 1em;
-  text-align: center;
+code, pre, tt { font-family: var(--font-mono); }
+
+code {
+  background: var(--bg-alt);
+  padding: 0.05em 0.3em;
+}
+pre code { background: transparent; padding: 0; }
+
+h1 { font-size: 1.3em; font-weight: bold; margin: 0.5em 0; }
+h2 {
+  font-size: 1.1em;
   font-weight: bold;
-  letter-spacing: 0.05em;
+  margin: 1em 0 0.4em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 2px;
+}
+h3 { font-size: 1em; font-weight: bold; margin: 0.8em 0 0.3em; }
+
+p { margin: 0.5em 0; }
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.5em 0;
+}
+
+/* Utility */
+.muted { color: var(--text-muted); }
+.small { font-size: 0.9em; }
+
+/* === 8c Layout — header / nav / main / footer === */
+.site-wrapper {
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 0 12px;
 }
 
 header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.9em;
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 1.2em 1em 0.6em 1em;
-  border-bottom: 1px solid var(--rule);
-  text-align: center;
+  background: var(--bg-banner);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
 }
 
-.site-title {
-  font-weight: bold;
-  text-decoration: none;
-  font-size: 2em;
-  color: var(--fg);
-  display: inline-flex;
+/* Top row: logo block + title text side by side */
+header .site-header-top {
+  display: flex;
   align-items: center;
-  gap: 0.85em;
-  line-height: 1.1;
+  gap: 12px;
+  margin-bottom: 4px;
+  max-width: var(--content-width);
+  margin-left: auto;
+  margin-right: auto;
 }
-.site-title:link, .site-title:visited { color: var(--fg); text-decoration: none; }
+
+/* Logo block: strawberry SVG above "EAH" caption, flows inline with title */
 .site-logo-block {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.15em;
+  gap: 2px;
   flex: none;
   line-height: 1;
 }
+
 .site-logo {
-  width: 2.6em;
-  height: 2.6em;
+  width: 2.2em;
+  height: 2.2em;
   display: block;
 }
+
 .site-logo-caption {
-  font-size: 0.5em;
+  font-size: 0.55em;
   font-weight: bold;
-  letter-spacing: 0.12em;
-  /* letter-spacing adds trailing space after the last letter, which makes
-     the visual content of "EAH" sit left of the box center. Bumping the box
-     right by one full letter-spacing shifts the visual center back onto
-     the strawberry's axis under align-items: center. */
-  margin-left: 0.12em;
+  letter-spacing: 0.1em;
+  /* compensate letter-spacing optical shift */
+  margin-left: 0.1em;
+  font-family: var(--font-ui);
 }
+
+/* Full title text beside the logo block */
+.site-title-text {
+  font-size: 1.2em;
+  font-weight: bold;
+  color: var(--text);
+  text-decoration: none;
+  line-height: 1.2;
+}
+.site-title-text:link,
+.site-title-text:visited { color: var(--text); text-decoration: none; }
+
+/* Kept for back-compat — layout.ts may still render .site-title wrapper */
+.site-title {
+  font-size: 1.2em;
+  font-weight: bold;
+  text-decoration: none;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.site-title:link, .site-title:visited { color: var(--text); text-decoration: none; }
 
 .site-credit {
+  font-size: 0.8em;
+  color: var(--text-muted);
   margin: 0;
-  font-size: 0.85em;
-  color: var(--muted);
-  font-style: italic;
-  align-self: flex-end;
 }
 
-header nav {
-  display: flex;
-  gap: 1.2em;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: baseline;
+nav {
+  font-size: 0.9em;
+  max-width: var(--content-width);
+  margin: 0 auto;
 }
 
-/* Right-hand block in the header nav. The vertical separator bar is the
- * `border-left` and is rendered whether the user is logged in or not, so
- * the layout doesn't jump when authentication state changes. */
+nav a { color: var(--link); text-decoration: none; margin-right: 4px; }
+nav a:hover { text-decoration: underline; }
+nav .nav-sep { color: var(--text-muted); margin-right: 4px; }
+
+/* Right-hand user area in nav */
 .user-nav {
-  color: var(--muted);
-  font-size: 0.9em;
-  margin-left: 1em;
-  border-left: 1px solid var(--rule);
-  padding-left: 1em;
   display: inline-flex;
-  gap: 0.5em;
   align-items: baseline;
+  gap: 0.4em;
+  color: var(--text-muted);
+  font-size: 0.9em;
+  border-left: 1px solid var(--border);
+  padding-left: 0.8em;
+  margin-left: 0.6em;
 }
-.user-nav a:link, .user-nav a:visited { color: var(--muted); }
+.user-nav a:link, .user-nav a:visited { color: var(--text-muted); }
+.user-nav a:hover { color: var(--link-hover); text-decoration: underline; }
 
-/* "Continue with Google" — same vibe as the rest of the site; no Google blue,
- * no logo. Pure form, sits above the password fields. */
-.oauth-form { margin: 0 0 0.6em 0; padding: 0; }
-.oauth-button {
-  font: inherit;
-  background: var(--bg, transparent);
-  border: 1px solid var(--rule);
-  padding: 0.5em 0.9em;
-  cursor: pointer;
-  color: inherit;
+main {
+  max-width: var(--content-width);
+  margin: 16px auto;
+  padding: 0 12px;
 }
-.oauth-divider {
+
+footer {
+  border-top: 1px solid var(--border);
+  margin-top: 32px;
+  padding: 12px;
+  font-size: 0.85em;
+  color: var(--text-muted);
   text-align: center;
-  margin: 0.4em 0 0.8em 0;
+  max-width: var(--content-width);
+  margin-left: auto;
+  margin-right: auto;
+}
+footer a:link, footer a:visited { color: var(--text-muted); }
+
+/* Site-wide notice banner (above header or within main) */
+.banner {
+  background: #fffbe6;
+  border: 1px solid #e6c800;
+  padding: 6px 10px;
+  margin-bottom: 12px;
   font-size: 0.9em;
 }
 
+/* === 8d Tables === */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: 0.95em;
+}
+
+th {
+  text-align: left;
+  font-weight: bold;
+  padding: 4px 8px;
+  background: #f0f0f0;
+  border-bottom: 2px solid var(--border);
+  font-family: var(--font-ui);
+}
+
+td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-light);
+  vertical-align: top;
+}
+
+tr:nth-child(even) td { background: var(--bg-alt); }
+
+/* Subtle row highlight on hover — no scale, no transition */
+tr:hover td { background: #f5f5ff; }
+
+table a { text-decoration: none; }
+table a:hover { text-decoration: underline; }
+
+/* Dark mode overrides for table chrome */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) th { background: #2a2a2a; }
+  :root:not([data-theme="light"]) tr:hover td { background: #252535; }
+}
+:root[data-theme="dark"] th { background: #2a2a2a; }
+:root[data-theme="dark"] tr:hover td { background: #252535; }
+:root[data-theme="light"] th { background: #f0f0f0; }
+:root[data-theme="light"] tr:hover td { background: #f5f5ff; }
+
+/* Browse / admin compact table helpers */
+.browse-table th,
+.browse-table td { white-space: nowrap; }
+.browse-table td:nth-child(2) { white-space: normal; }
+.recent-table td a { text-decoration: none; }
+.recent-table td a:hover { text-decoration: underline; }
+.queue-table code { font-size: 0.9em; }
+
+/* === 8e Forms === */
+.form-group { margin-bottom: 12px; }
+
+label {
+  display: block;
+  font-weight: bold;
+  margin-bottom: 3px;
+  font-size: 0.9em;
+}
+
+input[type=text],
+input[type=email],
+input[type=password],
+input[type=url],
+input[type=date],
+input[type=number],
+input[type=search],
+select,
+textarea {
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 4px 6px;
+  font-family: var(--font-body);
+  font-size: 1em;
+  background: var(--bg);
+  color: var(--text);
+  width: 100%;
+  max-width: 500px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: var(--font-mono);
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button, input[type=submit] {
+  border: none;
+  border-radius: 0;
+  padding: 5px 14px;
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+  cursor: pointer;
+  background: var(--accent);
+  color: #ffffff;
+}
+
+button:hover { opacity: 0.85; }
+
+button.btn-danger { background: var(--error); }
+button.btn-secondary { background: #555555; }
+
+/* Link-styled button — used for logout in nav and other inline actions */
+button.linkbutton,
 .linkbutton {
   background: none;
   border: none;
+  color: var(--link);
   padding: 0;
   margin: 0;
-  font: inherit;
-  color: var(--link);
   text-decoration: underline;
+  font-family: var(--font-body);
+  font-size: 1em;
   cursor: pointer;
   display: inline;
 }
 
-/* Forms whose entire content should render inline (e.g. logout button in nav). */
+/* Password show/hide wrapper — input + toggle button on one row */
+.pw-wrap {
+  display: flex;
+  align-items: center;
+  max-width: 500px;
+}
+.pw-wrap input {
+  flex: 1;
+  max-width: none;
+}
+.pw-toggle {
+  width: auto;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 8px;
+  margin-left: 4px;
+  flex-shrink: 0;
+  font-family: var(--font-ui);
+}
+.pw-toggle:hover { opacity: 0.85; }
+
+/* Character counter shown beneath textareas */
+.char-count {
+  color: var(--text-muted);
+  font-size: 0.8em;
+  font-family: var(--font-ui);
+}
+
+/* Validation messages */
+.form-error {
+  color: var(--error);
+  margin-bottom: 8px;
+}
+.form-error::before { content: "\2717  "; }
+
+/* .error is an alias used as <p class="error" role="alert"> */
+.error {
+  color: var(--error);
+  margin-bottom: 8px;
+}
+.error::before { content: "\2717  "; }
+
+.form-notice { color: var(--success); margin-bottom: 8px; }
+
+/* .notice is an alias used in verify.ts */
+.notice { color: var(--success); margin-bottom: 8px; }
+
+/* Username availability status line */
+.username-status {
+  font-size: 0.85em;
+  font-family: var(--font-ui);
+}
+.status-ok  { color: var(--success); }
+.status-err { color: var(--error); }
+
+/* Small hint text beneath form fields */
+small.field-hint,
+.field-hint {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  display: block;
+  margin-top: 2px;
+}
+
+/* Forms that render inline (e.g. logout button in nav) */
 .inline-form { display: inline; margin: 0; padding: 0; }
 
-/* Theme toggle button — text-style, matches .linkbutton aesthetic. No hover
- * effects, no animation; just an underlined inline control sitting in the nav. */
+/* Checkbox row in submit form */
+.field-checkbox { margin: 8px 0; }
+.checkbox-label {
+  font-weight: normal;
+  display: inline-block;
+  cursor: pointer;
+}
+.checkbox-label input[type=checkbox] {
+  width: auto;
+  max-width: none;
+  margin-right: 0.4em;
+  vertical-align: middle;
+}
+
+/* Google OAuth buttons — plain, matches OEIS-spare look */
+.oauth-form { margin: 0 0 0.6em 0; padding: 0; }
+.oauth-button {
+  font: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 5px 14px;
+  cursor: pointer;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+}
+.oauth-button:hover { opacity: 0.85; }
+.oauth-divider {
+  text-align: center;
+  margin: 0.4em 0 0.8em 0;
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+
+/* Theme toggle — unobtrusive, no background */
+#theme-toggle.theme-toggle,
 .theme-toggle {
   background: none;
   border: none;
   padding: 0;
   margin: 0;
-  font: inherit;
-  color: var(--link);
-  text-decoration: underline;
+  font-family: var(--font-ui);
+  font-size: 0.85em;
+  color: var(--text-muted);
   cursor: pointer;
   display: inline;
 }
 .theme-toggle .theme-icon {
-  text-decoration: none;
   display: inline-block;
   margin-right: 0.2em;
+  text-decoration: none;
 }
 
-main {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 1.5em 1em 3em 1em;
+/* === 8f Status badges === */
+.status-badge {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+.status-badge::before { content: "["; }
+.status-badge::after  { content: "]"; }
+
+.status-draft     { color: var(--status-draft); }
+.status-pending   { color: var(--status-pending); }
+.status-published { color: var(--status-published); }
+.status-rejected  { color: var(--status-rejected); }
+.status-withdrawn { color: var(--status-withdrawn); font-style: italic; }
+
+/* Entry-level (active/patched) status labels */
+.entry-status-active  { color: var(--success); font-size: 0.85em; }
+.entry-status-patched {
+  color: var(--warning);
+  font-size: 0.85em;
+  font-style: italic;
+}
+.entry-status-patched::before { content: "\26a0 "; }
+
+/* Legacy .entry-status pill (used by old browse/entry renders) */
+.entry-status {
+  display: inline-block;
+  font-size: 0.8em;
+  padding: 0.05em 0.5em;
+  border: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: var(--font-mono);
 }
 
-h1, h2, h3, h4 {
-  font-family: Georgia, "Times New Roman", Times, serif;
-  font-weight: bold;
-  line-height: 1.2;
-}
-h1 { font-size: 1.5em; margin: 0.6em 0; text-align: center; }
-h2 { font-size: 1.25em; margin: 1em 0 0.4em 0; }
-h3 { font-size: 1.1em; margin: 0.8em 0 0.3em 0; }
+/* === 8g Entry page === */
+.entry-header { margin-bottom: 16px; }
 
-p { margin: 0.6em 0; }
-
-hr {
-  border: 0;
-  border-top: 1px solid var(--rule);
-  margin: 1.5em 0;
+.entry-eah-id {
+  font-family: var(--font-mono);
+  font-size: 1.1em;
+  margin: 0;
 }
 
-pre {
-  background: var(--pre-bg);
-  padding: 0.8em 1em;
-  border: 1px solid var(--rule);
+.entry-title { font-size: 1.3em; margin: 4px 0; }
+
+.entry-category { color: var(--text-muted); font-size: 0.9em; margin: 0; }
+
+/* Model field — legacy big-display variant kept for back-compat */
+.entry-model {
+  font-size: 1.4em;
+  margin: 0 0 0.15em 0;
+  word-wrap: break-word;
+}
+
+/* Definition-list metadata grid */
+.entry-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 12px 0;
+  font-size: 0.9em;
+}
+.entry-meta dt { font-weight: bold; color: var(--text-muted); }
+
+/* Prompt / output preformatted blocks */
+pre.prompt,
+pre.output {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  padding: 10px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.9em;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+/* Citation block */
+pre.citation {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  padding: 8px;
+  font-size: 0.85em;
   white-space: pre-wrap;
   word-wrap: break-word;
-  overflow-wrap: break-word;
-  overflow-x: auto;
 }
 
-code {
-  background: var(--pre-bg);
-  padding: 0.05em 0.3em;
-}
-pre code { background: transparent; padding: 0; }
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-}
-th, td {
-  padding: 0.45em 0.6em;
-  text-align: left;
-  vertical-align: top;
-  border: 0;
-}
-th {
-  font-weight: bold;
-  border-bottom: 1px solid var(--rule);
-}
-tbody tr:nth-child(odd) { background: var(--stripe); }
-
-form { margin: 1em 0; }
-
-label {
-  display: block;
-  margin: 0.8em 0 0.3em 0;
-  font-weight: bold;
-}
-
-input[type="text"],
-input[type="email"],
-input[type="password"],
-input[type="url"],
-input[type="search"],
-select {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.4em 0.5em;
-  font: inherit;
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--rule);
-}
-
-textarea {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.5em;
-  font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
-  font-size: 15px;
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--rule);
-  min-height: 8em;
-}
-
-button, input[type="submit"] {
-  font: inherit;
-  padding: 0.4em 0.9em;
-  background: var(--pre-bg);
-  color: var(--fg);
-  border: 1px solid var(--rule);
+/* Copy button injected by theme.js next to citation */
+.copy-btn {
+  font-size: 0.8em;
+  background: #555555;
+  padding: 2px 8px;
+  margin-left: 6px;
+  color: #ffffff;
+  border: none;
+  border-radius: 0;
   cursor: pointer;
 }
+.copy-btn:hover { opacity: 0.85; }
 
-footer {
-  max-width: 900px;
-  margin: 2em auto 1em auto;
-  padding: 1em;
-  border-top: 1px solid var(--rule);
-  text-align: center;
-  font-size: 0.85em;
-  color: var(--muted);
+/* Patched-entry warning banner */
+.patched-banner {
+  background: #fff8e6;
+  border: 1px solid var(--warning);
+  padding: 8px;
+  margin: 12px 0;
 }
-footer a:link, footer a:visited { color: var(--muted); }
 
-.muted { color: var(--muted); }
-.small { font-size: 0.9em; }
+/* Prev / next navigation row at bottom of entry */
+.entry-nav {
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 0.9em;
+  display: flex;
+  justify-content: space-between;
+}
 
-/* Search form: input + button on a single row, with breathing room. */
+/* Footer block below citation on entry pages */
+.entry-footer-block {
+  margin-top: 2em;
+  padding-top: 1em;
+  border-top: 1px solid var(--border);
+}
+
+/* Reviewer note shown to submitter (draft/track view) */
+.reviewer-note {
+  margin: 0.5em 0 1em 0;
+  padding: 0.5em 1em;
+  border-left: 3px solid var(--border);
+  background: var(--bg-alt);
+  white-space: pre-wrap;
+}
+
+/* === 8h Diff / history display === */
+ins.diff-add {
+  background: var(--ins-bg);
+  color: var(--ins-color);
+  text-decoration: underline;
+  font-weight: bold;
+}
+del.diff-del {
+  background: var(--del-bg);
+  color: var(--del-color);
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+
+.history-version {
+  border-top: 1px solid var(--border);
+  padding: 10px 0;
+}
+.history-version-bar {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  margin-bottom: 6px;
+}
+.history-field-name {
+  font-weight: bold;
+  font-family: var(--font-ui);
+  font-size: 0.85em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 6px 0 2px;
+}
+
+/* === 8i Discussion thread === */
+.discussion { margin-top: 16px; }
+
+/* OEIS-style two-column discussion entry */
+.discuss-note {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 0.9em;
+  border-top: 1px dotted var(--border-light);
+  padding-top: 4px;
+}
+.discuss-meta  { color: var(--text-muted); font-size: 0.85em; }
+.discuss-user  { font-weight: bold; }
+
+pre.note {
+  font-family: var(--font-body);
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.system-message { color: var(--text-muted); font-style: italic; }
+
+.chat-reply { margin-top: 12px; }
+
+/* Legacy chat thread styles (admin queue + old track views) */
+.chat-thread {
+  list-style: none;
+  padding: 0;
+  margin: 0.5em 0 1em 0;
+}
+.chat-message {
+  border-left: 3px solid var(--border);
+  padding: 0.4em 0.8em;
+  margin: 0.5em 0;
+  background: var(--bg-alt);
+}
+.chat-message.chat-staff { border-left-color: var(--link); }
+.chat-message.chat-user  { border-left-color: var(--text-muted); }
+.chat-message.chat-system {
+  border-left-style: dashed;
+  font-style: italic;
+  background: transparent;
+}
+.chat-meta {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin-bottom: 0.2em;
+}
+.chat-body { white-space: pre-wrap; word-wrap: break-word; }
+
+/* === 8j Search / browse === */
 .search-form {
   display: flex;
-  gap: 0.8em;
-  align-items: stretch;
+  gap: 6px;
+  margin: 12px 0;
+  align-items: center;
   max-width: 600px;
-  margin: 1em auto;
 }
-.search-form input[type="search"] { flex: 1 1 auto; width: auto; }
-.search-form button { flex: 0 0 auto; }
+.search-form input[type=search] { max-width: 400px; }
 
-/* Category nav with commas between links. */
-.category-nav { margin: 1em 0; text-align: center; }
+.filters  { font-size: 0.9em; margin: 8px 0; }
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0;
+  font-size: 0.9em;
+  font-family: var(--font-ui);
+}
+
+.result-count {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  font-family: var(--font-ui);
+}
+
+.pagination,
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  font-size: 0.9em;
+  font-family: var(--font-ui);
+}
+.pagination .disabled,
+.pager .disabled { color: var(--text-muted); }
+
+/* Browse controls (sort / filter links bar) */
+.browse-controls {
+  margin: 0.6em 0 0.4em 0;
+  font-size: 0.95em;
+  color: var(--text-muted);
+}
+.browse-controls a:link, .browse-controls a:visited { color: var(--link); }
+
+/* Category navigation (home page) */
+.category-nav { margin: 1em 0; }
 .category-nav strong { margin-right: 0.4em; }
+.category-breakdown { font-size: 0.9em; margin: 8px 0; }
 
-/* Home page "top matter": centered intro, CTA, and section heading above
-   the entry list. The entry-list itself stays left-aligned so the
-   prompt/output <pre> blocks remain readable. */
+/* Home page top section */
 .home-top { text-align: center; }
 .home-top h2 { text-align: center; }
 .home-top .cta { font-size: 1.05em; }
+.tagline { font-size: 1.05em; color: var(--text-muted); margin: 0.4em 0 1em 0; }
 
-/* Inline form-field hint (e.g. under the AI model input). */
-.field-hint {
-  margin: 0.3em 0 0.6em 0;
-  color: var(--muted);
-}
-
-/* Homepage entry cards (prompt + output inline). */
+/* Home page entry cards */
 .entry-list { display: block; }
 .entry-card {
-  border-top: 1px solid var(--rule);
+  border-top: 1px solid var(--border);
   padding: 1em 0 0.8em 0;
   margin: 0;
 }
@@ -385,18 +824,12 @@ footer a:link, footer a:visited { color: var(--muted); }
 .entry-card h3 .meta {
   font-weight: normal;
   font-size: 0.85em;
-  color: var(--muted);
+  color: var(--text-muted);
 }
-.entry-section {
-  margin: 0.4em 0 0.8em 0;
-}
-.entry-label {
-  font-weight: bold;
-  font-size: 0.9em;
-  margin-bottom: 0.25em;
-}
+.entry-section { margin: 0.4em 0 0.8em 0; }
+.entry-label   { font-weight: bold; font-size: 0.9em; margin-bottom: 0.25em; }
 
-/* Browse-page compact list (no prompt body, no public ID). */
+/* Browse-page compact list */
 .entry-list-compact {
   list-style: none;
   padding: 0;
@@ -404,169 +837,75 @@ footer a:link, footer a:visited { color: var(--muted); }
 }
 .entry-list-compact li {
   padding: 0.35em 0;
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 1px solid var(--border);
 }
 .entry-list-compact .meta {
   font-size: 0.85em;
-  color: var(--muted);
+  color: var(--text-muted);
   margin-left: 0.5em;
 }
 
-/* Single-entry page header: model name big, category as subhead. */
-.entry-header { margin: 0 0 1em 0; }
-.entry-model {
-  font-size: 1.8em;
-  margin: 0 0 0.15em 0;
-  word-wrap: break-word;
+/* === 8k Autosave banner === */
+.autosave-banner {
+  background: #fffbe6;
+  border: 1px solid #e6c800;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.entry-category {
-  margin: 0;
-  font-size: 1.05em;
-  color: var(--muted);
-}
-
-/* Reviewer note on /track — distinct from the page chrome so the submitter
-   reads it before deciding what to do. */
-.reviewer-note {
-  margin: 0.5em 0 1em 0;
-  padding: 0.5em 1em;
-  border-left: 3px solid var(--rule);
-  background: var(--surface, transparent);
-  white-space: pre-wrap;
-}
-
-/* Inline form-field hint paragraph used on /submit. */
-.field-hint {
-  margin: 0.1em 0 0.9em 0;
-  color: var(--muted);
-}
-
-/* ─── new fields & layout for A-number entries ─────────────────────────── */
-
-.tagline {
-  font-size: 1.05em;
-  color: var(--muted);
-  margin: 0.4em 0 1em 0;
-}
-
-/* Recently-published table on the home page. */
-.recent-table { margin: 1em 0; }
-.recent-table td a { text-decoration: none; }
-.recent-table td a:hover { text-decoration: underline; }
-
-/* Browse listing table. */
-.browse-table { margin: 1em 0; }
-.browse-table th, .browse-table td { white-space: nowrap; }
-.browse-table td:nth-child(2) { white-space: normal; }
-
-/* Status filter / sort controls bar on /browse. */
-.browse-controls {
-  margin: 0.6em 0 0.4em 0;
-  font-size: 0.95em;
-  color: var(--muted);
-}
-.browse-controls a:link, .browse-controls a:visited { color: var(--link); }
-
-/* Entry-status pill (Active / Patched). Plain text, just a subtle outline. */
-.entry-status {
-  display: inline-block;
-  font-size: 0.8em;
-  padding: 0.05em 0.5em;
-  border: 1px solid var(--rule);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
-}
-.entry-status-active { color: var(--muted); }
-.entry-status-patched {
-  color: var(--banner-fg);
-  background: var(--banner-bg);
-  border-color: var(--banner-border);
-}
-
-/* Single-entry page: A-number + status above the title. */
-.entry-eah-id {
-  margin: 0 0 0.2em 0;
-  font-size: 0.95em;
-  color: var(--muted);
-}
-.entry-title {
-  font-size: 1.8em;
-  margin: 0 0 0.15em 0;
-  word-wrap: break-word;
-}
-
-/* Patched-status banner on entry pages. */
-.patched-banner {
-  margin: 1em 0;
-  padding: 0.7em 1em;
-  border: 1px solid var(--banner-border);
-  background: var(--banner-bg);
-  color: var(--banner-fg);
-}
-
-/* Citation block on entry pages. Selectable, copyable, low-key. */
-pre.citation {
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  font-size: 0.92em;
-}
-.entry-footer-block {
-  margin-top: 2em;
-  padding-top: 1em;
-  border-top: 1px solid var(--rule);
-}
-
-/* Submitter ↔ reviewer chat thread. */
-.chat-thread {
-  list-style: none;
-  padding: 0;
-  margin: 0.5em 0 1em 0;
-}
-.chat-message {
-  border-left: 3px solid var(--rule);
-  padding: 0.4em 0.8em;
-  margin: 0.5em 0;
-  background: var(--stripe);
-}
-.chat-message.chat-staff { border-left-color: var(--link); }
-.chat-message.chat-user  { border-left-color: var(--muted); }
-.chat-message.chat-system {
-  border-left-style: dashed;
-  font-style: italic;
-  background: transparent;
-}
-.chat-meta {
+.autosave-banner button {
   font-size: 0.85em;
-  color: var(--muted);
-  margin-bottom: 0.2em;
+  padding: 2px 8px;
 }
-.chat-body { white-space: pre-wrap; word-wrap: break-word; }
 
-.chat-reply { margin-top: 1em; }
+/* === 8l My submissions dashboard === */
+.my-submissions-section { margin-bottom: 20px; }
+.my-submissions-section h2 { font-size: 1em; }
+.draft-warning {
+  color: var(--warning);
+  font-size: 0.9em;
+  border: 1px solid var(--warning);
+  padding: 6px 10px;
+  margin: 8px 0;
+}
 
-/* Submit form: opt-in checkbox row for "I'm OK with author edits". */
-.field-checkbox { margin: 0.8em 0; }
-.checkbox-label { font-weight: normal; display: block; }
-.checkbox-label input[type="checkbox"] { width: auto; margin-right: 0.4em; }
+/* === 8m Admin-specific === */
+.jump-to-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+}
+.jump-to-form input { max-width: 100px; }
 
-/* Tracking-code result block on submit confirmation. */
+.bulk-form {
+  margin-top: 12px;
+  padding: 8px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+}
+
+/* === Minimal tracking-code styles (kept for any cached admin/staff pages) === */
 .tracking-code-block {
   margin: 1em 0;
   padding: 0.8em 1em;
-  border: 1px solid var(--rule);
-  background: var(--stripe);
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
 }
-.tracking-code {
+pre.tracking-code {
   font-size: 1.1em;
   margin: 0.4em 0;
-}
-
-/* Form error banner (validation failure on submit forms). */
-.form-error {
-  border: 1px solid var(--banner-border);
-  background: var(--banner-bg);
-  color: var(--banner-fg);
-  padding: 0.6em 0.9em;
-  margin: 0.5em 0 1em 0;
+  background: transparent;
+  border: none;
+  padding: 0;
 }

@@ -12,6 +12,14 @@ import { tokenForRequest } from "../../csrf.ts";
 import { formatEahId } from "../../eah-id.ts";
 import { htmlResponse, type RouteContext } from "../types.ts";
 
+/** Jump-to-entry form used in both queue list and detail views. */
+const jumpToForm: SafeHtml = h`
+  <form class="jump-to-form" method="get" action="/admin/entries/redirect">
+    Jump to: <input type="text" name="id" placeholder="A000001" maxlength="10">
+    <button type="submit">Go</button>
+  </form>
+`;
+
 interface PendingRow {
   id: number;
   public_id: string;
@@ -123,13 +131,14 @@ export async function getQueue(req: Request, ctx: RouteContext): Promise<Respons
       `;
 
   const body = h`
+    ${jumpToForm}
     <p>${rows.length} pending submission${rows.length === 1 ? "" : "s"}.
        <a href="/admin/entries/new">+ add a new entry directly</a>
        (bypasses the draft queue).</p>
     ${tableBody}
   `;
 
-  const html = layout({
+  const html = await layout({
     title: "Admin queue",
     heading: "Pending submissions",
     body,
@@ -144,7 +153,7 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
   const idStr = ctx.params.id;
   const id = idStr && /^\d+$/.test(idStr) ? parseInt(idStr, 10) : NaN;
   if (!Number.isFinite(id) || id <= 0) {
-    return notFound(ctx);
+    return await notFound(ctx);
   }
 
   const row = await queryOne<SubmissionFull>(
@@ -157,7 +166,7 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
        WHERE id = ?`,
     [id],
   );
-  if (!row) return notFound(ctx);
+  if (!row) return await notFound(ctx);
 
   const tags = await query<{ name: string }>(
     `SELECT t.name FROM submission_tags st
@@ -259,7 +268,66 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
   const verifiedHitsPrev = row.verified_hits ?? "";
   const verifiedTotalPrev = row.verified_total ?? "";
 
+  // Version history for this submission.
+  const versionRows = await query<{
+    id: number;
+    version_num: number;
+    changed_by: number | null;
+    changed_at: Date;
+    field_name: string;
+    old_value: string | null;
+    new_value: string | null;
+    changed_by_username: string | null;
+  }>(
+    `SELECT v.*, u.username AS changed_by_username
+       FROM submission_versions v
+       LEFT JOIN users u ON u.id = v.changed_by
+      WHERE v.submission_id = ?
+      ORDER BY v.version_num ASC, v.id ASC`,
+    [row.id],
+  );
+
+  let versionHistoryHtml: SafeHtml;
+  if (versionRows.length === 0) {
+    versionHistoryHtml = h`<p><em>No edit history recorded.</em></p>`;
+  } else {
+    const groups = new Map<number, typeof versionRows>();
+    for (const r of versionRows) {
+      const g = groups.get(r.version_num) ?? [];
+      g.push(r);
+      groups.set(r.version_num, g);
+    }
+    const groupHtml = [...groups.entries()].map(([vNum, fields]) => {
+      const first = fields[0]!;
+      const ts = new Date(first.changed_at);
+      const dateStr = ts.toISOString().slice(0, 16).replace("T", " ") + " UTC";
+      const byLine = first.changed_by_username
+        ? h`${first.changed_by_username}`
+        : h`(deleted user)`;
+      const fieldLines = fields.map((f) => {
+        const delPart = f.old_value !== null
+          ? h`<del class="diff-del">${f.old_value}</del>`
+          : raw("");
+        const insPart = f.new_value !== null
+          ? h`<ins class="diff-add">${f.new_value}</ins>`
+          : raw("");
+        return h`
+          <div class="history-entry">
+            <div class="history-field-name">${f.field_name}</div>
+            <div class="history-diff">${delPart} ${insPart}</div>
+          </div>`;
+      });
+      return h`
+        <div class="history-version">
+          <div class="history-version-header">#${String(vNum)} · ${byLine} · ${dateStr}</div>
+          ${fieldLines}
+        </div>`;
+    });
+    versionHistoryHtml = h`${groupHtml}`;
+  }
+
   const body = h`
+    ${jumpToForm}
     <p><a href="/admin/queue">← back to queue</a></p>
 
     <dl class="meta">
@@ -328,9 +396,12 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
     </form>
 
     ${entryStatusToggle}
+
+    <h3>Edit history</h3>
+    ${versionHistoryHtml}
   `;
 
-  const html = layout({
+  const html = await layout({
     title: `Submission #${row.id}`,
     heading: `${eahId || "(unnumbered)"} — ${row.title ?? "(no title)"} ${statusBadge(row.status)}`,
     body,
@@ -339,8 +410,8 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
   return htmlResponse(html, { setCookie: csrfSetCookie });
 }
 
-function notFound(ctx: RouteContext): Response {
-  const body = layout({
+async function notFound(ctx: RouteContext): Promise<Response> {
+  const body = await layout({
     title: "Not found",
     heading: "Submission not found",
     body: h`<p>No submission with that id. <a href="/admin/queue">Back to queue</a>.</p>`,

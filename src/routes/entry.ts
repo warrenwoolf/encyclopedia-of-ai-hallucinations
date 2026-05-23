@@ -44,7 +44,7 @@ function ymd(d: Date | string): string {
   return `${y}-${m}-${day}`;
 }
 
-function notFound(req: Request, ctx: { user: any }): Response {
+async function notFound(req: Request, ctx: { user: any }): Promise<Response> {
   const body = h`<p>No entry with that ID, or it isn't published.</p>
     <p><a href="/browse">Browse entries</a> · <a href="/">Home</a></p>`;
   return pageResponse(
@@ -57,7 +57,7 @@ function notFound(req: Request, ctx: { user: any }): Response {
 export const entry: RouteHandler = async (req, ctx) => {
   const idParam = ctx.params.public_id;
   if (!idParam || !/^[A-Za-z0-9_-]{1,32}$/.test(idParam)) {
-    return notFound(req, ctx);
+    return await notFound(req, ctx);
   }
 
   // First try the A-number (canonical). If the param doesn't look like one,
@@ -90,7 +90,7 @@ export const entry: RouteHandler = async (req, ctx) => {
   }
 
   if (!row || row.status !== "published") {
-    return notFound(req, ctx);
+    return await notFound(req, ctx);
   }
 
   const tagRows = await query<{ name: string }>(
@@ -100,6 +100,16 @@ export const entry: RouteHandler = async (req, ctx) => {
        WHERE st.submission_id = ?
        ORDER BY t.name ASC`,
     [row.id],
+  );
+
+  // Prev/next navigation by A-number within published entries.
+  const prevRow = await queryOne<{ eah_number: number }>(
+    `SELECT eah_number FROM submissions WHERE status='published' AND eah_number < ? ORDER BY eah_number DESC LIMIT 1`,
+    [row.eah_number],
+  );
+  const nextRow = await queryOne<{ eah_number: number }>(
+    `SELECT eah_number FROM submissions WHERE status='published' AND eah_number > ? ORDER BY eah_number ASC LIMIT 1`,
+    [row.eah_number],
   );
 
   const tagList = tagRows.length === 0
@@ -184,9 +194,19 @@ export const entry: RouteHandler = async (req, ctx) => {
 
     <section class="entry-footer-block">
       <h2>Cite this entry</h2>
-      <pre class="citation">${citationText}</pre>
+      <pre class="citation" data-copy-target="true">${citationText}</pre>
       <p><a href="${reportUrl}">Report an issue with this entry</a> · <a href="/browse">Browse all entries</a></p>
     </section>
+
+    <nav class="entry-nav">
+      ${prevRow
+        ? h`<a href="/e/${formatEahId(prevRow.eah_number)}">&larr; ${formatEahId(prevRow.eah_number)}</a>`
+        : h`<span class="disabled">&larr; (first)</span>`}
+      &middot;
+      ${nextRow
+        ? h`<a href="/e/${formatEahId(nextRow.eah_number)}">${formatEahId(nextRow.eah_number)} &rarr;</a>`
+        : h`<span class="disabled">(last) &rarr;</span>`}
+    </nav>
   `;
 
   return pageResponse(req, {
