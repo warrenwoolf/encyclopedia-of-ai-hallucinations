@@ -1,7 +1,7 @@
 /**
  * GET /submit — show the submission form.
  * POST /submit — validate, rate-limit, allocate the EAH number, insert as
- * `pending`, and return a one-time tracking code to the user.
+ * `pending`, and return the submission confirmation page or draft redirect.
  */
 import { randomBytes, createHash } from "node:crypto";
 import { h, raw, type SafeHtml } from "../html.ts";
@@ -78,9 +78,17 @@ function renderForm(opts: {
   // Autosave attribute is only wired up for logged-in users, because anonymous
   // users have no session to restore the draft from.
   const autosaveAttr = user ? raw('data-autosave="eah-submit-draft"') : raw("");
+  const accountWarning = user
+    ? raw("")
+    : h`<div class="submit-warning">
+        <strong>Heads up:</strong> if you submit without an account, you will not be able to edit, discuss, or withdraw
+        your submission later.
+        <a href="/signup">Sign up</a> or <a href="/login">log in</a> before you submit if you want those controls.
+      </div>`;
 
   return h`
     ${errBlock}
+    ${accountWarning}
     <form method="post" action="/submit" class="submit-form" ${autosaveAttr}>
       <input type="hidden" name="_csrf" value="${csrf}">
 
@@ -167,7 +175,7 @@ function renderForm(opts: {
     </form>
 
     <p><small>Submissions are reviewed by staff before being published. Logged-in
-    users can track, edit, and chat with reviewers from
+    users can manage drafts and chat with reviewers from
     <a href="/my/submissions">/my/submissions</a>. Anonymous submissions get
     a confirmation page with the assigned ID. While your submission is pending,
     you may have at most ${MAX_PENDING_PER_EMAIL} drafts open at once per email
@@ -465,8 +473,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
 
   // Logged-in users go straight to their draft edit page so they can refine it
   // before it enters the review queue. Anonymous submitters get a confirmation
-  // page with no tracking code (we don't have one anymore) and a nudge to
-  // create an account.
+  // page and a nudge to create an account.
   if (isLoggedIn) {
     return new Response(null, {
       status: 303,

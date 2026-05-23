@@ -176,7 +176,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
           await tx.execute(
             `INSERT INTO submission_messages (submission_id, sender_type, body)
              VALUES (?, 'system', ?)`,
-            [id, `Submission rejected. The reserved A-number has been returned to the pool.`],
+            [id, `Submission rejected.`],
           );
         }
       }

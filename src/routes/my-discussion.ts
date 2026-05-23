@@ -142,7 +142,9 @@ export const myDiscussionGet: RouteHandler = async (req, ctx) => {
           <textarea id="message" name="message" rows="5"
                     maxlength="${MAX_MESSAGE_CHARS}"
                     placeholder="Write a message to the reviewer…"></textarea>
-          <button type="submit">Send</button>
+          <div class="form-actions">
+            <button type="submit">Send</button>
+          </div>
         </form>
       </div>
     `

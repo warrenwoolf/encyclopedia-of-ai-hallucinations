@@ -52,21 +52,19 @@ export const about: RouteHandler = (req, ctx) => {
     <p><strong>How review works.</strong> Each submission goes into a queue
        and is read by a human staff reviewer. Accepted entries are assigned
        a permanent identifier of the form <code>A000123</code> — the
-       numbering scheme is borrowed from the
-       <a href="https://oeis.org/">On-Line Encyclopedia of Integer
-       Sequences</a> (OEIS), which we admire. A-numbers are assigned at
-       submission time and are reserved while the draft is pending; if a
-       submission is rejected, its A-number is freed and may be reused by a
-       later entry. Each submitter may have at most <strong>four
-       pending drafts</strong> per email address at any time. While a draft
-       is in review you can chat with the reviewer in a shared thread
-       attached to the submission — useful for clarifying questions about
-       reproducibility or scope.</p>
+      numbering scheme is borrowed from the
+      <a href="https://oeis.org/">On-Line Encyclopedia of Integer
+      Sequences</a> (OEIS), which we admire. A-numbers are assigned at
+      submission time and identify each draft while it is pending. Each
+      submitter may have at most <strong>four pending drafts</strong> per
+      email address at any time. While a draft is in review you can chat
+      with the reviewer in a shared thread attached to the submission —
+      useful for clarifying questions about reproducibility or scope.</p>
 
-    <p><strong>Tracking codes.</strong> When you submit, you get a one-time
-       tracking code. Save it — the website never shows it again. It lets
-       you check your submission's review status, see reviewer notes, or
-       withdraw a pending submission via <a href="/track">/track</a>.</p>
+    <p><strong>Tracking submissions.</strong> If you submit with an account,
+       you can follow your drafts from <a href="/my/submissions">/my/submissions</a>
+       and chat with reviewers there. If you submit by email, we can also
+       send status updates and links back to your drafts.</p>
 
     <p><strong>Email (optional).</strong> You may give an email address with
        your submission. If you do:</p>
@@ -106,10 +104,6 @@ export const about: RouteHandler = (req, ctx) => {
 
     <p><strong>Source code.</strong> The site is open source:
        <a href="https://github.com/warrenwoolf/encyclopedia-of-ai-hallucinations">github.com/warrenwoolf/encyclopedia-of-ai-hallucinations</a>.</p>
-
-    <p><strong>This site is in development.</strong> The schema, the URL
-       structure, and the rules may change. Don't rely on any specific entry
-       persisting yet. When things stabilize this notice will come down.</p>
 
     <p class="muted">Initial scaffolding written by Claude (Anthropic), May 2026.</p>
   `;

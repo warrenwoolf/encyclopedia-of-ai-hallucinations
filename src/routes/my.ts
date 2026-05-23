@@ -78,6 +78,12 @@ interface EditFormValues {
   entry_status: "active" | "patched";
 }
 
+function dateInputValue(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  if (typeof value === "string") return value.slice(0, 10);
+  return value.toISOString().slice(0, 10);
+}
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 /**
@@ -279,10 +285,12 @@ function renderEditForm(opts: {
         <option value="patched" ${values.entry_status === "patched" ? raw("selected") : raw("")}>Patched (model updated)</option>
       </select>
 
-      <button type="submit">Save draft</button>
+      <div class="form-actions">
+        <button type="submit">Save draft</button>
+      </div>
     </form>
 
-    <form method="post" action="${proposeAction}" style="display:inline">
+    <form method="post" action="${proposeAction}" class="form-actions">
       <input type="hidden" name="_csrf" value="${csrf}">
       <button type="submit">Propose for review</button>
     </form>
@@ -341,9 +349,15 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
     let actions: SafeHtml;
     if (row.status === "draft") {
       actions = h`<a href="/my/submissions/${eahId}/edit">edit</a> ·
-        <a href="/my/submissions/${eahId}/discussion">discussion</a>`;
+        <a href="/my/submissions/${eahId}/discussion">discussion</a> ·
+        <a href="/my/submissions/${eahId}/history">history</a> ·
+        <form class="inline-form" method="post" action="/my/submissions/${eahId}/withdraw">
+          <input type="hidden" name="_csrf" value="${token}">
+          <button class="linkbutton" type="submit">withdraw</button>
+        </form>`;
     } else if (row.status === "pending") {
       actions = h`<a href="/my/submissions/${eahId}/discussion">discussion</a> ·
+        <a href="/my/submissions/${eahId}/history">history</a> ·
         <form class="inline-form" method="post" action="/my/submissions/${eahId}/withdraw">
           <input type="hidden" name="_csrf" value="${token}">
           <button class="linkbutton" type="submit">withdraw</button>
@@ -387,8 +401,8 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
         </thead>
         <tbody>${tableRows}</tbody>
       </table>
+      <p><a href="/submit">Submit another</a></p>
     ` : raw("")}
-    <p><a href="/submit">Submit another</a></p>
   `;
 
   return pageResponse(req, {
@@ -441,7 +455,7 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
       notes: row.notes ?? "",
       shared_chat_url: row.shared_chat_url ?? "",
       author_name: row.author_name ?? "",
-      hallucination_date: row.hallucination_date ?? "",
+      hallucination_date: dateInputValue(row.hallucination_date),
       entry_status: row.entry_status === "patched" ? "patched" : "active",
     };
 
@@ -762,6 +776,26 @@ export const myWithdraw: RouteHandler = async (req, ctx) => {
     return new Response(null, { status: 404 });
   }
 
+  const eahId = formatEahId(row.eah_number);
+
+  if (form.get("confirm") !== "1") {
+    const confirmBody = h`
+      <p>Withdraw <strong>${eahId}</strong>? This will remove it from review and move it out of your drafts.</p>
+      <form method="post" action="/my/submissions/${eahId}/withdraw">
+        <input type="hidden" name="_csrf" value="${form.get("_csrf") ?? ""}">
+        <input type="hidden" name="confirm" value="1">
+        <button type="submit" class="btn-danger">Withdraw submission</button>
+      </form>
+      <p><a href="/my/submissions/${eahId}/edit">Cancel</a></p>
+    `;
+    return pageResponse(req, {
+      title: `Withdraw ${eahId} · EAH`,
+      heading: `Withdraw ${eahId}`,
+      body: confirmBody,
+      user: ctx.user,
+    });
+  }
+
   const username = ctx.user.username;
 
   try {
@@ -773,7 +807,7 @@ export const myWithdraw: RouteHandler = async (req, ctx) => {
       await freeEahNumber(tx, row.id);
       await tx.execute(
         `INSERT INTO submission_messages (submission_id, sender_type, body) VALUES (?, 'system', ?)`,
-        [row.id, `Submission withdrawn by ${username}. A-number returned to the pool.`],
+        [row.id, `Submission withdrawn by ${username}.`],
       );
     });
   } catch (err) {

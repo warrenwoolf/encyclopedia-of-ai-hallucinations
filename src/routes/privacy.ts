@@ -89,10 +89,9 @@ export const privacy: RouteHandler = (req, ctx) => {
        records.</p>
 
     <h2>Your choices</h2>
-    <p><strong>Pending submissions</strong> can be withdrawn at any time using
-       the tracking code you received on submission, via the
-       <a href="/track">track</a> page, or via the tracking link in any of
-       the emails we sent you (if you provided an email address).</p>
+    <p><strong>Pending submissions</strong> can be withdrawn at any time from
+       your drafts page or from the link in any email we sent you (if you
+       provided an email address).</p>
     <p><strong>Published or rejected submissions,</strong> or requests to
        delete a stored email address, must be handled manually. Email the
        maintainer at the address in the "Contact" section below with the entry

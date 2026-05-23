@@ -92,7 +92,7 @@ export async function postBulk(req: Request, ctx: RouteContext): Promise<Respons
             await freeEahNumber(tx, id);
             await tx.execute(
               `INSERT INTO submission_messages (submission_id, sender_type, body)
-               VALUES (?, 'system', 'Submission rejected (bulk action). The reserved A-number has been returned to the pool.')`,
+               VALUES (?, 'system', 'Submission rejected (bulk action).')`,
               [id],
             );
           }

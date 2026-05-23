@@ -109,14 +109,16 @@ export function layout(opts: LayoutOptions): string {
   <body>
     ${banner}
     <header>
-      <a class="site-title" href="/">
-        <span class="site-logo-block">
-          ${STRAWBERRY_SVG}
-          <span class="site-logo-caption">EAH</span>
-        </span>
-        <span class="site-title-text">Encyclopedia of AI Hallucinations</span>
-      </a>
-      <p class="site-credit">Founded by Rudra Jadhav and Warren Woolf</p>
+      <div class="site-header-top">
+        <a class="site-title" href="/">
+          <span class="site-logo-block">
+            ${STRAWBERRY_SVG}
+            <span class="site-logo-caption">EAH</span>
+          </span>
+          <span class="site-title-text">Encyclopedia of AI Hallucinations</span>
+        </a>
+        <p class="site-credit">Founded by Rudra Jadhav and Warren Woolf</p>
+      </div>
       <nav>
         <a href="/browse">browse</a>
         <a href="/submit">submit</a>

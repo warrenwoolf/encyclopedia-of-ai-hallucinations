@@ -49,6 +49,12 @@ interface FormValues {
   verified_total: string;
 }
 
+function dateInputValue(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  if (typeof value === "string") return value.slice(0, 10);
+  return value.toISOString().slice(0, 10);
+}
+
 function emptyForm(): FormValues {
   return {
     title: "", prompt: "", output: "", ai_model: "", category: "", tags: "",
@@ -412,7 +418,7 @@ export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Res
     notes: row.notes ?? "",
     shared_chat_url: row.shared_chat_url ?? "",
     author_name: row.author_name ?? "",
-    hallucination_date: row.hallucination_date ?? "",
+    hallucination_date: dateInputValue(row.hallucination_date),
     entry_status: row.entry_status,
     verified_hits: row.verified_hits !== null ? String(row.verified_hits) : "",
     verified_total: row.verified_total !== null ? String(row.verified_total) : "",

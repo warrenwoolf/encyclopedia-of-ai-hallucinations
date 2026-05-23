@@ -240,8 +240,6 @@ export async function sendDecision(opts: {
     lines.push(`Your submission to the Encyclopedia of AI Hallucinations was not accepted.`);
     lines.push(``);
     lines.push(`Model: ${modelLabel}`);
-    lines.push(`(The A-number that had been reserved for this draft has been ` +
-      `returned to the pool.)`);
     if (rejectionReason) {
       lines.push(``);
       lines.push(`Reason given: ${rejectionReason}`);
@@ -268,7 +266,6 @@ export async function sendDecision(opts: {
   } else {
     htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was not accepted.</p>`);
     htmlParts.push(`<p><strong>Model:</strong> ${escape(modelLabel)}</p>`);
-    htmlParts.push(`<p><small>The A-number that had been reserved for this draft has been returned to the pool.</small></p>`);
     if (rejectionReason) {
       htmlParts.push(`<p><strong>Reason given:</strong></p><blockquote>${escape(rejectionReason)}</blockquote>`);
     }
