@@ -34,8 +34,9 @@ export interface TxLike {
  * transaction; otherwise it'll be re-used on the next call.
  */
 export async function allocateEahNumber(tx: TxLike): Promise<number> {
+  // FOR UPDATE prevents concurrent transactions from claiming the same freed number. This function MUST be called inside a transaction.
   const freed = await tx.queryOne<{ n: number }>(
-    "SELECT n FROM freed_eah_numbers ORDER BY n ASC LIMIT 1",
+    "SELECT n FROM freed_eah_numbers ORDER BY n ASC LIMIT 1 FOR UPDATE",
   );
   if (freed) {
     await tx.execute("DELETE FROM freed_eah_numbers WHERE n = ?", [freed.n]);

@@ -404,6 +404,9 @@ export const submitPost: RouteHandler = async (req, ctx) => {
       // freed_eah_numbers (if used) for the whole transaction.
       const n = await allocateEahNumber(tx);
 
+      // REVIEWER NOTE: Verify all mathematical claims, code, and factual content
+      // before approving. AI-assisted submissions have historically included wrong
+      // factorizations, hallucinated citations, and incorrect proofs.
       const ins = await tx.execute(
         `INSERT INTO submissions
           (public_id, eah_number, title, tracking_hash, prompt, output, ai_model, summary, notes,

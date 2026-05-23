@@ -131,6 +131,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   try {
     await transaction(async (tx) => {
       if (action === "approve") {
+        // Reminder: verify mathematical correctness before approving. See submit.ts note.
         await tx.execute(
           `UPDATE submissions
               SET status = 'published',

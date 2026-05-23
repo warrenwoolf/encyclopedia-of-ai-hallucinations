@@ -52,6 +52,9 @@ function isValidToken(token: string | undefined): boolean {
  * field when the cookie is absent, because each call would mint a fresh
  * token. The WeakMap is GC'd with the request, no leak.
  */
+// Memoized per Request object. Safe because Bun creates a new Request per
+// HTTP connection — no two concurrent requests share the same Request instance.
+// If this assumption ever changes, this cache will need to be keyed differently.
 const perRequestCache = new WeakMap<Request, { token: string; setCookie: string | null }>();
 
 export function tokenForRequest(req: Request): { token: string; setCookie: string | null } {

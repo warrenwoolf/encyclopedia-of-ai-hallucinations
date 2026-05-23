@@ -225,11 +225,32 @@ async function handle(req: Request, server: any): Promise<Response> {
 
   if (!matched) {
     // 404 — try to render a styled page via the layout module.
-    const { h } = await import("./html.ts");
+    const { h, raw } = await import("./html.ts");
     const { layout } = await import("./layout.ts");
     const { htmlResponse } = await import("./routes/types.ts");
-    const body = h`<p>The page you requested does not exist.</p>
-      <p><a href="/">Home</a> · <a href="/browse">Browse</a></p>`;
+    const { query } = await import("./db.ts");
+    const { formatEahId } = await import("./eah-id.ts");
+    let suggestions: Array<{ eah_number: number | null; title: string | null; public_id: string }> = [];
+    try {
+      suggestions = await query("SELECT eah_number, title, public_id FROM submissions WHERE status='published' ORDER BY RAND() LIMIT 3");
+    } catch {}
+    const suggestionList = suggestions.length === 0
+      ? raw("")
+      : h`<p>Or try one of these:</p><ul>${suggestions.map(s => {
+          const eahId = formatEahId(s.eah_number);
+          const url = eahId ? `/e/${eahId}` : `/e/${s.public_id}`;
+          const label = eahId ? `${eahId}${s.title ? ` — ${s.title}` : ""}` : (s.title ?? s.public_id);
+          return h`<li><a href="${url}">${label}</a></li>`;
+        })}</ul>`;
+    const body = h`
+      <p>The page you requested does not exist.</p>
+      <form method="get" action="/browse">
+        <input type="search" name="q" placeholder="Search entries" autofocus>
+        <button type="submit">Search</button>
+      </form>
+      ${suggestionList}
+      <p><a href="/">Home</a> · <a href="/browse">Browse</a></p>
+    `;
     return htmlResponse(
       await layout({ title: "Not found · EAH", heading: "Not found", body, user }),
       { status: 404 },
@@ -289,7 +310,7 @@ console.log(`EAH listening on http://${server.hostname}:${server.port}`);
 // Best-effort probe of Resend's `x-resend-monthly-quota` header on cold start
 // so the signup form knows whether we're at cap before any send happens. Fire
 // and forget; a failure here just leaves the cache empty (fail-open).
-void primeQuotaCache();
+void primeQuotaCache().catch(e => console.warn("[startup] primeQuotaCache failed:", e));
 
 // Periodic GC for in-memory rate-limit buckets and expired sessions.
 setInterval(() => {

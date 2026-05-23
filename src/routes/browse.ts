@@ -115,6 +115,8 @@ export const browse: RouteHandler = async (req, ctx) => {
   }
   if (q) {
     const like = `%${escapeLike(q)}%`;
+    // MariaDB requires ESCAPE '\\' in SQL (two backslashes). In a JS string literal,
+    // each backslash must be doubled, so '\\\\' in JS → '\\' in SQL → correct ESCAPE clause.
     where.push(
       "(s.title LIKE ? ESCAPE '\\\\' OR s.prompt LIKE ? ESCAPE '\\\\' OR s.output LIKE ? ESCAPE '\\\\' OR s.ai_model LIKE ? ESCAPE '\\\\' OR s.summary LIKE ? ESCAPE '\\\\')",
     );
