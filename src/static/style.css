@@ -511,7 +511,9 @@ small.field-hint,
 }
 
 /* Google OAuth buttons — plain, matches OEIS-spare look */
-.oauth-form { margin: 0 0 0.6em 0; padding: 0; }
+.oauth-shell { margin: 0 0 0.6em 0; padding: 0; }
+.oauth-form { margin: 0; padding: 0; }
+.oauth-button-wrap { display: block; }
 .oauth-button {
   font: inherit;
   background: #ffffff;
@@ -540,7 +542,9 @@ small.field-hint,
   background-size: contain;
 }
 .oauth-button:hover { background: #f8f9fa; }
+.oauth-divider-wrap { display: block; }
 .oauth-divider {
+  display: block;
   text-align: center;
   margin: 0.4em 0 0.8em 0;
   font-size: 0.9em;

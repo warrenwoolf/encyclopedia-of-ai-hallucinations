@@ -62,21 +62,12 @@ function csrfErrorResponse(): Response {
 function googleButton(csrfToken: string): SafeHtml {
   if (!googleOAuthEnabled()) return raw("");
   return h`
-    <div id="g_id_onload" data-client_id="${config.googleOAuth.clientId}" data-auto_prompt="false" data-callback="handleGisCredential"></div>
-    <div id="g_id_signin"></div>
-    <script>
-      function handleGisCredential(resp) {
-        const token = resp?.credential;
-        if (!token) return window.location.reload();
-        const f = new FormData();
-        f.append('credential', token);
-        f.append('_csrf', '${csrfToken}');
-        fetch('/oauth/google/verify', { method: 'POST', body: f, credentials: 'same-origin' })
-          .then(() => { window.location.href = '/'; })
-          .catch(() => { window.location.href = '/signup'; });
-      }
-      window.handleGisCredential = handleGisCredential;
-    </script>
+    <div class="oauth-shell">
+      <div id="g_id_onload" data-client_id="${config.googleOAuth.clientId}" data-auto_prompt="false" data-callback="handleGisCredential" data-csrf="${csrfToken}"></div>
+      <div class="oauth-button-wrap">
+        <div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline" data-text="signin_with" data-shape="rectangular" data-logo_alignment="left"></div>
+      </div>
+    </div>
   `;
 }
 

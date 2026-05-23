@@ -158,6 +158,7 @@ function clientIp(req: Request, server: { requestIP?: (req: Request) => { addres
 const STATIC_FILES: Record<string, { path: string; contentType: string }> = {
   "style.css": { path: "./src/static/style.css", contentType: "text/css; charset=utf-8" },
   "theme.js": { path: "./src/static/theme.js", contentType: "application/javascript; charset=utf-8" },
+  "google.js": { path: "./src/static/google.js", contentType: "application/javascript; charset=utf-8" },
   "robots.txt": { path: "./src/static/robots.txt", contentType: "text/plain; charset=utf-8" },
 };
 
@@ -190,6 +191,14 @@ async function handle(req: Request, server: any): Promise<Response> {
   if (method === "GET" && pathname === "/robots.txt") {
     const file = Bun.file("./src/static/robots.txt");
     if (await file.exists()) return new Response(file, { headers: { "Content-Type": "text/plain" } });
+  }
+
+  // favicon.ico — serve the site logo SVG so browsers have a stable icon URL.
+  if (method === "GET" && pathname === "/favicon.ico") {
+    const file = Bun.file("./src/static/logo.svg");
+    if (await file.exists()) {
+      return new Response(file, { headers: { "Content-Type": "image/svg+xml" } });
+    }
   }
 
   // Static files

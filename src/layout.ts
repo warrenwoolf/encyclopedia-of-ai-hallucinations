@@ -104,8 +104,9 @@ export function layout(opts: LayoutOptions): string {
     <meta name="robots" content="noindex,nofollow">
     <title>${opts.title}</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="/favicon.ico" type="image/svg+xml">
     <link rel="alternate" type="application/rss+xml" title="Encyclopedia of AI Hallucinations" href="/rss">
-    ${googleOAuthEnabled() ? raw('<script src="https://accounts.google.com/gsi/client" async defer></script>') : raw('')}
+    ${googleOAuthEnabled() ? raw('<script src="https://accounts.google.com/gsi/client" async defer></script><script src="/static/google.js" defer></script>') : raw('')}
     <script src="/static/theme.js"></script>
   </head>
   <body>
