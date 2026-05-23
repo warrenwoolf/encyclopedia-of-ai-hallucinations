@@ -30,7 +30,6 @@ setDefault("PUBLIC_BASE_URL", "http://localhost:8090");
 // Keep email + OAuth disabled so nothing tries to hit the network on import.
 setDefault("RESEND_API_KEY", "");
 setDefault("GOOGLE_CLIENT_ID", "");
-setDefault("GOOGLE_CLIENT_SECRET", "");
 
 // ── Integration DB (opt-in) ───────────────────────────────────────────────────
 //

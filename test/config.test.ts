@@ -1,25 +1,24 @@
 /**
- * Tests for src/config.ts — primarily documenting how the Google OAuth
- * redirect URI is derived, since that's what must be whitelisted in the
- * Google Cloud Console.
+ * Tests for src/config.ts.
  *
  * NOTE: the test preload (test/setup.ts) sets PUBLIC_BASE_URL to
- * "http://localhost:8090" and leaves GOOGLE_REDIRECT_URI unset.
+ * "http://localhost:8090" and leaves GOOGLE_CLIENT_ID empty.
  */
 import { test, expect, describe } from "bun:test";
 import { config } from "../src/config.ts";
 
-describe("googleOAuth.redirectUri", () => {
-  test("defaults to <PUBLIC_BASE_URL>/oauth/google/callback", () => {
-    // This is the exact string that must be added to "Authorized redirect URIs"
-    // in the Google Cloud Console for local development.
-    expect(config.googleOAuth.redirectUri).toBe(
-      "http://localhost:8090/oauth/google/callback",
-    );
-  });
-
-  test("always ends with the canonical callback path", () => {
-    expect(config.googleOAuth.redirectUri.endsWith("/oauth/google/callback")).toBe(true);
+describe("googleOAuth", () => {
+  test("exposes only a client id (no secret, no redirect URI)", () => {
+    // The GIS embedded flow needs only a client id: verification is local
+    // against Google's JWKS, so there is no server-side code exchange and
+    // therefore no client secret and no redirect/callback URI.
+    //
+    // NOTE: we assert the SHAPE, not the value. test/oauth-google.test.ts
+    // installs a global mock.module for ../src/config.ts to give clientId a
+    // value; mock.module live-bindings can bleed across files, so asserting
+    // clientId === "" here would be order-dependent and flaky.
+    expect(typeof config.googleOAuth.clientId).toBe("string");
+    expect(Object.keys(config.googleOAuth)).toEqual(["clientId"]);
   });
 });
 

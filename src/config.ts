@@ -75,21 +75,16 @@ export const config = {
   },
 
   /**
-   * Google OAuth 2.0 client. When either id or secret is unset, the
-   * "Continue with Google" button is hidden and the routes return 404.
+   * Google Identity Services (GIS) client. When the client id is unset, the
+   * "Continue with Google" button is hidden and the verify route returns 404.
+   *
+   * No client secret or redirect URI: the GIS embedded flow returns an ID
+   * token (credential) directly to the browser, which we verify locally
+   * against Google's JWKS (see src/oauth-google.ts). There is no server-side
+   * code exchange and no redirect/callback URL, so neither value is needed.
    */
   googleOAuth: {
     clientId: optional("GOOGLE_CLIENT_ID", ""),
-    clientSecret: optionalFile("GOOGLE_CLIENT_SECRET", ""),
-    /**
-     * Must match a "Authorized redirect URI" in the Cloud Console exactly,
-     * including scheme and trailing slash. Computed from publicBaseUrl by
-     * default but explicit override is supported.
-     */
-    redirectUri: optional(
-      "GOOGLE_REDIRECT_URI",
-      `${optional("PUBLIC_BASE_URL", "https://eah.warrenwoolf.com")}/oauth/google/callback`,
-    ),
   },
 
   adminBootstrap: {
