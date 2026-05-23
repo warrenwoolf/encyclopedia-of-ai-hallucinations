@@ -15,6 +15,7 @@ import { tokenForRequest, verifyCsrf } from "../../csrf.ts";
 import { CATEGORIES, categoryLabel, isValidCategory } from "../../categories.ts";
 import { config } from "../../config.ts";
 import { allocateEahNumber, formatEahId, parseEahId } from "../../eah-id.ts";
+import { recordVersionDiffs, type TrackedValues } from "../../versions.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "../types.ts";
 
 const LIMITS = {
@@ -462,8 +463,50 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
     );
   }
 
+  // Fetch current tag set before entering the transaction so we can diff them.
+  const currentTagRows = await query<{ name: string }>(
+    `SELECT t.name FROM submission_tags st JOIN tags t ON t.id = st.tag_id
+     WHERE st.submission_id = ? ORDER BY t.name ASC`,
+    [row.id],
+  );
+  const currentTagString = currentTagRows.map((r) => r.name).join(",");
+  const newTagString = [...v.tags].sort().join(",");
+
+  const currentValues: TrackedValues = {
+    title: row.title ?? null,
+    prompt: row.prompt,
+    output: row.output,
+    ai_model: row.ai_model,
+    summary: row.summary ?? null,
+    notes: row.notes ?? null,
+    shared_chat_url: row.shared_chat_url ?? null,
+    category: row.category,
+    author_name: row.author_name ?? null,
+    hallucination_date: row.hallucination_date ?? null,
+    entry_status: row.entry_status,
+    tags: currentTagString || null,
+  };
+
+  const newValues: TrackedValues = {
+    title: values.title || null,
+    prompt: values.prompt,
+    output: values.output,
+    ai_model: values.ai_model,
+    summary: values.summary.length > 0 ? values.summary : null,
+    notes: values.notes.length > 0 ? values.notes : null,
+    shared_chat_url: values.shared_chat_url.length > 0 ? values.shared_chat_url : null,
+    category: values.category,
+    author_name: values.author_name.length > 0 ? values.author_name : null,
+    hallucination_date: v.date,
+    entry_status: values.entry_status,
+    tags: newTagString || null,
+  };
+
   try {
     await transaction(async (tx) => {
+      // Record diffs before updating so currentValues is still accurate.
+      await recordVersionDiffs(tx, row.id, ctx.admin!.userId, currentValues, newValues);
+
       await tx.execute(
         `UPDATE submissions
             SET title = ?, prompt = ?, output = ?, ai_model = ?, summary = ?, notes = ?,
@@ -528,6 +571,29 @@ export async function postEntryStatus(req: Request, ctx: RouteContext): Promise<
     status: 303,
     headers: { Location: `/e/${formatEahId(n)}` },
   });
+}
+
+// ─── redirect to entry ──────────────────────────────────────────────────────
+
+/**
+ * GET /admin/entries/redirect?id=A000001
+ *
+ * Used by the admin "jump to" form. Parses the A-number and redirects to
+ * the public entry page if published, or to the admin edit page otherwise.
+ */
+export async function redirectToEntry(req: Request, ctx: RouteContext): Promise<Response> {
+  if (!ctx.admin) return new Response(null, { status: 303, headers: { Location: "/admin/login" } });
+  const idStr = (ctx.url.searchParams.get("id") ?? "").trim();
+  const n = parseEahId(idStr);
+  if (n === null) return new Response(null, { status: 303, headers: { Location: "/admin/all" } });
+  const eahId = formatEahId(n);
+  // If published, go to the public entry; otherwise to admin edit.
+  const row = await queryOne<{ status: string }>("SELECT status FROM submissions WHERE eah_number = ?", [n]);
+  if (!row) return new Response(null, { status: 303, headers: { Location: "/admin/all" } });
+  if (row.status === "published") {
+    return new Response(null, { status: 303, headers: { Location: `/e/${eahId}` } });
+  }
+  return new Response(null, { status: 303, headers: { Location: `/admin/entries/${eahId}/edit` } });
 }
 
 // Suppress unused-import warning at the bottom (categoryLabel is part of the

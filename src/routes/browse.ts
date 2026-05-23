@@ -79,6 +79,11 @@ export const browse: RouteHandler = async (req, ctx) => {
   const model = (sp.get("model") ?? "").trim().slice(0, 120);
   const q = (sp.get("q") ?? "").trim().slice(0, 200);
 
+  // Fetch all distinct model names for the model filter dropdown.
+  const allModels = await query<{ ai_model: string }>(
+    `SELECT DISTINCT ai_model FROM submissions WHERE status='published' ORDER BY ai_model ASC`,
+  );
+
   const statusRaw = (sp.get("status") ?? "").trim();
   const status: "" | "active" | "patched" =
     statusRaw === "active" || statusRaw === "patched" ? statusRaw : "";
@@ -191,13 +196,17 @@ export const browse: RouteHandler = async (req, ctx) => {
       ${sortLink("id", "by A-number")}</span>
   </p>`;
 
-  // Pagination
+  // Pagination — spec §5l format: "← prev · showing 26–50 of 1163 entries · next →"
   const prevQs = page > 1 ? buildQs({ ...sharedQs, page: page - 1 }) : null;
   const nextQs = page < totalPages ? buildQs({ ...sharedQs, page: page + 1 }) : null;
+  const rangeStart = offset + 1;
+  const rangeEnd = Math.min(offset + PAGE_SIZE, totalCount);
 
   const pagination = h`<nav class="pagination">
     ${prevQs ? h`<a href="/browse${raw(prevQs)}">&larr; prev</a>` : h`<span class="disabled">&larr; prev</span>`}
-    <span>page ${page} of ${totalPages}</span>
+    &middot;
+    <span>showing ${rangeStart}–${rangeEnd} of ${totalCount} ${totalCount === 1 ? raw("entry") : raw("entries")}</span>
+    &middot;
     ${nextQs ? h`<a href="/browse${raw(nextQs)}">next &rarr;</a>` : h`<span class="disabled">next &rarr;</span>`}
   </nav>`;
 
@@ -235,14 +244,22 @@ export const browse: RouteHandler = async (req, ctx) => {
         </tbody>
       </table>`;
 
+  // Model filter dropdown, populated from distinct published ai_model values.
+  const modelOptions = h`<option value="">all models</option>
+    ${allModels.map((m) => h`<option value="${m.ai_model}" ${m.ai_model === model ? raw("selected") : raw("")}>${m.ai_model}</option>`)}`;
+
   // Re-display search form pre-filled with current q so people can refine.
+  // Includes model filter select so users can narrow by AI model.
   const searchForm = h`<form action="/browse" method="get" class="search-form">
     <input type="search" name="q" value="${q}" placeholder="search titles, prompts, outputs, models..." maxlength="200">
     ${category ? h`<input type="hidden" name="category" value="${category}">` : h``}
     ${tagValid ? h`<input type="hidden" name="tag" value="${tagValid}">` : h``}
-    ${model ? h`<input type="hidden" name="model" value="${model}">` : h``}
     ${status ? h`<input type="hidden" name="status" value="${status}">` : h``}
     ${sort !== "new" ? h`<input type="hidden" name="sort" value="${sort}">` : h``}
+    <label for="model-filter">Model: </label>
+    <select id="model-filter" name="model">
+      ${modelOptions}
+    </select>
     <button type="submit">Search</button>
   </form>`;
 

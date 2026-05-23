@@ -37,6 +37,10 @@ export const home: RouteHandler = async (req, ctx) => {
   );
   const total = Number(countRow?.n ?? 0);
 
+  const categoryCounts = await query<{ category: string; n: number }>(
+    `SELECT category, COUNT(*) AS n FROM submissions WHERE status='published' GROUP BY category ORDER BY n DESC`,
+  );
+
   const recent = await query<RecentRow>(
     `SELECT public_id, eah_number, title, ai_model, category, entry_status, submitted_at
        FROM submissions
@@ -60,6 +64,8 @@ export const home: RouteHandler = async (req, ctx) => {
         <tbody>
           ${recent.map((r) => {
             const eahId = formatEahId(r.eah_number);
+            // If eah_number is NULL (pre-numbering rows), fall back to legacy
+            // public_id slug. formatEahId(null) returns "" which is falsy.
             const url = eahId ? `/e/${eahId}` : `/e/${r.public_id}`;
             return h`<tr>
               <td><a href="${url}"><code>${eahId || r.public_id}</code></a></td>
@@ -83,6 +89,13 @@ export const home: RouteHandler = async (req, ctx) => {
     )}
   </nav>`;
 
+  // Category counts line: "By category: Fabricated citation (142) · Tokenization (89) · …"
+  const categoryCountsLine = categoryCounts.length > 0
+    ? h`<p class="category-counts">By category:
+        ${categoryCounts.map((row, i) => h`${i > 0 ? raw(" · ") : raw("")}<a href="/browse?category=${row.category}">${categoryLabel(row.category)}</a> (${Number(row.n)})`)}
+      </p>`
+    : raw("");
+
   const body = h`
     <div class="home-top">
       <p class="tagline"><em>A community-maintained database of real, reproducible AI hallucinations.</em></p>
@@ -98,6 +111,7 @@ export const home: RouteHandler = async (req, ctx) => {
       <p><a class="cta" href="/submit">Submit a hallucination</a></p>
 
       ${categoryNav}
+      ${categoryCountsLine}
 
       <h2>Recently published</h2>
     </div>

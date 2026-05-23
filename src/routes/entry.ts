@@ -102,6 +102,16 @@ export const entry: RouteHandler = async (req, ctx) => {
     [row.id],
   );
 
+  // Prev/next navigation by A-number within published entries.
+  const prevRow = await queryOne<{ eah_number: number }>(
+    `SELECT eah_number FROM submissions WHERE status='published' AND eah_number < ? ORDER BY eah_number DESC LIMIT 1`,
+    [row.eah_number],
+  );
+  const nextRow = await queryOne<{ eah_number: number }>(
+    `SELECT eah_number FROM submissions WHERE status='published' AND eah_number > ? ORDER BY eah_number ASC LIMIT 1`,
+    [row.eah_number],
+  );
+
   const tagList = tagRows.length === 0
     ? h`<em>none</em>`
     : h`${tagRows.map((t, i) => h`${i > 0 ? ", " : ""}<a href="/browse?tag=${t.name}">${t.name}</a>`)}`;
@@ -184,9 +194,19 @@ export const entry: RouteHandler = async (req, ctx) => {
 
     <section class="entry-footer-block">
       <h2>Cite this entry</h2>
-      <pre class="citation">${citationText}</pre>
+      <pre class="citation" data-copy-target="true">${citationText}</pre>
       <p><a href="${reportUrl}">Report an issue with this entry</a> · <a href="/browse">Browse all entries</a></p>
     </section>
+
+    <nav class="entry-nav">
+      ${prevRow
+        ? h`<a href="/e/${formatEahId(prevRow.eah_number)}">&larr; ${formatEahId(prevRow.eah_number)}</a>`
+        : h`<span class="disabled">&larr; (first)</span>`}
+      &middot;
+      ${nextRow
+        ? h`<a href="/e/${formatEahId(nextRow.eah_number)}">${formatEahId(nextRow.eah_number)} &rarr;</a>`
+        : h`<span class="disabled">(last) &rarr;</span>`}
+    </nav>
   `;
 
   return pageResponse(req, {

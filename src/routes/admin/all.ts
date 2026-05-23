@@ -90,34 +90,44 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
   const tableBody: SafeHtml = rows.length === 0
     ? h`<p><em>No submissions match.</em></p>`
     : h`
-        <table class="all">
-          <thead>
-            <tr>
-              <th>id</th>
-              <th>public id</th>
-              <th>model</th>
-              <th>category</th>
-              <th>status</th>
-              <th>submitted</th>
-              <th>reviewed</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map((r) => h`
+        <form class="bulk-form" method="post" action="/admin/bulk">
+          <input type="hidden" name="_csrf" value="${csrfToken}">
+          <table class="all">
+            <thead>
               <tr>
-                <td>${r.id}</td>
-                <td><code>${r.public_id}</code></td>
-                <td>${r.ai_model ?? ""}</td>
-                <td>${categoryLabel(r.category)}</td>
-                <td>[${r.status}]</td>
-                <td>${fmtDate(r.submitted_at)}</td>
-                <td>${fmtDate(r.reviewed_at)}</td>
-                <td><a href="/admin/queue/${r.id}">view →</a></td>
+                <th><input type="checkbox" data-bulk-select-all></th>
+                <th>id</th>
+                <th>public id</th>
+                <th>model</th>
+                <th>category</th>
+                <th>status</th>
+                <th>submitted</th>
+                <th>reviewed</th>
+                <th></th>
               </tr>
-            `)}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              ${rows.map((r) => h`
+                <tr>
+                  <td><input type="checkbox" name="ids[]" value="${r.id}" data-bulk-checkbox></td>
+                  <td>${r.id}</td>
+                  <td><code>${r.public_id}</code></td>
+                  <td>${r.ai_model ?? ""}</td>
+                  <td>${categoryLabel(r.category)}</td>
+                  <td>[${r.status}]</td>
+                  <td>${fmtDate(r.submitted_at)}</td>
+                  <td>${fmtDate(r.reviewed_at)}</td>
+                  <td><a href="/admin/queue/${r.id}">view →</a></td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+          <p class="bulk-actions">
+            With selected:
+            <button name="action" value="approve" type="submit">Approve</button>
+            <button name="action" value="reject" type="submit" class="btn-danger">Reject</button>
+          </p>
+        </form>
       `;
 
   const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -143,13 +153,21 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
     </p>
   `;
 
+  const jumpToForm: SafeHtml = h`
+    <form class="jump-to-form" method="get" action="/admin/entries/redirect">
+      Jump to: <input type="text" name="id" placeholder="A000001" maxlength="10">
+      <button type="submit">Go</button>
+    </form>
+  `;
+
   const body = h`
+    ${jumpToForm}
     ${filterBar}
     ${tableBody}
     ${total > 0 ? pager : raw("")}
   `;
 
-  const html = layout({
+  const html = await layout({
     title: status ? `All submissions — ${status}` : "All submissions",
     heading: status ? `All submissions — ${status}` : "All submissions",
     body,

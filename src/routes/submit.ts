@@ -64,8 +64,9 @@ function renderForm(opts: {
   values: FormValues;
   csrf: string;
   error: string | null;
+  user: { userId: number } | null;
 }): SafeHtml {
-  const { values, csrf, error } = opts;
+  const { values, csrf, error, user } = opts;
   const errBlock = error
     ? h`<div class="form-error" role="alert"><strong>Error:</strong> ${error}</div>`
     : h``;
@@ -74,9 +75,13 @@ function renderForm(opts: {
     (c) => h`<option value="${c.key}" ${values.category === c.key ? raw('selected') : raw('')}>${c.label}</option>`,
   )}`;
 
+  // Autosave attribute is only wired up for logged-in users, because anonymous
+  // users have no session to restore the draft from.
+  const autosaveAttr = user ? raw('data-autosave="eah-submit-draft"') : raw("");
+
   return h`
     ${errBlock}
-    <form method="post" action="/submit" class="submit-form">
+    <form method="post" action="/submit" class="submit-form" ${autosaveAttr}>
       <input type="hidden" name="_csrf" value="${csrf}">
 
       <label for="title">Title <small>(short descriptive name, e.g. "Strawberry R-count error")</small></label>
@@ -100,19 +105,27 @@ function renderForm(opts: {
 
       <label for="prompt">Prompt</label>
       <textarea id="prompt" name="prompt" rows="6" maxlength="${LIMITS.prompt}" required
+                data-char-count="prompt-count"
                 placeholder="the exact prompt you sent the model">${values.prompt}</textarea>
+      <small id="prompt-count" class="char-count">0 / ${LIMITS.prompt} chars</small>
 
       <label for="output">Model output</label>
       <textarea id="output" name="output" rows="10" maxlength="${LIMITS.output}" required
+                data-char-count="output-count"
                 placeholder="the model's full response">${values.output}</textarea>
+      <small id="output-count" class="char-count">0 / ${LIMITS.output} chars</small>
 
       <label for="summary">Summary <small>(optional, what's wrong about it)</small></label>
       <textarea id="summary" name="summary" rows="3" maxlength="${LIMITS.summary}"
+                data-char-count="summary-count"
                 placeholder="optional: 1-2 sentences explaining what's hallucinated">${values.summary}</textarea>
+      <small id="summary-count" class="char-count">0 / ${LIMITS.summary} chars</small>
 
       <label for="notes">Notes <small>(optional, anything else that doesn't fit elsewhere)</small></label>
       <textarea id="notes" name="notes" rows="4" maxlength="${LIMITS.notes}"
+                data-char-count="notes-count"
                 placeholder="optional: reproduction steps, context about the conversation, related links, etc.">${values.notes}</textarea>
+      <small id="notes-count" class="char-count">0 / ${LIMITS.notes} chars</small>
 
       <label for="hallucination_date">Date of hallucination <small>(optional; YYYY-MM-DD; leave blank if it was today)</small></label>
       <input id="hallucination_date" name="hallucination_date" type="date"
@@ -168,6 +181,7 @@ async function showForm(req: Request, ctx: { user: any }, opts: { values?: FormV
     values: opts.values ?? emptyForm(),
     csrf: token,
     error: opts.error ?? null,
+    user: ctx.user,
   });
   return pageResponse(req,
       { title: "Submit · EAH", heading: "Submit a hallucination", body, user: ctx.user },
