@@ -18,7 +18,7 @@ import type { query as Query, execute as Execute, queryOne as QueryOne } from ".
 /** A submission/draft has been rejected or withdrawn — free its number. */
 export type FreeReason = "rejected" | "withdrawn";
 
-interface TxLike {
+export interface TxLike {
   query: <U = any>(sql: string, params?: unknown[]) => Promise<U[]>;
   queryOne: <U = any>(sql: string, params?: unknown[]) => Promise<U | undefined>;
   execute: (sql: string, params?: unknown[]) => Promise<{ affectedRows: number; insertId: number }>;
