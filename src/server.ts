@@ -29,6 +29,10 @@ import {
   getNewEntry, postNewEntry, getEditEntry, postEditEntry, postEntryStatus,
 } from "./routes/admin/entries.ts";
 import { getAll } from "./routes/admin/all.ts";
+import {
+  mySubmissions, myEditGet, myEditPost, myPropose, myWithdraw, myHistory,
+} from "./routes/my.ts";
+import { myDiscussionGet, myDiscussionPost } from "./routes/my-discussion.ts";
 
 interface RouteDef {
   method: "GET" | "POST";
@@ -71,6 +75,16 @@ const ROUTES: RouteDef[] = [
   route("POST", "/verify/resend", postVerifyResend),
   route("POST", "/oauth/google/start", postOauthStart),
   route("GET", "/oauth/google/callback", getOauthCallback),
+  // User draft dashboard. The :eahId segment is always in A-number format so it
+  // never collides with literal path segments like "new" used in admin routes.
+  route("GET",  "/my/submissions",                    mySubmissions),
+  route("GET",  "/my/submissions/:eahId/edit",        myEditGet),
+  route("POST", "/my/submissions/:eahId/edit",        myEditPost),
+  route("POST", "/my/submissions/:eahId/propose",     myPropose),
+  route("POST", "/my/submissions/:eahId/withdraw",    myWithdraw),
+  route("GET",  "/my/submissions/:eahId/history",     myHistory),
+  route("GET",  "/my/submissions/:eahId/discussion",  myDiscussionGet),
+  route("POST", "/my/submissions/:eahId/message",     myDiscussionPost),
   route("GET", "/admin/queue", getQueue),
   route("GET", "/admin/queue/:id", getQueueDetail),
   route("POST", "/admin/queue/:id", postReview),
