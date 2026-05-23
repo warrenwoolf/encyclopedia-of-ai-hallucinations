@@ -35,7 +35,7 @@ Bun.serve({
         headers: { "Content-Type": "text/css" },
       });
     }
-    const html = layout({
+    const html = await layout({
       title: "Encyclopedia of AI Hallucinations",
       body,
       user: null,

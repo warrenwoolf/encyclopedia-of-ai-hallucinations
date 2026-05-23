@@ -61,8 +61,8 @@ function authRedirect(): Response {
   return new Response(null, { status: 303, headers: { Location: "/admin/login" } });
 }
 
-function badRequest(message: string, status = 400): Response {
-  const body = layout({
+async function badRequest(message: string, status = 400): Promise<Response> {
+  const body = await layout({
     title: "Bad request",
     heading: "Bad request",
     body: h`<p>${message} <a href="/admin/queue">Back to admin queue</a>.</p>`,
@@ -277,7 +277,7 @@ export async function getNewEntry(req: Request, ctx: RouteContext): Promise<Resp
   const { token, setCookie } = tokenForRequest(req);
   const body = renderForm({ mode: "new", values: emptyForm(), csrf: token, error: null });
   return htmlResponse(
-    layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
+    await layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
     { setCookie },
   );
 }
@@ -289,9 +289,9 @@ export async function postNewEntry(req: Request, ctx: RouteContext): Promise<Res
   try {
     form = await parseForm(req, 128 * 1024);
   } catch {
-    return badRequest("Form too large.", 413);
+    return await badRequest("Form too large.", 413);
   }
-  if (!verifyCsrf(req, form.get("_csrf"))) return badRequest("Invalid CSRF token.", 403);
+  if (!verifyCsrf(req, form.get("_csrf"))) return await badRequest("Invalid CSRF token.", 403);
 
   const values = readForm(form);
   const v = validate(values);
@@ -299,7 +299,7 @@ export async function postNewEntry(req: Request, ctx: RouteContext): Promise<Res
     const { token, setCookie } = tokenForRequest(req);
     const body = renderForm({ mode: "new", values, csrf: token, error: v.error });
     return htmlResponse(
-      layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
+      await layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
       { status: 400, setCookie },
     );
   }
@@ -350,7 +350,7 @@ export async function postNewEntry(req: Request, ctx: RouteContext): Promise<Res
     });
   } catch (err) {
     console.error("admin direct-add failed", err);
-    return badRequest("Could not save the entry.", 500);
+    return await badRequest("Could not save the entry.", 500);
   }
 
   const eahId = formatEahId(eahNumber);
@@ -392,7 +392,7 @@ async function loadByEahId(eahIdParam: string): Promise<{
 export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Response> {
   if (!ctx.admin) return authRedirect();
   const row = await loadByEahId(ctx.params.eahId ?? "");
-  if (!row) return badRequest("No entry with that A-number.", 404);
+  if (!row) return await badRequest("No entry with that A-number.", 404);
 
   const tagRows = await query<{ name: string }>(
     `SELECT t.name FROM submission_tags st JOIN tags t ON t.id = st.tag_id
@@ -421,7 +421,7 @@ export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Res
   const { token, setCookie } = tokenForRequest(req);
   const body = renderForm({ mode: "edit", eahId, values, csrf: token, error: null });
   return htmlResponse(
-    layout({
+    await layout({
       title: `Edit ${eahId} · EAH admin`,
       heading: `Edit ${eahId}`,
       body,
@@ -436,15 +436,15 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
 
   const eahIdParam = ctx.params.eahId ?? "";
   const row = await loadByEahId(eahIdParam);
-  if (!row) return badRequest("No entry with that A-number.", 404);
+  if (!row) return await badRequest("No entry with that A-number.", 404);
 
   let form: URLSearchParams;
   try {
     form = await parseForm(req, 128 * 1024);
   } catch {
-    return badRequest("Form too large.", 413);
+    return await badRequest("Form too large.", 413);
   }
-  if (!verifyCsrf(req, form.get("_csrf"))) return badRequest("Invalid CSRF token.", 403);
+  if (!verifyCsrf(req, form.get("_csrf"))) return await badRequest("Invalid CSRF token.", 403);
 
   const values = readForm(form);
   const v = validate(values);
@@ -452,7 +452,7 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
     const { token, setCookie } = tokenForRequest(req);
     const body = renderForm({ mode: "edit", eahId: formatEahId(row.eah_number), values, csrf: token, error: v.error });
     return htmlResponse(
-      layout({
+      await layout({
         title: `Edit ${formatEahId(row.eah_number)} · EAH admin`,
         heading: `Edit ${formatEahId(row.eah_number)}`,
         body,
@@ -491,7 +491,7 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
     });
   } catch (err) {
     console.error("admin entry edit failed", err);
-    return badRequest("Could not save changes.", 500);
+    return await badRequest("Could not save changes.", 500);
   }
 
   return new Response(null, { status: 303, headers: { Location: `/e/${formatEahId(row.eah_number)}` } });
@@ -506,7 +506,7 @@ export async function postEntryStatus(req: Request, ctx: RouteContext): Promise<
   try {
     form = await parseForm(req, 8 * 1024);
   } catch {
-    return badRequest("Form too large.", 413);
+    return await badRequest("Form too large.", 413);
   }
   if (!verifyCsrf(req, form.get("_csrf"))) return badRequest("Invalid CSRF token.", 403);
 
@@ -515,7 +515,7 @@ export async function postEntryStatus(req: Request, ctx: RouteContext): Promise<
 
   const next = form.get("entry_status");
   if (next !== "active" && next !== "patched") {
-    return badRequest("Invalid entry status.");
+    return await badRequest("Invalid entry status.");
   }
 
   const result = await execute(

@@ -163,7 +163,7 @@ function renderForm(opts: {
   `;
 }
 
-function showForm(req: Request, ctx: { user: any }, opts: { values?: FormValues; error?: string | null; status?: number } = {}): Response {
+async function showForm(req: Request, ctx: { user: any }, opts: { values?: FormValues; error?: string | null; status?: number } = {}): Promise<Response> {
   const { token, setCookie } = tokenForRequest(req);
   const body = renderForm({
     values: opts.values ?? emptyForm(),
