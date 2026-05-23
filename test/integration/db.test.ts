@@ -12,11 +12,11 @@
  * afterAll kill the DB out from under the others. Keep all integration tests
  * here.
  *
- * Coverage is scoped to what the CURRENT migrated schema supports. The draft
- * workflow (submit-as-draft, my.ts edit/propose/withdraw/history,
- * submission_versions) is NOT covered because Bug L means its schema doesn't
- * exist — we can't even seed those rows. Once migrate.ts is fixed, add a
- * draft-flow block here.
+ * Coverage spans both the stable schema and the draft workflow that was
+ * previously blocked by Bug L (missing owner_user_id / submission_versions /
+ * 'draft' enum). Those schema gaps are now fixed in migrate.ts, so draft-flow
+ * tests (submit-as-draft, my.ts edit/propose/withdraw, submission_versions)
+ * are included here.
  */
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 import {
@@ -43,6 +43,7 @@ import type { UserSession } from "../../src/auth.ts";
 
 import { entry } from "../../src/routes/entry.ts";
 import { submitPost } from "../../src/routes/submit.ts";
+import { myEditPost, myPropose, myWithdraw } from "../../src/routes/my.ts";
 import { postReview } from "../../src/routes/admin/review.ts";
 import { postBulk } from "../../src/routes/admin/bulk.ts";
 
@@ -64,6 +65,17 @@ function fakeAdmin(userId: number): UserSession {
     username: "admin1",
     email: "admin1@example.com",
     isAdmin: true,
+    emailVerified: true,
+    token: "t",
+  };
+}
+
+function fakeUser(userId: number): UserSession {
+  return {
+    userId,
+    username: "user1",
+    email: "user1@example.com",
+    isAdmin: false,
     emailVerified: true,
     token: "t",
   };
@@ -401,10 +413,9 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
 
   // ── submit handler (anonymous) ───────────────────────────────────────────────
   describe("POST /submit (anonymous)", () => {
-    // BUG L blast radius: submit.ts's INSERT lists owner_user_id, a column
-    // migrate.ts never adds. So even an anonymous submit fails at the DB and the
-    // handler returns its 500 error page — no row is stored. EXPECTED TO FAIL
-    // until migrate.ts is fixed; then a 'pending' row should be created.
+    // Previously failing as Bug L blast radius (submit.ts's INSERT listed
+    // owner_user_id which didn't exist). migrate.ts now adds the column, so
+    // this is a passing regression assertion.
     test("a valid anonymous submission is stored as 'pending'", async () => {
       const req = csrfPost("/submit", {
         title: "test1",
@@ -421,10 +432,11 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
     });
   });
 
-  // ── schema gap (Bug L) ────────────────────────────────────────────────────────
-  // migrate.ts was never updated for the draft overhaul. submit.ts / my.ts /
-  // versions.ts depend on these. EXPECTED TO FAIL until migrate.ts is fixed.
-  describe("migrate.ts builds the overhaul schema (SPEC — currently NOT satisfied)", () => {
+  // ── schema gap (Bug L) — regression assertions ────────────────────────────────
+  // These were failing before migrate.ts was fixed. They now serve as regression
+  // guards: if any of these columns/tables disappear from a future migration run,
+  // the tests will catch it immediately.
+  describe("migrate.ts builds the overhaul schema", () => {
     test("submissions.owner_user_id column exists", async () => {
       const col = await queryOne(
         `SELECT COLUMN_NAME FROM information_schema.COLUMNS
@@ -449,6 +461,114 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
             AND COLUMN_NAME = 'status'`,
       );
       expect(String(row?.COLUMN_TYPE)).toContain("'draft'");
+    });
+  });
+
+  // ── draft workflow ────────────────────────────────────────────────────────────
+  // Tests for the logged-in-user draft flow: submit→draft, edit (with version
+  // diff), propose, and withdraw. Previously un-seedable because Bug L meant
+  // the supporting schema didn't exist. All these tests should pass.
+  describe("draft workflow", () => {
+    test("submit as logged-in user stores a draft with correct owner", async () => {
+      const userId = await insertUser({ username: "user1", email: "user1@example.com" });
+      const req = csrfPost("/submit", {
+        title: "test1",
+        prompt: "test prompt",
+        output: "test output",
+        ai_model: "test-model",
+        category: "other",
+      });
+      const res = await submitPost(req, ctx({ path: "http://localhost/submit", ip: "203.0.113.7", user: fakeUser(userId) }));
+      // Logged-in submitters are redirected to their draft edit page.
+      expect(res.status).toBe(303);
+      const location = res.headers.get("Location") ?? "";
+      expect(location.startsWith("/my/submissions/A")).toBe(true);
+
+      const row = await queryOne<{ status: string; owner_user_id: number | null }>(
+        "SELECT status, owner_user_id FROM submissions WHERE owner_user_id = ?",
+        [userId],
+      );
+      expect(row?.status).toBe("draft");
+      expect(Number(row?.owner_user_id)).toBe(userId);
+    });
+
+    test("myEditPost updates the draft and records a version diff", async () => {
+      const userId = await insertUser({ username: "user1", email: "user1@example.com" });
+      const id = await insertSubmission({ eahNumber: 50, status: "draft", ownerUserId: userId, title: "original title" });
+
+      const res = await myEditPost(
+        csrfPost("/my/submissions/A000050/edit", {
+          title: "updated title",
+          prompt: "test prompt",
+          output: "test output",
+          ai_model: "test-model",
+          category: "other",
+        }),
+        ctx({ params: { eahId: "A000050" }, user: fakeUser(userId) }),
+      );
+
+      // Successful edit redirects back to the edit page with ?saved=1.
+      expect(res.status).toBe(303);
+      expect(res.headers.get("Location")).toBe("/my/submissions/A000050/edit?saved=1");
+
+      // The submission row should reflect the new title.
+      const row = await queryOne<{ title: string }>(
+        "SELECT title FROM submissions WHERE id = ?",
+        [id],
+      );
+      expect(row?.title).toBe("updated title");
+
+      // At least one version-diff row should have been written.
+      const vrows = await query<{ field_name: string; old_value: string | null; new_value: string | null }>(
+        "SELECT field_name, old_value, new_value FROM submission_versions WHERE submission_id = ?",
+        [id],
+      );
+      expect(vrows.length).toBeGreaterThan(0);
+      const titleDiff = vrows.find((r) => r.field_name === "title");
+      expect(titleDiff).toBeDefined();
+      expect(titleDiff?.old_value).toBe("original title");
+      expect(titleDiff?.new_value).toBe("updated title");
+    });
+
+    test("myPropose flips a draft's status to 'pending'", async () => {
+      const userId = await insertUser({ username: "user1", email: "user1@example.com" });
+      const id = await insertSubmission({ eahNumber: 51, status: "draft", ownerUserId: userId });
+
+      const res = await myPropose(
+        csrfPost("/my/submissions/A000051/propose", {}),
+        ctx({ params: { eahId: "A000051" }, user: fakeUser(userId) }),
+      );
+
+      expect(res.status).toBe(303);
+
+      const row = await queryOne<{ status: string }>(
+        "SELECT status FROM submissions WHERE id = ?",
+        [id],
+      );
+      expect(row?.status).toBe("pending");
+    });
+
+    test("myWithdraw sets status='withdrawn' and frees the A-number", async () => {
+      const userId = await insertUser({ username: "user1", email: "user1@example.com" });
+      const id = await insertSubmission({ eahNumber: 52, status: "draft", ownerUserId: userId });
+
+      const res = await myWithdraw(
+        csrfPost("/my/submissions/A000052/withdraw", {}),
+        ctx({ params: { eahId: "A000052" }, user: fakeUser(userId) }),
+      );
+
+      expect(res.status).toBe(303);
+
+      const row = await queryOne<{ status: string; eah_number: number | null }>(
+        "SELECT status, eah_number FROM submissions WHERE id = ?",
+        [id],
+      );
+      expect(row?.status).toBe("withdrawn");
+      // A-number must be freed (NULLed on the row).
+      expect(row?.eah_number).toBeNull();
+      // A-number must be in the pool so it can be reused.
+      const pooled = await query<{ n: number }>("SELECT n FROM freed_eah_numbers");
+      expect(pooled.map((r) => Number(r.n))).toContain(52);
     });
   });
 });

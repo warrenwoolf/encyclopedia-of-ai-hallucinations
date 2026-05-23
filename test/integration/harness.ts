@@ -13,12 +13,11 @@ import { execute, queryOne } from "../../src/db.ts";
 export const DB_ENABLED = process.env.EAH_TEST_DB === "1";
 
 /**
- * Tables created by scripts/migrate.ts, child-first. NOTE: submission_versions
- * is intentionally absent — migrate.ts doesn't create it yet (see the schema-gap
- * tests). We DELETE rather than TRUNCATE so FK-referenced parents can be cleared
- * with checks disabled.
+ * Tables created by scripts/migrate.ts, child-first. We DELETE rather than
+ * TRUNCATE so FK-referenced parents can be cleared with checks disabled.
  */
 const TABLES = [
+  "submission_versions",
   "submission_messages",
   "submission_tags",
   "email_verifications",
@@ -47,8 +46,11 @@ export function randomPublicId(): string {
 }
 
 /**
- * Insert a minimal submission row using only columns migrate.ts actually
- * creates. Returns the new row's primary-key id. All text is placeholder.
+ * Insert a minimal submission row. Returns the new row's primary-key id.
+ * All text is placeholder.
+ *
+ * `ownerUserId` may be set for draft-workflow tests — inserts with
+ * `status:'draft'` and links the row to a real users row.
  */
 export async function insertSubmission(
   opts: {
@@ -56,18 +58,20 @@ export async function insertSubmission(
     status?: string;
     publicId?: string;
     title?: string | null;
+    ownerUserId?: number | null;
   } = {},
 ): Promise<number> {
   const { insertId } = await execute(
     `INSERT INTO submissions
-       (public_id, eah_number, tracking_hash, prompt, output, ai_model, category, status, title)
-     VALUES (?, ?, ?, 'test', 'test', 'test', 'other', ?, ?)`,
+       (public_id, eah_number, tracking_hash, prompt, output, ai_model, category, status, title, owner_user_id)
+     VALUES (?, ?, ?, 'test prompt', 'test output', 'test-model', 'other', ?, ?, ?)`,
     [
       opts.publicId ?? randomPublicId(),
       opts.eahNumber ?? null,
       randomBytes(32),
       opts.status ?? "pending",
       opts.title ?? null,
+      opts.ownerUserId ?? null,
     ],
   );
   return insertId;
