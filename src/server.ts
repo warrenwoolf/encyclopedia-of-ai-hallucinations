@@ -33,6 +33,10 @@ import {
   mySubmissions, myEditGet, myEditPost, myPropose, myWithdraw, myHistory,
 } from "./routes/my.ts";
 import { myDiscussionGet, myDiscussionPost } from "./routes/my-discussion.ts";
+import { usernameCheck } from "./routes/api.ts";
+import { rss } from "./routes/rss.ts";
+import { sitemap } from "./routes/sitemap.ts";
+import { postBulk } from "./routes/admin/bulk.ts";
 
 interface RouteDef {
   method: "GET" | "POST";
@@ -85,6 +89,11 @@ const ROUTES: RouteDef[] = [
   route("GET",  "/my/submissions/:eahId/history",     myHistory),
   route("GET",  "/my/submissions/:eahId/discussion",  myDiscussionGet),
   route("POST", "/my/submissions/:eahId/message",     myDiscussionPost),
+  // API endpoints
+  route("GET",  "/api/username-check",  usernameCheck),
+  // Feeds / discovery
+  route("GET",  "/rss",                 rss),
+  route("GET",  "/sitemap.xml",         sitemap),
   route("GET", "/admin/queue", getQueue),
   route("GET", "/admin/queue/:id", getQueueDetail),
   route("POST", "/admin/queue/:id", postReview),
@@ -98,6 +107,10 @@ const ROUTES: RouteDef[] = [
   route("GET", "/admin/entries/:eahId/edit", getEditEntry),
   route("POST", "/admin/entries/:eahId/edit", postEditEntry),
   route("POST", "/admin/entries/:eahId/status", postEntryStatus),
+  // Bulk approve/reject from the admin all-submissions view.
+  route("POST", "/admin/bulk",                  postBulk),
+  // NOTE: GET /admin/entries/redirect (redirectToEntry) will be added by B4
+  // once that handler is implemented in src/routes/admin/entries.ts.
 ];
 
 const SECURITY_HEADERS: Record<string, string> = {
