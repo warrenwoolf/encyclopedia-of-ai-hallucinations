@@ -64,9 +64,11 @@ Free tier is 300 sends/month. We read Resend's `x-resend-monthly-quota` response
 
 **Submission is account-only now.** `/submit` (GET and POST) redirects anonymous visitors to `/login`. There is no anonymous/email-tracking path anymore — the old `/track`, `/lookup`, `/draft/:token`, tracking codes, and `notify_token`/`submitter_email` flows are gone (the columns still exist but new submissions leave them null). Submitter notifications go through the account.
 
-- `/submit` enforces: a 4-open-drafts cap per **account** (`status IN ('draft','pending')`), required fields, all length caps, valid category, tag format `^[a-z0-9-]+$`, date parsing, URL validation. A new submission is inserted as `status='draft'` owned by `owner_user_id`, then the submitter is redirected to `/my/submissions/:eahId/edit` to refine it before proposing.
-- **A submission's status flow:** `draft` → (submitter "proposes") → `pending` → (staff) → `published` | `rejected`; `withdrawn` from draft/pending. The `submissions.status` enum includes `draft`; default is `draft`.
-- `/my/submissions` (`src/routes/my.ts`) — the submitter's dashboard: list (withdrawn rows are excluded — they freed their A-number so their detail links would 404), edit a draft, **propose for review**, withdraw, and view edit history. `/my/submissions/:eahId/discussion` (`src/routes/my-discussion.ts`) is the submitter's chat thread with reviewers.
+- `/submit` enforces: a 4-open-drafts cap per **account** (`status IN ('draft','pending')`), required fields, all length caps, valid category, tag format `^[a-z0-9-]+$`, date parsing, URL validation. The form has **two submit buttons** (`name="action"`): **Save as draft** inserts `status='draft'` and redirects to `/my/submissions/:eahId/edit` to keep refining; **Submit for review** inserts the row already `status='pending'` (and posts the `proposed` system message) in the same transaction, then redirects to `/my/submissions`.
+- **A submission's status flow:** `draft` ⇄ (submitter "proposes" / "unproposes") `pending` → (staff) → `published` | `rejected`; `withdrawn` from draft/pending. The `submissions.status` enum includes `draft`; default is `draft`.
+- **Drafts and proposed (pending) submissions are equally editable by the owner** — they differ only in whether staff can see them. `myEditGet`/`myEditPost` render and accept the edit form for both statuses; published/rejected/withdrawn stay read-only.
+- `/my/submissions` (`src/routes/my.ts`) — the submitter's dashboard: list (withdrawn rows are excluded — they freed their A-number so their detail links would 404), edit (draft or pending), **propose for review**, **unpropose**, withdraw, and view edit history. `/my/submissions/:eahId/discussion` (`src/routes/my-discussion.ts`) is the submitter's chat thread with reviewers.
+- **Unpropose** (`myUnpropose`, `POST /my/submissions/:eahId/unpropose`) is the in-place alternative to withdraw + remake: flips `pending → draft`, **deletes the discussion thread** (clears proposal state), keeps the A-number and edit history. No suspension gate (it's pulling work back, not submitting).
 - `/admin/queue` and `/admin/queue/:id` — staff queue + detail with chat thread. The detail page has a gated "edit this submission" link (see staff-edit rules below). `POST /admin/queue/:id` approves/rejects (and on reject, frees the A-number in the same tx). `POST /admin/queue/:id/message` posts a staff chat message and emails the submitter via `sendReviewerMessage`.
 - `/admin/entries/new`, `/admin/entries/:eahId/edit`, `/admin/entries/:eahId/status` — direct staff actions, bypass the draft queue. `:eahId/edit` works on a submission of any status (not just published); on save it redirects to `/e/:eahId` if published, else back to `/admin/queue/:id`.
 - **Staff editing someone else's submission** is allowed only when `allow_author_edits = 1` (the submitter opted in). The owner can always edit their own; **owners (is_owner=1) can edit anything**; owner-less (legacy / direct) entries are freely editable. Enforced in `src/routes/admin/entries.ts` (`mayEdit`).
@@ -113,10 +115,10 @@ Trigger points (all fire-and-forget):
 
 | Method | Path                                | Handler |
 |--------|-------------------------------------|---------|
-| GET    | `/`                                 | `routes/home.ts` |
+| GET    | `/`                                 | `routes/home.ts` (intro + count + CTA, then `renderBrowseBody` — home *is* browse from the search box down) |
 | GET    | `/about`                            | `routes/about.ts` |
 | GET    | `/privacy`                          | `routes/privacy.ts` |
-| GET    | `/browse`                           | `routes/browse.ts` (filters: category, tag, model, status, q; sort: new/old/verified/id) |
+| GET    | `/browse`                           | `routes/browse.ts` (filters: category, tag, model, status, q; sort: new/old/verified/id). Listing is an indented list (incl. prompt/output) via shared `renderBrowseBody`; `q` that names a category (`resolveCategory`) becomes a category filter. |
 | GET    | `/e/:public_id`                     | `routes/entry.ts` (accepts A-number OR legacy slug; legacy 301→canonical) |
 | GET    | `/submit`                           | `routes/submit.ts` |
 | POST   | `/submit`                           | `routes/submit.ts` |
@@ -124,6 +126,7 @@ Trigger points (all fire-and-forget):
 | GET    | `/my/submissions/:eahId/edit`       | `routes/my.ts` |
 | POST   | `/my/submissions/:eahId/edit`       | `routes/my.ts` (save draft) |
 | POST   | `/my/submissions/:eahId/propose`    | `routes/my.ts` (draft → pending) |
+| POST   | `/my/submissions/:eahId/unpropose`  | `routes/my.ts` (pending → draft; clears discussion) |
 | POST   | `/my/submissions/:eahId/withdraw`   | `routes/my.ts` (frees A-number) |
 | GET    | `/my/submissions/:eahId/history`    | `routes/my.ts` (version diffs) |
 | GET    | `/my/submissions/:eahId/discussion` | `routes/my-discussion.ts` |
