@@ -11,6 +11,7 @@ Co-founders: **Rudra Jadhav** and **Warren Woolf** (`Interrobang` / `warrenwoolf
 - **MariaDB** via the `mariadb` npm driver. Everything goes through `src/db.ts` (`query`, `queryOne`, `execute`, `transaction`). Always pass user values as `?` parameters; never interpolate into SQL.
 - **HTML rendering is XSS-safe via `h\`...\``** in `src/html.ts`. ALL HTML output goes through `h\`\`` or `raw()`. `raw()` is for constants you fully control — never on user input. Do not concatenate user strings into HTML, ever.
 - **CSRF:** HMAC-signed double-submit cookie + hidden field. Every form must include `<input type="hidden" name="_csrf" value="${csrfToken}">` and the handler must call `verifyCsrf(req, form.get("_csrf"))` before doing anything mutating.
+- **`parseForm()` only understands `application/x-www-form-urlencoded`** — it runs the raw body through `new URLSearchParams(text)`. It does NOT parse `multipart/form-data`. So any client-side POST (e.g. `fetch` in `google.js`) must send a urlencoded body (`URLSearchParams`, not `FormData`), or every field — including `_csrf` — comes back empty and the request 403s on the CSRF check. That 403 branch logs nothing, so the failure is silent: the symptom is a POST that bounces back with no server log. This bit the GIS login flow (button rendered, sign-in always redirected to `/login`).
 - **Rate-limiting:** in-memory token bucket per IP in `src/ratelimit.ts`. Buckets: `submit`, `login`, `signup`, `verify`, `oauth`, `withdraw`, `lookup`. Add a new bucket entry if you add a new POST that hits external services or writes to the DB on behalf of anonymous users.
 - **Sessions:** all users (admins are users with `is_admin=1`). Cookie holds a random token; DB stores only its sha256. Logic in `src/auth.ts`.
 
@@ -134,24 +135,21 @@ Trigger points (all fire-and-forget):
 
 ## Deploy
 
-Compose file uses `network_mode: host` so the container reaches MariaDB on `127.0.0.1` and the Bun server binds `127.0.0.1:8090` (cloudflared on the same host is the only public path). To deploy after changes:
+Compose file uses `network_mode: host` so the container reaches MariaDB on `127.0.0.1` and the Bun server binds `127.0.0.1:8090` (cloudflared on the same host is the only public path). The canonical deploy is now `./deploy.sh` (checked in). To deploy after changes:
 
 ```sh
-rsync -avz --delete \
-  --exclude .git --exclude node_modules --exclude .env \
-  ./ eah:~/eah/
-ssh eah '
-  cd ~/eah \
-  && docker compose up -d --build \
-  && docker compose exec eah bun scripts/migrate.ts
-'
+./deploy.sh   # rsync working tree → host, then `docker compose up -d --build` + migrate
 ```
+
+**The current host is the SSH alias `randy` (a temporary box — Pi/homelab). Don't hardcode `randy` anywhere in source; `deploy.sh` is the one place it lives, so retargeting is a one-line edit there.** The public URL is `https://eah.warrenwoolf.com`, fronted by Cloudflare → cloudflared → `127.0.0.1:8090`.
+
+⚠️ **Cloudflare caches `/static/*` aggressively (edge TTL set to 4h via a zone rule, longer than the `max-age=3600` we send).** After deploying a change to a static asset (`style.css`, `theme.js`, `google.js`), the new file is live *in the container* immediately but the public URL keeps serving the stale edge copy — and `Ctrl+Shift+R` only busts the *browser* cache, not Cloudflare's. **You must purge the Cloudflare cache** (dashboard → Caching → Purge, or the API) for static changes to appear. TypeScript/server changes are unaffected (never cached). Symptom to recognize: `curl -sI <url> | grep cf-cache-status` shows `HIT` with an old `last-modified`. There is deliberately no asset cache-buster — the owners prefer to purge manually.
 
 `migrate.ts` is idempotent and additive (per the policy below). `seed-admin.ts` is idempotent (upserts the named admin into `users`).
 
 `scripts/drop-legacy.ts` is the one-shot destructive migration that retired the old `admins` / `admin_sessions` / `email_sends` tables and renamed `submission_messages.sender_admin_id` → `sender_user_id`. It's idempotent — re-running prints "nothing to do" — and should be run once after the accounts deploy. If any admin had a bcrypt password hash, it's NULLed by this script; re-run `seed-admin.ts` to restore it as argon2id.
 
-The deployment target may move at some point — keep the deploy commands flexible (an `eah` SSH alias, a generic `~/eah` path). Don't bake hostnames or absolute paths into source code; read from env where possible.
+The deployment target may move at some point (it's currently `randy`, a temporary box) — keep the deploy commands flexible. Don't bake hostnames or absolute paths into source code; read from env where possible.
 
 ## Testing
 
