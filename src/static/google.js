@@ -14,13 +14,19 @@
   }
 
   async function postCredential(credential, csrf) {
-    var form = new FormData();
-    form.append("credential", credential);
-    form.append("_csrf", csrf);
+    // Send as application/x-www-form-urlencoded (URLSearchParams) — NOT
+    // FormData. The server's parseForm() parses the body with URLSearchParams,
+    // which only understands urlencoded bodies; a multipart FormData body would
+    // leave _csrf/credential unparsed, the CSRF check would fail, and the POST
+    // would 403 (silently, since that branch doesn't log) back to /login.
+    var body = new URLSearchParams();
+    body.append("credential", credential);
+    body.append("_csrf", csrf);
 
     var res = await fetch("/oauth/google/verify", {
       method: "POST",
-      body: form,
+      body: body,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       credentials: "same-origin",
     });
 
@@ -64,9 +70,17 @@
     });
   }
 
+  function start() {
+    if (document.readyState === "complete") {
+      render();
+      return;
+    }
+    window.addEventListener("load", render, { once: true });
+  }
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", render);
+    document.addEventListener("DOMContentLoaded", start, { once: true });
   } else {
-    render();
+    start();
   }
 })();
