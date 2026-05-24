@@ -37,10 +37,7 @@ function googleButton(csrfToken: string): SafeHtml {
   if (!googleOAuthEnabled()) return raw("");
   return h`
     <div class="oauth-shell">
-      <div id="g_id_onload" data-client_id="${config.googleOAuth.clientId}" data-auto_prompt="false" data-callback="handleGisCredential" data-csrf="${csrfToken}"></div>
-      <div class="oauth-button-wrap">
-        <div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline" data-text="signin_with" data-shape="rectangular" data-logo_alignment="left"></div>
-      </div>
+      <div class="oauth-google-button" data-client-id="${config.googleOAuth.clientId}" data-csrf="${csrfToken}"></div>
       <p class="muted oauth-divider oauth-divider-wrap">or sign in with username/email and password</p>
     </div>
   `;
