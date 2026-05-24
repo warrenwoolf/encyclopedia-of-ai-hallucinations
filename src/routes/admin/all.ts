@@ -22,6 +22,7 @@ interface Row {
   status: string;
   submitted_at: Date;
   reviewed_at: Date | null;
+  reviewed_by_username: string | null;
 }
 
 function fmtDate(d: Date | null | undefined): string {
@@ -68,10 +69,12 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
   const total = totalRow?.c ?? 0;
 
   const rows = await query<Row>(
-    `SELECT id, public_id, ai_model, category, status, submitted_at, reviewed_at
-       FROM submissions
-       ${whereSql}
-       ORDER BY submitted_at DESC
+    `SELECT s.id, s.public_id, s.ai_model, s.category, s.status, s.submitted_at, s.reviewed_at,
+            u.username AS reviewed_by_username
+       FROM submissions s
+       LEFT JOIN users u ON u.id = s.reviewed_by
+       ${status ? "WHERE s.status = ?" : ""}
+       ORDER BY s.submitted_at DESC
        LIMIT ? OFFSET ?`,
     [...baseParams, PAGE_SIZE, offset],
   );
@@ -103,6 +106,7 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
                 <th>status</th>
                 <th>submitted</th>
                 <th>reviewed</th>
+                <th>reviewed by</th>
                 <th></th>
               </tr>
             </thead>
@@ -117,6 +121,7 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
                   <td>[${r.status}]</td>
                   <td>${fmtDate(r.submitted_at)}</td>
                   <td>${fmtDate(r.reviewed_at)}</td>
+                  <td>${r.reviewed_by_username ?? "—"}</td>
                   <td><a href="/admin/queue/${r.id}">view →</a></td>
                 </tr>
               `)}

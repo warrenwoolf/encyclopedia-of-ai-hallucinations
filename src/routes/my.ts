@@ -215,10 +215,12 @@ function renderEditForm(opts: {
   csrf: string;
   error: string | null;
   username: string;
+  status: string;
 }): SafeHtml {
-  const { eahId, values, csrf, error, username } = opts;
+  const { eahId, values, csrf, error, username, status } = opts;
   const action = `/my/submissions/${eahId}/edit`;
   const proposeAction = `/my/submissions/${eahId}/propose`;
+  const unproposeAction = `/my/submissions/${eahId}/unpropose`;
 
   const errBlock = error
     ? h`<div class="form-error" role="alert"><strong>Error:</strong> ${error}</div>`
@@ -308,14 +310,24 @@ function renderEditForm(opts: {
       </select>
 
       <div class="form-actions">
-        <button type="submit">Save draft</button>
+        <button type="submit">Save changes</button>
       </div>
     </form>
 
-    <form method="post" action="${proposeAction}" class="form-actions">
-      <input type="hidden" name="_csrf" value="${csrf}">
-      <button type="submit">Propose for review</button>
-    </form>
+    ${status === "pending"
+      ? h`
+        <p class="field-hint"><small>This submission is proposed for review.
+          Editing it here updates it in place — staff see your changes. To pull
+          it back out of review and clear the discussion, unpropose it.</small></p>
+        <form method="post" action="${unproposeAction}" class="form-actions">
+          <input type="hidden" name="_csrf" value="${csrf}">
+          <button type="submit" class="btn-secondary">Unpropose (back to draft)</button>
+        </form>`
+      : h`
+        <form method="post" action="${proposeAction}" class="form-actions">
+          <input type="hidden" name="_csrf" value="${csrf}">
+          <button type="submit">Propose for review</button>
+        </form>`}
   `;
 }
 
@@ -384,8 +396,13 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
           <button class="linkbutton" type="submit">withdraw</button>
         </form>`;
     } else if (row.status === "pending") {
-      actions = h`<a href="/my/submissions/${eahId}/discussion">discussion</a> ·
+      actions = h`<a href="/my/submissions/${eahId}/edit">edit</a> ·
+        <a href="/my/submissions/${eahId}/discussion">discussion</a> ·
         <a href="/my/submissions/${eahId}/history">history</a> ·
+        <form class="inline-form" method="post" action="/my/submissions/${eahId}/unpropose">
+          <input type="hidden" name="_csrf" value="${token}">
+          <button class="linkbutton" type="submit">unpropose</button>
+        </form> ·
         <form class="inline-form" method="post" action="/my/submissions/${eahId}/withdraw">
           <input type="hidden" name="_csrf" value="${token}">
           <button class="linkbutton" type="submit">withdraw</button>
@@ -463,7 +480,9 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
   const eahId = formatEahId(row.eah_number);
   const { token, setCookie } = tokenForRequest(req);
 
-  if (row.status === "draft") {
+  // Drafts and proposed (pending) submissions are both editable — they differ
+  // only in whether staff can see them. published/rejected/withdrawn are read-only.
+  if (row.status === "draft" || row.status === "pending") {
     // Load current tags for the form
     const tagRows = await query<{ name: string }>(
       `SELECT t.name FROM tags t
@@ -507,7 +526,7 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
       </form>
     `;
 
-    const formHtml = renderEditForm({ eahId, values, csrf: token, error: null, username: ctx.user.username });
+    const formHtml = renderEditForm({ eahId, values, csrf: token, error: null, username: ctx.user.username, status: row.status });
 
     const body = h`
       ${savedFlash}
@@ -521,27 +540,6 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
       body,
       user: ctx.user,
       subnav,
-    }, { setCookie });
-  }
-
-  if (row.status === "pending") {
-    const note = h`
-      <div class="info-banner">
-        <p>This submission is currently proposed for review and cannot be edited.
-           <a href="/my/submissions/${eahId}/discussion">View discussion</a>.</p>
-        <p>To make edits, withdraw it first:</p>
-        <form method="post" action="/my/submissions/${eahId}/withdraw">
-          <input type="hidden" name="_csrf" value="${token}">
-          <button type="submit">Withdraw</button>
-        </form>
-      </div>
-    `;
-    const body = renderReadOnly(row, eahId, token, note);
-    return pageResponse(req, {
-      title: `${eahId} (proposed) · EAH`,
-      heading: eahId,
-      body,
-      user: ctx.user,
     }, { setCookie });
   }
 
@@ -593,11 +591,12 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
   }
 
   const row = await fetchOwned(eahIdStr, ctx.user.userId);
-  if (!row || row.status !== "draft") {
+  // Drafts and proposed (pending) submissions are both editable.
+  if (!row || (row.status !== "draft" && row.status !== "pending")) {
     return pageResponse(req, {
       title: "Not found · EAH",
       heading: "Not found",
-      body: h`<p>Draft not found. <a href="/my/submissions">My submissions</a></p>`,
+      body: h`<p>Submission not found. <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
     }, { status: 404 });
   }
@@ -608,7 +607,7 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
   if (!v.ok) {
     const { token, setCookie } = tokenForRequest(req);
     const eahId = formatEahId(row.eah_number);
-    const formHtml = renderEditForm({ eahId, values, csrf: token, error: v.error, username: ctx.user.username });
+    const formHtml = renderEditForm({ eahId, values, csrf: token, error: v.error, username: ctx.user.username, status: row.status });
     const body = h`
       <p><strong>${eahId}</strong> · ${statusBadge(row.status)}</p>
       ${formHtml}
@@ -782,6 +781,72 @@ export const myPropose: RouteHandler = async (req, ctx) => {
       title: "Error · EAH",
       heading: "Error",
       body: h`<p>Could not propose submission. Please try again.</p>`,
+      user: ctx.user,
+    }, { status: 500 });
+  }
+
+  return new Response(null, { status: 303, headers: { Location: "/my/submissions" } });
+};
+
+// ─── myUnpropose ──────────────────────────────────────────────────────────────
+
+/**
+ * Pull a proposed (pending) submission back to draft and wipe its proposal
+ * state — i.e. the discussion thread. This is the in-place alternative to
+ * "withdraw + resubmit": the A-number and edit history are kept, but the
+ * reviewer conversation is cleared so the submitter gets a clean slate.
+ */
+export const myUnpropose: RouteHandler = async (req, ctx) => {
+  if (!ctx.user) {
+    return new Response(null, { status: 303, headers: { Location: "/login" } });
+  }
+
+  const eahIdStr = ctx.params.eahId ?? "";
+
+  let form: URLSearchParams;
+  try {
+    form = await parseForm(req, 8 * 1024);
+  } catch {
+    return new Response(null, { status: 400 });
+  }
+
+  if (!verifyCsrf(req, form.get("_csrf"))) {
+    return pageResponse(req, {
+      title: "Forbidden · EAH",
+      heading: "Forbidden",
+      body: h`<p>Invalid CSRF token.</p>`,
+      user: ctx.user,
+    }, { status: 403 });
+  }
+
+  const row = await fetchOwned(eahIdStr, ctx.user.userId);
+  if (!row || row.status !== "pending") {
+    return new Response(null, { status: 404 });
+  }
+
+  try {
+    await transaction(async (tx) => {
+      await tx.execute(
+        "UPDATE submissions SET status = 'draft' WHERE id = ? AND owner_user_id = ? AND status = 'pending'",
+        [row.id, ctx.user!.userId],
+      );
+      // Clear the proposal's discussion so the draft starts fresh. Review
+      // fields aren't set while pending, but null them defensively too.
+      await tx.execute("DELETE FROM submission_messages WHERE submission_id = ?", [row.id]);
+      await tx.execute(
+        `UPDATE submissions
+            SET reviewer_notes = NULL, rejection_reason = NULL, staff_review_message = NULL,
+                reviewed_by = NULL, reviewed_at = NULL
+          WHERE id = ?`,
+        [row.id],
+      );
+    });
+  } catch (err) {
+    console.error("unpropose failed", err);
+    return pageResponse(req, {
+      title: "Error · EAH",
+      heading: "Error",
+      body: h`<p>Could not unpropose submission. Please try again.</p>`,
       user: ctx.user,
     }, { status: 500 });
   }

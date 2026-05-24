@@ -157,7 +157,15 @@ function renderForm(opts: {
         </label>
       </p>
 
-      <button type="submit">Submit</button>
+      <p class="field-hint"><small><strong>Submit for review</strong> sends this
+        to EAH staff. <strong>Save as draft</strong> just stores it privately —
+        nothing is sent to staff until you propose it for review (you can do that
+        later from <a href="/my/submissions">/my/submissions</a>).</small></p>
+
+      <div class="form-actions">
+        <button type="submit" name="action" value="propose">Submit for review</button>
+        <button type="submit" name="action" value="draft" class="btn-secondary">Save as draft</button>
+      </div>
     </form>
 
     <p><small>Submissions are reviewed by staff before being published. Manage
@@ -401,10 +409,15 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     .update(`${config.sessionSecret}:${ctx.ip}`)
     .digest();
 
-  // Submission is account-only now: every row is a draft owned by the
-  // submitter, with no submitter_email (notifications go through the account).
+  // Two submit buttons: "Submit for review" proposes immediately (status
+  // 'pending'); "Save as draft" keeps it private ('draft'). Anything else
+  // defaults to draft.
+  const wantPropose = form.get("action") === "propose";
+
+  // Submission is account-only now: every row is owned by the submitter, with
+  // no submitter_email (notifications go through the account).
   const submitterEmail = null;
-  const submissionStatus = "draft";
+  const submissionStatus = wantPropose ? "pending" : "draft";
   const ownerUserId = ctx.user.userId;
 
   let eahNumber: number;
@@ -464,6 +477,16 @@ export const submitPost: RouteHandler = async (req, ctx) => {
         );
       }
 
+      // If the submitter chose "Submit for review", record the proposal in the
+      // discussion thread inside the same transaction so the queue + chat are
+      // consistent the moment the row becomes visible to staff.
+      if (wantPropose) {
+        await tx.execute(
+          `INSERT INTO submission_messages (submission_id, sender_type, body) VALUES (?, 'system', ?)`,
+          [submissionId, `Submission proposed for review by ${ctx.user!.username}.`],
+        );
+      }
+
       return n;
     });
   } catch (err) {
@@ -477,10 +500,12 @@ export const submitPost: RouteHandler = async (req, ctx) => {
 
   const eahId = formatEahId(eahNumber);
 
-  // Straight to the draft edit page so the submitter can refine it before
-  // proposing it into the review queue.
+  // Proposed → straight to the dashboard (it's now in the review queue).
+  // Draft → the edit page so the submitter can keep refining before proposing.
   return new Response(null, {
     status: 303,
-    headers: { Location: `/my/submissions/${eahId}/edit` },
+    headers: {
+      Location: wantPropose ? "/my/submissions" : `/my/submissions/${eahId}/edit`,
+    },
   });
 };

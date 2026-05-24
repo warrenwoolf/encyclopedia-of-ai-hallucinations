@@ -31,7 +31,7 @@ import {
 import { getAll } from "./routes/admin/all.ts";
 import { getUsers, getStaff, postUserAction } from "./routes/admin/users.ts";
 import {
-  mySubmissions, myEditGet, myEditPost, myPropose, myWithdraw, myHistory,
+  mySubmissions, myEditGet, myEditPost, myPropose, myUnpropose, myWithdraw, myHistory,
 } from "./routes/my.ts";
 import { myDiscussionGet, myDiscussionPost } from "./routes/my-discussion.ts";
 import { usernameCheck } from "./routes/api.ts";
@@ -85,6 +85,7 @@ const ROUTES: RouteDef[] = [
   route("GET",  "/my/submissions/:eahId/edit",        myEditGet),
   route("POST", "/my/submissions/:eahId/edit",        myEditPost),
   route("POST", "/my/submissions/:eahId/propose",     myPropose),
+  route("POST", "/my/submissions/:eahId/unpropose",   myUnpropose),
   route("POST", "/my/submissions/:eahId/withdraw",    myWithdraw),
   route("GET",  "/my/submissions/:eahId/history",     myHistory),
   route("GET",  "/my/submissions/:eahId/discussion",  myDiscussionGet),

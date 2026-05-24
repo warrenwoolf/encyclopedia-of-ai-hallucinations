@@ -65,3 +65,23 @@ export function isValidCategory(key: string): boolean {
 export function categoryLabel(key: string): string {
   return CATEGORIES.find((c) => c.key === key)?.label ?? key;
 }
+
+/**
+ * Resolve a free-text search term to a category key, so the search box can
+ * double as a category filter. Matches (case-insensitively) against the key,
+ * the key with hyphens as spaces, the full label, or any slash-separated
+ * segment of the label (e.g. "math", "arithmetic", "api", "looping").
+ * Returns null when the term doesn't name a category.
+ */
+export function resolveCategory(input: string): string | null {
+  const norm = input.trim().toLowerCase();
+  if (norm.length === 0) return null;
+  for (const c of CATEGORIES) {
+    if (c.key === norm) return c.key;
+    if (c.key.replace(/-/g, " ") === norm) return c.key;
+    if (c.label.toLowerCase() === norm) return c.key;
+    const segments = c.label.toLowerCase().split("/").map((s) => s.trim());
+    if (segments.includes(norm)) return c.key;
+  }
+  return null;
+}

@@ -10,14 +10,15 @@
  * All filters are AND-combined. `q` does LIKE across title/prompt/output/model/
  * summary using parameterized placeholders only.
  */
-import { h, raw } from "../html.ts";
+import { h, raw, type SafeHtml } from "../html.ts";
 import { pageResponse } from "../layout.ts";
 import { query, queryOne } from "../db.ts";
-import { CATEGORIES, categoryLabel, isValidCategory } from "../categories.ts";
+import { CATEGORIES, categoryLabel, isValidCategory, resolveCategory } from "../categories.ts";
 import { formatEahId } from "../eah-id.ts";
-import { type RouteHandler } from "./types.ts";
+import { type RouteContext, type RouteHandler } from "./types.ts";
 
 interface Row {
+  id: number;
   public_id: string;
   eah_number: number | null;
   title: string | null;
@@ -27,6 +28,22 @@ interface Row {
   submitted_at: Date;
   verified_hits: number | null;
   verified_total: number | null;
+  prompt: string;
+  output: string;
+}
+
+/**
+ * Render a long text field (prompt/output). Short text shows inline; long text
+ * is height-clamped with a pure-HTML <details> "show all" toggle — no JS, no
+ * content duplication (the same <pre> just un-clamps when expanded).
+ */
+function longField(text: string): SafeHtml {
+  const isLong = text.length > 600 || text.split("\n").length > 12;
+  if (!isLong) return h`<pre class="note">${text}</pre>`;
+  return h`<details class="longtext">
+    <summary><span class="more">show all</span><span class="less">show less</span></summary>
+    <pre class="note">${text}</pre>
+  </details>`;
 }
 
 const PAGE_SIZE = 25;
@@ -67,17 +84,33 @@ function buildQs(params: Record<string, string | number | undefined>): string {
   return s.length > 0 ? `?${s}` : "";
 }
 
-export const browse: RouteHandler = async (req, ctx) => {
+/**
+ * Build the browse body (search form, filters, controls, listing, pagination).
+ * Shared by GET /browse and the home page so both render identically from the
+ * search section down.
+ */
+export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   const sp = ctx.url.searchParams;
 
   const rawCategory = (sp.get("category") ?? "").trim();
-  const category = rawCategory && isValidCategory(rawCategory) ? rawCategory : "";
+  let category = rawCategory && isValidCategory(rawCategory) ? rawCategory : "";
 
   const tag = (sp.get("tag") ?? "").trim().toLowerCase().slice(0, 40);
   const tagValid = /^[a-z0-9-]+$/.test(tag) ? tag : "";
 
   const model = (sp.get("model") ?? "").trim().slice(0, 120);
-  const q = (sp.get("q") ?? "").trim().slice(0, 200);
+  let q = (sp.get("q") ?? "").trim().slice(0, 200);
+
+  // The search box doubles as a category filter: if there's no explicit
+  // category and the query names one, treat it as a category filter instead of
+  // a text search (an alternative to clicking the category buttons).
+  if (!category && q) {
+    const resolved = resolveCategory(q);
+    if (resolved) {
+      category = resolved;
+      q = "";
+    }
+  }
 
   // Fetch all distinct model names for the model filter dropdown.
   const allModels = await query<{ ai_model: string }>(
@@ -138,8 +171,8 @@ export const browse: RouteHandler = async (req, ctx) => {
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const rows = await query<Row>(
-    `SELECT DISTINCT s.public_id, s.eah_number, s.title, s.ai_model, s.category, s.entry_status,
-            s.submitted_at, s.verified_hits, s.verified_total, s.id
+    `SELECT DISTINCT s.id, s.public_id, s.eah_number, s.title, s.ai_model, s.category, s.entry_status,
+            s.submitted_at, s.verified_hits, s.verified_total, s.prompt, s.output
        FROM submissions s
        ${join}
        WHERE ${whereSql}
@@ -147,6 +180,25 @@ export const browse: RouteHandler = async (req, ctx) => {
        LIMIT ? OFFSET ?`,
     [...params, PAGE_SIZE, offset],
   );
+
+  // Fetch tags for the rows on this page in one query, keyed by submission id.
+  const tagsByRow = new Map<number, string[]>();
+  if (rows.length > 0) {
+    const ids = rows.map((r) => r.id);
+    const placeholders = ids.map(() => "?").join(",");
+    const tagRows = await query<{ submission_id: number; name: string }>(
+      `SELECT st.submission_id, t.name
+         FROM submission_tags st JOIN tags t ON t.id = st.tag_id
+        WHERE st.submission_id IN (${placeholders})
+        ORDER BY t.name ASC`,
+      ids,
+    );
+    for (const tr of tagRows) {
+      const arr = tagsByRow.get(tr.submission_id) ?? [];
+      arr.push(tr.name);
+      tagsByRow.set(tr.submission_id, arr);
+    }
+  }
 
   const hasFilters = Boolean(category || tagValid || model || q || status);
 
@@ -212,60 +264,70 @@ export const browse: RouteHandler = async (req, ctx) => {
     ${nextQs ? h`<a href="/browse${raw(nextQs)}">next &rarr;</a>` : h`<span class="disabled">next &rarr;</span>`}
   </nav>`;
 
+  const prop = (label: string, value: SafeHtml): SafeHtml => h`
+    <div class="entry-prop">
+      <span class="prop-label">${label}</span>
+      <div class="prop-value">${value}</div>
+    </div>`;
+
   const list = rows.length === 0
     ? h`<p><em>No matching entries.</em></p>`
-    : h`<table class="browse-table">
-        <thead>
-          <tr>
-            <th>EAH ID</th>
-            <th>Title</th>
-            <th>AI Model</th>
-            <th>Category</th>
-            <th>Status</th>
-            <th>Date</th>
-            <th>Verified</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map((r) => {
-            const eahId = formatEahId(r.eah_number);
-            const linkTarget = eahId ? `/e/${eahId}` : `/e/${r.public_id}`;
-            const verifText = r.verified_total !== null
-              ? `${r.verified_hits ?? 0}/${r.verified_total}`
-              : "—";
-            return h`<tr>
-              <td><a href="${linkTarget}"><code>${eahId || r.public_id}</code></a></td>
-              <td><a href="${linkTarget}">${r.title ?? h`<em>(untitled)</em>`}</a></td>
-              <td>${r.ai_model}</td>
-              <td>${categoryLabel(r.category)}</td>
-              <td><span class="entry-status entry-status-${r.entry_status}">${r.entry_status}</span></td>
-              <td>${ymd(r.submitted_at)}</td>
-              <td>${verifText}</td>
-            </tr>`;
-          })}
-        </tbody>
-      </table>`;
+    : h`<ul class="entry-list">
+        ${rows.map((r) => {
+          const eahId = formatEahId(r.eah_number);
+          const linkTarget = eahId ? `/e/${eahId}` : `/e/${r.public_id}`;
+          const verifText = r.verified_total !== null
+            ? `${r.verified_hits ?? 0}/${r.verified_total}`
+            : "—";
+          const tags = tagsByRow.get(r.id) ?? [];
+          return h`<li class="entry-item">
+            <div class="entry-head">
+              <a href="${linkTarget}"><code>${eahId || r.public_id}</code></a> —
+              <a href="${linkTarget}">${r.title ?? h`<em>(untitled)</em>`}</a>
+              ${r.entry_status === "patched"
+                ? h`<span class="entry-status entry-status-patched">patched</span>`
+                : raw("")}
+            </div>
+            <div class="entry-props">
+              ${prop("Model", h`${r.ai_model}`)}
+              ${prop("Category", h`${categoryLabel(r.category)}`)}
+              ${prop("Date", h`${ymd(r.submitted_at)}`)}
+              ${prop("Verified", h`${verifText}`)}
+              ${tags.length > 0
+                ? prop("Tags", h`${tags.map((t, i) => h`${i > 0 ? raw(", ") : raw("")}<a href="/browse?tag=${t}">${t}</a>`)}`)
+                : raw("")}
+              ${prop("Prompt", longField(r.prompt))}
+              ${prop("Response", longField(r.output))}
+            </div>
+          </li>`;
+        })}
+      </ul>`;
 
   // Model filter dropdown, populated from distinct published ai_model values.
   const modelOptions = h`<option value="">all models</option>
     ${allModels.map((m) => h`<option value="${m.ai_model}" ${m.ai_model === model ? raw("selected") : raw("")}>${m.ai_model}</option>`)}`;
 
   // Re-display search form pre-filled with current q so people can refine.
-  // Includes model filter select so users can narrow by AI model.
+  // The query box + Search button share one full-width row; the model filter
+  // sits on its own row below.
   const searchForm = h`<form action="/browse" method="get" class="search-form">
-    <input type="search" name="q" value="${q}" placeholder="search titles, prompts, outputs, models..." maxlength="200">
+    <div class="search-row">
+      <input type="search" name="q" value="${q}" placeholder="search titles, prompts, outputs, models..." maxlength="200">
+      <button type="submit">Search</button>
+    </div>
     ${category ? h`<input type="hidden" name="category" value="${category}">` : h``}
     ${tagValid ? h`<input type="hidden" name="tag" value="${tagValid}">` : h``}
     ${status ? h`<input type="hidden" name="status" value="${status}">` : h``}
     ${sort !== "new" ? h`<input type="hidden" name="sort" value="${sort}">` : h``}
-    <label for="model-filter">Model: </label>
-    <select id="model-filter" name="model">
-      ${modelOptions}
-    </select>
-    <button type="submit">Search</button>
+    <div class="search-model">
+      <label for="model-filter">Model: </label>
+      <select id="model-filter" name="model">
+        ${modelOptions}
+      </select>
+    </div>
   </form>`;
 
-  const body = h`
+  return h`
     ${searchForm}
     ${filtersBlock}
     ${categoryLinks}
@@ -274,7 +336,10 @@ export const browse: RouteHandler = async (req, ctx) => {
     ${list}
     ${pagination}
   `;
+}
 
+export const browse: RouteHandler = async (req, ctx) => {
+  const body = await renderBrowseBody(ctx);
   return pageResponse(req, {
     title: "Browse · EAH",
     heading: "Browse",

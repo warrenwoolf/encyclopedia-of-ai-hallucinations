@@ -174,7 +174,7 @@ header .site-header-top {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 0;
   text-align: center;
   margin-bottom: 4px;
   max-width: var(--content-width);
@@ -236,7 +236,9 @@ header .site-header-top {
 .site-credit {
   font-size: 1.4em;
   color: var(--text-muted);
-  margin: 0;
+  /* Lift the credit up into the whitespace below the centered title so it sits
+     closer to the title, without disturbing the title/logo position. */
+  margin: -0.7em 0 0 0;
   text-align: center;
 }
 
@@ -350,11 +352,6 @@ table a:hover { text-decoration: underline; }
 :root[data-theme="light"] tr:hover td { background: #f5f5ff; }
 
 /* Browse / admin compact table helpers */
-.browse-table th,
-.browse-table td { white-space: nowrap; }
-.browse-table td:nth-child(2) { white-space: normal; }
-.recent-table td a { text-decoration: none; }
-.recent-table td a:hover { text-decoration: underline; }
 .queue-table code { font-size: 0.9em; }
 
 /* === 8e Forms === */
@@ -810,14 +807,22 @@ pre.note {
 .chat-body { white-space: pre-wrap; word-wrap: break-word; }
 
 /* === 8j Search / browse === */
-.search-form {
+/* Full-width search box; query + button share the top row, model filter below. */
+.search-form { width: 100%; margin: 12px 0; }
+.search-row {
   display: flex;
   gap: 6px;
-  margin: 12px 0;
   align-items: center;
-  max-width: 600px;
 }
-.search-form input[type=search] { max-width: 400px; }
+.search-row input[type=search] {
+  flex: 1 1 auto;
+  max-width: none;
+}
+.search-model {
+  margin-top: 8px;
+  font-size: 0.9em;
+  font-family: var(--font-ui);
+}
 
 .filters  { font-size: 0.9em; margin: 8px 0; }
 
@@ -856,53 +861,69 @@ pre.note {
 }
 .browse-controls a:link, .browse-controls a:visited { color: var(--link); }
 
-/* Category navigation (home page) */
-.category-nav { margin: 1em 0; }
-.category-nav strong { margin-right: 0.4em; }
-.category-breakdown { font-size: 0.9em; margin: 8px 0; }
-
 /* Home page top section */
 .home-top { text-align: center; }
-.home-top h2 { text-align: center; }
 .home-top .cta { font-size: 1.05em; }
 .tagline { font-size: 1.05em; color: var(--text-muted); margin: 0.4em 0 1em 0; }
 
-/* Home page entry cards */
-.entry-list { display: block; }
-.entry-card {
-  border-top: 1px solid var(--border);
-  padding: 1em 0 0.8em 0;
-  margin: 0;
-}
-.entry-card h3 {
-  margin: 0 0 0.6em 0;
-  display: flex;
-  align-items: baseline;
-  gap: 0.8em;
-  flex-wrap: wrap;
-}
-.entry-card h3 .meta {
-  font-weight: normal;
-  font-size: 0.85em;
-  color: var(--text-muted);
-}
-.entry-section { margin: 0.4em 0 0.8em 0; }
-.entry-label   { font-weight: bold; font-size: 0.9em; margin-bottom: 0.25em; }
-
-/* Browse-page compact list */
-.entry-list-compact {
+/* Entry listing (browse + home): ID/title on top, properties indented below. */
+.entry-list {
   list-style: none;
   padding: 0;
   margin: 1em 0;
 }
-.entry-list-compact li {
-  padding: 0.35em 0;
+.entry-item {
+  margin: 0 0 1.4em 0;
+  padding-bottom: 1.1em;
   border-bottom: 1px solid var(--border);
 }
-.entry-list-compact .meta {
-  font-size: 0.85em;
+.entry-head {
+  font-size: 1.05em;
+  margin-bottom: 0.4em;
+}
+.entry-head code { font-size: 0.95em; }
+.entry-props { margin-left: 1.5em; }
+.entry-prop {
+  display: flex;
+  gap: 0.6em;
+  margin: 0.3em 0;
+}
+.entry-prop .prop-label {
+  flex: 0 0 6em;
+  font-weight: bold;
+  font-size: 0.9em;
   color: var(--text-muted);
-  margin-left: 0.5em;
+  font-family: var(--font-ui);
+}
+.entry-prop .prop-value {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.entry-prop .prop-value pre.note { margin: 0; }
+
+/* "show all" toggle for long prompt/response. Clamps height when closed and
+   un-clamps when open — same <pre>, no duplicate content, no JS. */
+details.longtext { display: flex; flex-direction: column-reverse; }
+details.longtext > pre.note {
+  max-height: 14em;
+  overflow: hidden;
+}
+details.longtext[open] > pre.note { max-height: none; }
+details.longtext > summary {
+  cursor: pointer;
+  margin-top: 0.3em;
+  font-size: 0.85em;
+  font-family: var(--font-ui);
+  color: var(--link);
+}
+details.longtext .less { display: none; }
+details.longtext[open] .more { display: none; }
+details.longtext[open] .less { display: inline; }
+
+@media (max-width: 600px) {
+  .entry-props { margin-left: 0.8em; }
+  .entry-prop { flex-direction: column; gap: 0.1em; }
+  .entry-prop .prop-label { flex-basis: auto; }
 }
 
 /* === 8k Autosave banner === */

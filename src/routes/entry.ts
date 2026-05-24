@@ -175,8 +175,6 @@ export const entry: RouteHandler = async (req, ctx) => {
   const canonicalUrl = `${config.publicBaseUrl}/e/${eahId}`;
   const citationText = `Encyclopedia of AI Hallucinations, entry ${eahId} (${row.title ?? row.ai_model}), submitted ${submittedYmd}. ${canonicalUrl}`;
 
-  const reportUrl = `mailto:${config.email.privacy}?subject=${encodeURIComponent(`EAH issue with ${eahId}`)}`;
-
   // The big page heading uses the title + AI model. The A-number sits above.
   const pageHeader = h`
     <header class="entry-header">
@@ -215,7 +213,7 @@ export const entry: RouteHandler = async (req, ctx) => {
     <section class="entry-footer-block">
       <h2>Cite this entry</h2>
       <pre class="citation" data-copy-target="true">${citationText}</pre>
-      <p><a href="${reportUrl}">Report an issue with this entry</a> · <a href="/browse">Browse all entries</a></p>
+      <p><a href="/browse">Browse all entries</a></p>
     </section>
 
     <nav class="entry-nav">
