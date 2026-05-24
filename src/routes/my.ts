@@ -18,6 +18,7 @@
 
 import { h, raw, type SafeHtml } from "../html.ts";
 import { pageResponse } from "../layout.ts";
+import { isSuspended } from "../auth.ts";
 import { query, queryOne, transaction } from "../db.ts";
 import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { CATEGORIES, isValidCategory } from "../categories.ts";
@@ -61,6 +62,8 @@ interface SubmissionRow {
   entry_status: string;
   public_id: string;
   submitted_at: Date;
+  anon_public: number;
+  allow_author_edits: number;
 }
 
 interface EditFormValues {
@@ -73,9 +76,10 @@ interface EditFormValues {
   summary: string;
   notes: string;
   shared_chat_url: string;
-  author_name: string;
   hallucination_date: string;
   entry_status: "active" | "patched";
+  anon_public: boolean;
+  allow_author_edits: boolean;
 }
 
 function dateInputValue(value: string | Date | null | undefined): string {
@@ -97,7 +101,7 @@ async function fetchOwned(eahIdStr: string, userId: number): Promise<SubmissionR
   const row = await queryOne<SubmissionRow>(
     `SELECT id, eah_number, owner_user_id, status, title, prompt, output, ai_model,
             category, summary, notes, shared_chat_url, author_name, hallucination_date,
-            entry_status, public_id, submitted_at
+            entry_status, public_id, submitted_at, anon_public, allow_author_edits
        FROM submissions
       WHERE eah_number = ? AND owner_user_id = ?`,
     [n, userId],
@@ -161,9 +165,10 @@ function readEditForm(form: URLSearchParams): EditFormValues {
     summary: scrub("summary"),
     notes: scrub("notes"),
     shared_chat_url: scrub("shared_chat_url"),
-    author_name: scrub("author_name"),
     hallucination_date: scrub("hallucination_date"),
     entry_status: esRaw === "patched" ? "patched" : "active",
+    anon_public: form.get("anon_public") === "1",
+    allow_author_edits: form.get("allow_author_edits") === "1",
   };
 }
 
@@ -181,7 +186,6 @@ function validateEditForm(
   if (!values.category || !isValidCategory(values.category)) return { ok: false, error: "Pick a valid category." };
   if (values.summary.length > LIMITS.summary) return { ok: false, error: `Summary too long (max ${LIMITS.summary}).` };
   if (values.notes.length > LIMITS.notes) return { ok: false, error: `Notes too long (max ${LIMITS.notes}).` };
-  if (values.author_name.length > LIMITS.author_name) return { ok: false, error: `Author name too long (max ${LIMITS.author_name}).` };
 
   if (values.shared_chat_url.length > 0) {
     try {
@@ -210,8 +214,9 @@ function renderEditForm(opts: {
   values: EditFormValues;
   csrf: string;
   error: string | null;
+  username: string;
 }): SafeHtml {
-  const { eahId, values, csrf, error } = opts;
+  const { eahId, values, csrf, error, username } = opts;
   const action = `/my/submissions/${eahId}/edit`;
   const proposeAction = `/my/submissions/${eahId}/propose`;
 
@@ -275,9 +280,26 @@ function renderEditForm(opts: {
       <input id="tags" name="tags" type="text" maxlength="${LIMITS.tags}"
              value="${values.tags}" placeholder="e.g. counting, strawberry, letter-r">
 
-      <label for="author_name">Your name <small>(optional, shown publicly)</small></label>
-      <input id="author_name" name="author_name" type="text" maxlength="${LIMITS.author_name}"
-             value="${values.author_name}">
+      <p class="field-checkbox">
+        <label class="checkbox-label">
+          <input type="checkbox" name="anon_public" value="1"
+                 ${values.anon_public ? raw("checked") : raw("")}>
+          Make this submission anonymous to the public.
+        </label>
+        <span class="field-hint"><small>By default your username
+          (<strong>${username}</strong>) is shown publicly as the author. Check
+          this to stay anonymous — the public entry will say "anonymous" and
+          only staff will be able to see that you submitted it.</small></span>
+      </p>
+
+      <p class="field-checkbox">
+        <label class="checkbox-label">
+          <input type="checkbox" name="allow_author_edits" value="1"
+                 ${values.allow_author_edits ? raw("checked") : raw("")}>
+          Allow EAH staff to edit this submission. You can always edit it
+          yourself regardless of this setting.
+        </label>
+      </p>
 
       <label for="entry_status">Entry status</label>
       <select id="entry_status" name="entry_status">
@@ -333,9 +355,11 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
     status: string;
     submitted_at: Date;
   }>(
+    // Withdrawn submissions free their A-number, so they have no working
+    // /my/submissions/:eahId links — exclude them from the list entirely.
     `SELECT id, eah_number, title, ai_model, status, submitted_at
        FROM submissions
-      WHERE owner_user_id = ?
+      WHERE owner_user_id = ? AND status != 'withdrawn'
       ORDER BY submitted_at DESC`,
     [ctx.user.userId],
   );
@@ -351,6 +375,10 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
       actions = h`<a href="/my/submissions/${eahId}/edit">edit</a> ·
         <a href="/my/submissions/${eahId}/discussion">discussion</a> ·
         <a href="/my/submissions/${eahId}/history">history</a> ·
+        <form class="inline-form" method="post" action="/my/submissions/${eahId}/propose">
+          <input type="hidden" name="_csrf" value="${token}">
+          <button class="linkbutton" type="submit">propose for review</button>
+        </form> ·
         <form class="inline-form" method="post" action="/my/submissions/${eahId}/withdraw">
           <input type="hidden" name="_csrf" value="${token}">
           <button class="linkbutton" type="submit">withdraw</button>
@@ -365,13 +393,14 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
     } else if (row.status === "published") {
       actions = h`<a href="/e/${eahId}">view</a>`;
     } else {
-      // rejected / withdrawn
-      actions = h`<a href="/my/submissions/${eahId}/history">history</a>`;
+      // rejected — the A-number was freed, so there are no working detail
+      // links left. Show the status only.
+      actions = h`<span class="muted">—</span>`;
     }
 
     return h`
       <tr>
-        <td><code>${eahId}</code></td>
+        <td>${eahId ? h`<code>${eahId}</code>` : h`<span class="muted">—</span>`}</td>
         <td>${row.title ?? "(untitled)"}</td>
         <td>${row.ai_model}</td>
         <td>${statusBadge(row.status)}</td>
@@ -454,9 +483,10 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
       summary: row.summary ?? "",
       notes: row.notes ?? "",
       shared_chat_url: row.shared_chat_url ?? "",
-      author_name: row.author_name ?? "",
       hallucination_date: dateInputValue(row.hallucination_date),
       entry_status: row.entry_status === "patched" ? "patched" : "active",
+      anon_public: row.anon_public === 1,
+      allow_author_edits: row.allow_author_edits === 1,
     };
 
     const saved = ctx.url.searchParams.get("saved") === "1";
@@ -477,7 +507,7 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
       </form>
     `;
 
-    const formHtml = renderEditForm({ eahId, values, csrf: token, error: null });
+    const formHtml = renderEditForm({ eahId, values, csrf: token, error: null, username: ctx.user.username });
 
     const body = h`
       ${savedFlash}
@@ -578,7 +608,7 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
   if (!v.ok) {
     const { token, setCookie } = tokenForRequest(req);
     const eahId = formatEahId(row.eah_number);
-    const formHtml = renderEditForm({ eahId, values, csrf: token, error: v.error });
+    const formHtml = renderEditForm({ eahId, values, csrf: token, error: v.error, username: ctx.user.username });
     const body = h`
       <p><strong>${eahId}</strong> · ${statusBadge(row.status)}</p>
       ${formHtml}
@@ -614,7 +644,6 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
     notes: row.notes ?? null,
     shared_chat_url: row.shared_chat_url ?? null,
     category: row.category,
-    author_name: row.author_name ?? null,
     hallucination_date: row.hallucination_date ?? null,
     entry_status: row.entry_status,
     tags: currentTagString || null,
@@ -629,7 +658,6 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
     notes: values.notes || null,
     shared_chat_url: values.shared_chat_url || null,
     category: values.category,
-    author_name: values.author_name || null,
     hallucination_date: v.date,
     entry_status: values.entry_status,
     tags: newTagString || null,
@@ -643,8 +671,8 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
       await tx.execute(
         `UPDATE submissions
             SET title = ?, prompt = ?, output = ?, ai_model = ?, summary = ?, notes = ?,
-                shared_chat_url = ?, category = ?, author_name = ?,
-                hallucination_date = ?, entry_status = ?
+                shared_chat_url = ?, category = ?,
+                hallucination_date = ?, entry_status = ?, anon_public = ?, allow_author_edits = ?
           WHERE id = ?`,
         [
           values.title || null,
@@ -655,9 +683,10 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
           values.notes || null,
           values.shared_chat_url || null,
           values.category,
-          values.author_name || null,
           v.date,
           values.entry_status,
+          values.anon_public ? 1 : 0,
+          values.allow_author_edits ? 1 : 0,
           row.id,
         ],
       );
@@ -711,6 +740,20 @@ export const myPropose: RouteHandler = async (req, ctx) => {
       title: "Forbidden · EAH",
       heading: "Forbidden",
       body: h`<p>Invalid CSRF token.</p>`,
+      user: ctx.user,
+    }, { status: 403 });
+  }
+
+  // Proposing a draft into the review queue is a form of submitting, so a
+  // timed-out user can't do it either. They can still edit/withdraw drafts.
+  if (isSuspended(ctx.user)) {
+    return pageResponse(req, {
+      title: "Timed out · EAH",
+      heading: "You're timed out",
+      body: h`<p>You can't propose a submission for review while your account is
+        timed out${ctx.user.suspendedReason ? h`: <em>${ctx.user.suspendedReason}</em>` : raw("")}.
+        You can still edit or withdraw your drafts.</p>
+        <p><a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
     }, { status: 403 });
   }

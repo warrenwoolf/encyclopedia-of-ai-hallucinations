@@ -70,9 +70,21 @@ export interface UserSession {
   userId: number;
   username: string;
   email: string;
+  /** True for staff (is_admin=1) OR owners (is_owner=1) — both reach the admin area. */
   isAdmin: boolean;
+  /** True only for owners. Owners can manage accounts and other owners. */
+  isOwner: boolean;
   emailVerified: boolean;
+  /** When set and in the future, the user is "timed out": can browse but not submit. */
+  suspendedUntil: Date | null;
+  /** Staff-written reason shown to the user while suspended. */
+  suspendedReason: string | null;
   token: string;
+}
+
+/** True if the user is currently timed out (suspended_until is in the future). */
+export function isSuspended(u: { suspendedUntil: Date | null }): boolean {
+  return !!u.suspendedUntil && new Date(u.suspendedUntil).getTime() > Date.now();
 }
 
 export async function createSession(userId: number): Promise<{ cookie: string; token: string }> {
@@ -109,10 +121,14 @@ export async function getSessionFromRequest(req: Request): Promise<UserSession |
     username: string;
     email: string;
     is_admin: number;
+    is_owner: number;
     email_verified: number;
     expires_at: Date;
+    suspended_until: Date | null;
+    suspended_reason: string | null;
   }>(
-    `SELECT s.user_id, u.username, u.email, u.is_admin, u.email_verified, s.expires_at
+    `SELECT s.user_id, u.username, u.email, u.is_admin, u.is_owner, u.email_verified,
+            s.expires_at, u.suspended_until, u.suspended_reason
        FROM user_sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = ?`,
@@ -123,12 +139,18 @@ export async function getSessionFromRequest(req: Request): Promise<UserSession |
     await execute("DELETE FROM user_sessions WHERE token_hash = ?", [tokenHash]);
     return null;
   }
+  // A suspended ("timed out") user keeps their session: they can log in and
+  // browse, they just can't submit. The submit/propose handlers enforce that;
+  // here we only surface the suspension state on the session.
   return {
     userId: row.user_id,
     username: row.username,
     email: row.email,
-    isAdmin: row.is_admin === 1,
+    isAdmin: row.is_admin === 1 || row.is_owner === 1,
+    isOwner: row.is_owner === 1,
     emailVerified: row.email_verified === 1,
+    suspendedUntil: row.suspended_until ? new Date(row.suspended_until) : null,
+    suspendedReason: row.suspended_reason ?? null,
     token,
   };
 }

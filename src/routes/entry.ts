@@ -29,6 +29,9 @@ interface SubmissionRow {
   entry_status: "active" | "patched";
   hallucination_date: string | null;
   author_name: string | null;
+  owner_user_id: number | null;
+  anon_public: number;
+  owner_username: string | null;
   submitted_at: Date;
   verified_hits: number | null;
   verified_total: number | null;
@@ -68,7 +71,8 @@ export const entry: RouteHandler = async (req, ctx) => {
     row = await queryOne<SubmissionRow>(
       `SELECT id, public_id, eah_number, title, prompt, output, ai_model, summary, notes,
               shared_chat_url, category, entry_status, hallucination_date,
-              author_name, submitted_at, verified_hits, verified_total, status
+              author_name, owner_user_id, anon_public,
+              submitted_at, verified_hits, verified_total, status
          FROM submissions
          WHERE eah_number = ?`,
       [eahNum],
@@ -77,7 +81,8 @@ export const entry: RouteHandler = async (req, ctx) => {
     row = await queryOne<SubmissionRow>(
       `SELECT id, public_id, eah_number, title, prompt, output, ai_model, summary, notes,
               shared_chat_url, category, entry_status, hallucination_date,
-              author_name, submitted_at, verified_hits, verified_total, status
+              author_name, owner_user_id, anon_public,
+              submitted_at, verified_hits, verified_total, status
          FROM submissions
          WHERE public_id = ?`,
       [idParam],
@@ -92,6 +97,21 @@ export const entry: RouteHandler = async (req, ctx) => {
   if (!row || row.status !== "published") {
     return await notFound(req, ctx);
   }
+
+  // Public attribution: the submitter's account username, unless they opted to
+  // be anonymous to the public. Owner-less entries (legacy / staff-created
+  // direct entries) fall back to the free-text author_name.
+  const ownerUsername = row.owner_user_id
+    ? (await queryOne<{ username: string }>(
+        "SELECT username FROM users WHERE id = ?",
+        [row.owner_user_id],
+      ))?.username ?? null
+    : null;
+  const authorDisplay = row.anon_public === 1
+    ? h`<em>anonymous</em>`
+    : ownerUsername
+      ? h`${ownerUsername}`
+      : (row.author_name && row.author_name.length > 0 ? h`${row.author_name}` : h`<em>anonymous</em>`);
 
   const tagRows = await query<{ name: string }>(
     `SELECT t.name
@@ -172,7 +192,7 @@ export const entry: RouteHandler = async (req, ctx) => {
 
     <dl class="entry-meta">
       <dt>Tags</dt><dd>${tagList}</dd>
-      <dt>Author</dt><dd>${row.author_name && row.author_name.length > 0 ? row.author_name : h`<em>anonymous</em>`}</dd>
+      <dt>Author</dt><dd>${authorDisplay}</dd>
       <dt>Submitted</dt><dd>${submittedYmd}</dd>
       ${hallucinationDateLine}
       ${verificationLine}

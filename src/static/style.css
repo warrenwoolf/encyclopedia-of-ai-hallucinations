@@ -193,13 +193,13 @@ header .site-header-top {
 }
 
 .site-logo {
-  width: 2.2em;
-  height: 2.2em;
+  width: 4.4em;
+  height: 4.4em;
   display: block;
 }
 
 .site-logo-caption {
-  font-size: 0.55em;
+  font-size: 1.1em;
   font-weight: bold;
   letter-spacing: 0.1em;
   /* compensate letter-spacing optical shift */
@@ -209,7 +209,7 @@ header .site-header-top {
 
 /* Full title text beside the logo block */
 .site-title-text {
-  font-size: 1.2em;
+  font-size: 2.4em;
   font-weight: bold;
   color: var(--text);
   text-decoration: none;
@@ -234,7 +234,7 @@ header .site-header-top {
 .site-title:link, .site-title:visited { color: var(--text); text-decoration: none; }
 
 .site-credit {
-  font-size: 0.8em;
+  font-size: 1.4em;
   color: var(--text-muted);
   margin: 0;
   text-align: center;
@@ -244,6 +244,7 @@ nav {
   font-size: 0.9em;
   max-width: var(--content-width);
   margin: 0 auto;
+  text-align: center;
 }
 
 nav a { color: var(--link); text-decoration: none; margin-right: 4px; }

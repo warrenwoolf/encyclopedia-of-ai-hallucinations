@@ -72,7 +72,9 @@ export function layout(opts: LayoutOptions): string {
   if (opts.user) {
     const adminLinks = opts.user.isAdmin
       ? h`<a href="/admin/queue">queue</a> ·
-          <a href="/admin/all">all</a> ·`
+          <a href="/admin/all">all</a> ·
+          <a href="/admin/users">users</a> ·
+          <a href="/admin/staff">staff</a> ·`
       : raw("");
     userNav = h`<span class="user-nav">
         signed in as <strong>${opts.user.username}</strong> ·

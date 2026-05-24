@@ -11,6 +11,7 @@ import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { check as rateCheck } from "../ratelimit.ts";
 import { CATEGORIES, isValidCategory } from "../categories.ts";
 import { config } from "../config.ts";
+import { isSuspended } from "../auth.ts";
 import { allocateEahNumber, formatEahId } from "../eah-id.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteHandler } from "./types.ts";
 
@@ -22,16 +23,11 @@ const LIMITS = {
   summary: 2000,
   notes: 4000,
   shared_chat_url: 2048,
-  author_name: 80,
-  submitter_email: 254,
   tags: 600, // bounding the raw tags input
 };
 
-/** OEIS-style cap on simultaneous drafts per submitter email. */
-const MAX_PENDING_PER_EMAIL = 4;
-
-/** Pragmatic email format check. Not RFC-strict; rejects obvious garbage. */
-const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,189}\.[^\s@]{2,63}$/;
+/** OEIS-style cap on simultaneous open drafts per account. */
+const MAX_OPEN_DRAFTS_PER_USER = 4;
 
 /** Pragmatic ISO-8601 date check, in the past or today. */
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -46,17 +42,16 @@ interface FormValues {
   summary: string;
   notes: string;
   shared_chat_url: string;
-  author_name: string;
-  submitter_email: string;
   hallucination_date: string;
   allow_author_edits: boolean;
+  anon_public: boolean;
 }
 
 function emptyForm(): FormValues {
   return {
     title: "", prompt: "", output: "", ai_model: "", category: "", tags: "",
-    summary: "", notes: "", shared_chat_url: "", author_name: "",
-    submitter_email: "", hallucination_date: "", allow_author_edits: false,
+    summary: "", notes: "", shared_chat_url: "",
+    hallucination_date: "", allow_author_edits: false, anon_public: false,
   };
 }
 
@@ -64,9 +59,9 @@ function renderForm(opts: {
   values: FormValues;
   csrf: string;
   error: string | null;
-  user: { userId: number } | null;
+  username: string;
 }): SafeHtml {
-  const { values, csrf, error, user } = opts;
+  const { values, csrf, error, username } = opts;
   const errBlock = error
     ? h`<div class="form-error" role="alert"><strong>Error:</strong> ${error}</div>`
     : h``;
@@ -75,20 +70,12 @@ function renderForm(opts: {
     (c) => h`<option value="${c.key}" ${values.category === c.key ? raw('selected') : raw('')}>${c.label}</option>`,
   )}`;
 
-  // Autosave attribute is only wired up for logged-in users, because anonymous
-  // users have no session to restore the draft from.
-  const autosaveAttr = user ? raw('data-autosave="eah-submit-draft"') : raw("");
-  const accountWarning = user
-    ? raw("")
-    : h`<div class="submit-warning">
-        <strong>Heads up:</strong> if you submit without an account, you will not be able to edit, discuss, or withdraw
-        your submission later.
-        <a href="/signup">Sign up</a> or <a href="/login">log in</a> before you submit if you want those controls.
-      </div>`;
+  // Submission is account-only, so a session always exists to restore the
+  // autosaved draft from.
+  const autosaveAttr = raw('data-autosave="eah-submit-draft"');
 
   return h`
     ${errBlock}
-    ${accountWarning}
     <form method="post" action="/submit" class="submit-form" ${autosaveAttr}>
       <input type="hidden" name="_csrf" value="${csrf}">
 
@@ -148,38 +135,35 @@ function renderForm(opts: {
       <input id="tags" name="tags" type="text" maxlength="${LIMITS.tags}"
              value="${values.tags}" placeholder="e.g. counting, strawberry, letter-r">
 
-      <label for="author_name">Your name <small>(optional, shown publicly)</small></label>
-      <input id="author_name" name="author_name" type="text" maxlength="${LIMITS.author_name}"
-             value="${values.author_name}">
-
-      <label for="submitter_email">Email <small>(optional, never shown publicly)</small></label>
-      <input id="submitter_email" name="submitter_email" type="email" maxlength="${LIMITS.submitter_email}"
-             value="${values.submitter_email}" placeholder="you@example.com" autocomplete="email">
-      <p class="field-hint"><small>If you give us an email, we'll notify you
-        when a reviewer leaves a comment and email you the decision when staff
-        accept or reject your submission. You'll be able to see all your
-        submissions at <a href="/my/submissions">/my/submissions</a> when
-        logged in. See our <a href="/privacy">privacy policy</a> for what we
-        do with this.</small></p>
+      <p class="field-checkbox">
+        <label class="checkbox-label">
+          <input type="checkbox" name="anon_public" value="1"
+                 ${values.anon_public ? raw('checked') : raw('')}>
+          Make this submission anonymous to the public.
+        </label>
+        <span class="field-hint"><small>By default your username
+          (<strong>${username}</strong>) is shown publicly as the author of this
+          entry. Check this box to stay anonymous — the public entry will say
+          "anonymous" and only staff will be able to see that you submitted it.</small></span>
+      </p>
 
       <p class="field-checkbox">
         <label class="checkbox-label">
           <input type="checkbox" name="allow_author_edits" value="1"
                  ${values.allow_author_edits ? raw('checked') : raw('')}>
-          I'm OK with later staff-approved authors editing this entry on my behalf
-          (e.g. to add reproduction notes, fix typos, or update the patched status).
+          Allow EAH staff to edit this submission (e.g. to add reproduction
+          notes, fix typos, or update the patched status). You can always edit
+          your own submission regardless.
         </label>
       </p>
 
       <button type="submit">Submit</button>
     </form>
 
-    <p><small>Submissions are reviewed by staff before being published. Logged-in
-    users can manage drafts and chat with reviewers from
-    <a href="/my/submissions">/my/submissions</a>. Anonymous submissions get
-    a confirmation page with the assigned ID. While your submission is pending,
-    you may have at most ${MAX_PENDING_PER_EMAIL} drafts open at once per email
-    address.</small></p>
+    <p><small>Submissions are reviewed by staff before being published. Manage
+    your drafts and chat with reviewers from
+    <a href="/my/submissions">/my/submissions</a>. You may have at most
+    ${MAX_OPEN_DRAFTS_PER_USER} drafts open at once.</small></p>
   `;
 }
 
@@ -189,12 +173,34 @@ async function showForm(req: Request, ctx: { user: any }, opts: { values?: FormV
     values: opts.values ?? emptyForm(),
     csrf: token,
     error: opts.error ?? null,
-    user: ctx.user,
+    username: ctx.user?.username ?? "",
   });
   return pageResponse(req,
       { title: "Submit · EAH", heading: "Submit a hallucination", body, user: ctx.user },
       { status: opts.status ?? 200, setCookie },
     );
+}
+
+/**
+ * Page shown to a timed-out user in place of the submit form. They keep their
+ * session and can browse; they just can't submit until the window passes.
+ */
+function showSuspendedNotice(req: Request, ctx: { user: any }, status = 403): Response {
+  const until = ctx.user?.suspendedUntil ? new Date(ctx.user.suspendedUntil) : null;
+  const untilStr = until ? until.toISOString().replace("T", " ").slice(0, 16) + " UTC" : "";
+  const reason = ctx.user?.suspendedReason as string | null;
+  const body = h`
+    <p>Your account is currently <strong>timed out</strong>, so you can't submit
+       or propose submissions right now. You can still browse and manage your
+       existing drafts.</p>
+    ${untilStr ? h`<p>The timeout lifts at <strong>${untilStr}</strong>.</p>` : raw("")}
+    ${reason ? h`<p>Reason given by staff: <em>${reason}</em></p>` : raw("")}
+    <p><a href="/my/submissions">My submissions</a> · <a href="/browse">Browse</a></p>
+  `;
+  return pageResponse(req,
+    { title: "Timed out · EAH", heading: "You're timed out", body, user: ctx.user },
+    { status },
+  );
 }
 
 function urlSafeId(bytes: number, length: number): string {
@@ -260,10 +266,25 @@ function parseHallucinationDate(s: string): { ok: true; value: string | null } |
 }
 
 export const submitGet: RouteHandler = (req, ctx) => {
+  // Submission requires an account. Anonymous visitors are sent to log in.
+  if (!ctx.user) {
+    return new Response(null, { status: 303, headers: { Location: "/login" } });
+  }
+  if (isSuspended(ctx.user)) return showSuspendedNotice(req, ctx, 200);
   return showForm(req, ctx);
 };
 
 export const submitPost: RouteHandler = async (req, ctx) => {
+  // Hard gate: no session, no submission. This is enforced on POST as well as
+  // GET so the endpoint can't be hit directly with a crafted request.
+  if (!ctx.user) {
+    return new Response(null, { status: 303, headers: { Location: "/login" } });
+  }
+
+  // Timed-out users can't submit. Enforced on POST too so a crafted request
+  // can't slip past the GET notice.
+  if (isSuspended(ctx.user)) return showSuspendedNotice(req, ctx, 403);
+
   // Rate-limit first; cheap and avoids parsing huge bodies under attack.
   const rl = rateCheck("submit", ctx.ip);
   if (!rl.allowed) {
@@ -301,13 +322,9 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     summary: scrub("summary"),
     notes: scrub("notes"),
     shared_chat_url: scrub("shared_chat_url"),
-    author_name: scrub("author_name"),
-    // Email is normalized to lowercase so /lookup can match without a
-    // case-insensitive comparison and so duplicate-detection (if we ever add
-    // it) works the obvious way.
-    submitter_email: scrub("submitter_email").toLowerCase(),
     hallucination_date: scrub("hallucination_date"),
     allow_author_edits: form.get("allow_author_edits") === "1",
+    anon_public: form.get("anon_public") === "1",
   };
 
   // Required + length checks.
@@ -351,16 +368,6 @@ export const submitPost: RouteHandler = async (req, ctx) => {
       return showForm(req, ctx, { values, error: "Shared chat URL must be a valid http(s) URL.", status: 400 });
   }
 
-  if (values.author_name.length > LIMITS.author_name)
-    return showForm(req, ctx, { values, error: `Author name is too long (max ${LIMITS.author_name} chars).`, status: 400 });
-
-  if (values.submitter_email.length > 0) {
-    if (values.submitter_email.length > LIMITS.submitter_email)
-      return showForm(req, ctx, { values, error: `Email is too long (max ${LIMITS.submitter_email} chars).`, status: 400 });
-    if (!EMAIL_RE.test(values.submitter_email))
-      return showForm(req, ctx, { values, error: "Email address looks invalid. Leave it blank to skip.", status: 400 });
-  }
-
   if (values.tags.length > LIMITS.tags)
     return showForm(req, ctx, { values, error: "Tags input is too long.", status: 400 });
 
@@ -368,26 +375,22 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   if (!tagResult.ok) return showForm(req, ctx, { values, error: tagResult.error, status: 400 });
   const tags = tagResult.tags;
 
-  // OEIS-style draft cap: at most MAX_PENDING_PER_EMAIL pending submissions per
-  // submitter email. Enforced ONLY when an email was provided (anonymous
-  // submitters can't be linked across requests; the per-IP rate limit handles
-  // that case).
-  if (values.submitter_email.length > 0) {
-    const pendingRow = await queryOne<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM submissions
-        WHERE submitter_email = ? AND status = 'pending'`,
-      [values.submitter_email],
-    );
-    const pending = Number(pendingRow?.n ?? 0);
-    if (pending >= MAX_PENDING_PER_EMAIL) {
-      return showForm(req, ctx, {
-        values,
-        error: `You already have ${pending} pending submissions for ${values.submitter_email}. ` +
-          `EAH allows at most ${MAX_PENDING_PER_EMAIL} open drafts per email at a time — please ` +
-          `wait for one to be accepted or rejected (or withdraw one at /lookup) before submitting another.`,
-        status: 429,
-      });
-    }
+  // OEIS-style draft cap: at most MAX_OPEN_DRAFTS_PER_USER open submissions
+  // (draft or pending) per account at a time.
+  const openRow = await queryOne<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM submissions
+      WHERE owner_user_id = ? AND status IN ('draft', 'pending')`,
+    [ctx.user.userId],
+  );
+  const open = Number(openRow?.n ?? 0);
+  if (open >= MAX_OPEN_DRAFTS_PER_USER) {
+    return showForm(req, ctx, {
+      values,
+      error: `You already have ${open} open submissions. ` +
+        `EAH allows at most ${MAX_OPEN_DRAFTS_PER_USER} open drafts at a time — please ` +
+        `submit one for review, withdraw one, or wait for a decision before starting another.`,
+      status: 429,
+    });
   }
 
   // Generate IDs and hashes.
@@ -398,11 +401,11 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     .update(`${config.sessionSecret}:${ctx.ip}`)
     .digest();
 
-  const hasEmail = values.submitter_email.length > 0;
-  const submitterEmail = hasEmail ? values.submitter_email : null;
-  const isLoggedIn = ctx.user !== null;
-  const submissionStatus = isLoggedIn ? "draft" : "pending";
-  const ownerUserId = isLoggedIn ? ctx.user!.userId : null;
+  // Submission is account-only now: every row is a draft owned by the
+  // submitter, with no submitter_email (notifications go through the account).
+  const submitterEmail = null;
+  const submissionStatus = "draft";
+  const ownerUserId = ctx.user.userId;
 
   let eahNumber: number;
   // Insert in a single transaction so partial inserts don't leak orphan tag rows.
@@ -419,8 +422,8 @@ export const submitPost: RouteHandler = async (req, ctx) => {
         `INSERT INTO submissions
           (public_id, eah_number, title, tracking_hash, prompt, output, ai_model, summary, notes,
            shared_chat_url, category, author_name, submitted_at, status, ip_hash,
-           submitter_email, hallucination_date, allow_author_edits, owner_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?)`,
+           submitter_email, hallucination_date, allow_author_edits, owner_user_id, anon_public)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)`,
         [
           publicId,
           n,
@@ -433,13 +436,16 @@ export const submitPost: RouteHandler = async (req, ctx) => {
           values.notes.length > 0 ? values.notes : null,
           values.shared_chat_url.length > 0 ? values.shared_chat_url : null,
           values.category,
-          values.author_name.length > 0 ? values.author_name : null,
+          // No free-text display name anymore: public attribution is the
+          // account username (or "anonymous" if anon_public is set).
+          null,
           submissionStatus,
           ipHash,
           submitterEmail,
           hallucinationDate,
           values.allow_author_edits ? 1 : 0,
           ownerUserId,
+          values.anon_public ? 1 : 0,
         ],
       );
       const submissionId = ins.insertId;
@@ -471,23 +477,10 @@ export const submitPost: RouteHandler = async (req, ctx) => {
 
   const eahId = formatEahId(eahNumber);
 
-  // Logged-in users go straight to their draft edit page so they can refine it
-  // before it enters the review queue. Anonymous submitters get a confirmation
-  // page and a nudge to create an account.
-  if (isLoggedIn) {
-    return new Response(null, {
-      status: 303,
-      headers: { Location: `/my/submissions/${eahId}/edit` },
-    });
-  }
-
-  const body = h`
-    <p>Your submission has been received with ID <code>${eahId}</code>.</p>
-    <p>A staff reviewer will look at it before it appears publicly.</p>
-    <p><strong>Want to track your submission?</strong>
-       <a href="/signup">Create an account</a> to see all your submissions,
-       edit drafts, and chat with reviewers.</p>
-    <p><a href="/">Home</a> · <a href="/submit">Submit another</a></p>
-  `;
-  return pageResponse(req, { title: "Submission received · EAH", heading: "Submission received", body, user: ctx.user });
+  // Straight to the draft edit page so the submitter can refine it before
+  // proposing it into the review queue.
+  return new Response(null, {
+    status: 303,
+    headers: { Location: `/my/submissions/${eahId}/edit` },
+  });
 };

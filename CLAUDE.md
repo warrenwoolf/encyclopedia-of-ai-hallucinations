@@ -62,11 +62,22 @@ Free tier is 300 sends/month. We read Resend's `x-resend-monthly-quota` response
 
 ## Submission & review flow
 
-- `/submit` enforces: 4-pending-drafts cap per email (only if email provided), required fields, all length caps, valid category, tag format `^[a-z0-9-]+$`, date parsing, URL validation.
-- `/track?code=…` and `/draft/:token` are the same view — submitter's draft page with chat thread, withdraw button, status. The submitter can post into the chat thread while the submission is `pending`; locked when decided.
-- `/admin/queue` and `/admin/queue/:id` — staff queue + detail with chat thread. `POST /admin/queue/:id` approves/rejects (and on reject, frees the A-number in the same tx). `POST /admin/queue/:id/message` posts a staff chat message and emails the submitter via `sendReviewerMessage`.
-- `/admin/entries/new`, `/admin/entries/:eahId/edit`, `/admin/entries/:eahId/status` — direct staff actions, bypass the draft queue.
-- `submission_messages` table holds the chat. `sender_type` is `staff` / `user` / `system`. `system` rows are auto-posted on accept/reject/withdraw.
+**Submission is account-only now.** `/submit` (GET and POST) redirects anonymous visitors to `/login`. There is no anonymous/email-tracking path anymore — the old `/track`, `/lookup`, `/draft/:token`, tracking codes, and `notify_token`/`submitter_email` flows are gone (the columns still exist but new submissions leave them null). Submitter notifications go through the account.
+
+- `/submit` enforces: a 4-open-drafts cap per **account** (`status IN ('draft','pending')`), required fields, all length caps, valid category, tag format `^[a-z0-9-]+$`, date parsing, URL validation. A new submission is inserted as `status='draft'` owned by `owner_user_id`, then the submitter is redirected to `/my/submissions/:eahId/edit` to refine it before proposing.
+- **A submission's status flow:** `draft` → (submitter "proposes") → `pending` → (staff) → `published` | `rejected`; `withdrawn` from draft/pending. The `submissions.status` enum includes `draft`; default is `draft`.
+- `/my/submissions` (`src/routes/my.ts`) — the submitter's dashboard: list (withdrawn rows are excluded — they freed their A-number so their detail links would 404), edit a draft, **propose for review**, withdraw, and view edit history. `/my/submissions/:eahId/discussion` (`src/routes/my-discussion.ts`) is the submitter's chat thread with reviewers.
+- `/admin/queue` and `/admin/queue/:id` — staff queue + detail with chat thread. The detail page has a gated "edit this submission" link (see staff-edit rules below). `POST /admin/queue/:id` approves/rejects (and on reject, frees the A-number in the same tx). `POST /admin/queue/:id/message` posts a staff chat message and emails the submitter via `sendReviewerMessage`.
+- `/admin/entries/new`, `/admin/entries/:eahId/edit`, `/admin/entries/:eahId/status` — direct staff actions, bypass the draft queue. `:eahId/edit` works on a submission of any status (not just published); on save it redirects to `/e/:eahId` if published, else back to `/admin/queue/:id`.
+- **Staff editing someone else's submission** is allowed only when `allow_author_edits = 1` (the submitter opted in). The owner can always edit their own; **owners (is_owner=1) can edit anything**; owner-less (legacy / direct) entries are freely editable. Enforced in `src/routes/admin/entries.ts` (`mayEdit`).
+- `submission_messages` table holds the chat. `sender_type` is `staff` / `user` / `system`. `system` rows are auto-posted on accept/reject/withdraw/propose.
+
+## Roles, accounts management, and timeouts
+
+- **Three privilege levels:** normal user, **staff** (`is_admin=1`), **owner** (`is_owner=1`). `UserSession.isAdmin` is `is_admin=1 OR is_owner=1` (owners reach the whole admin area); `UserSession.isOwner` is owner-only. `ctx.admin` is set for staff+owners; `ctx.owner` is set for owners only.
+- **Staff's only privilege over a normal user is managing the submission queue** — not accounts. `/admin/users` and `/admin/staff` are viewable by staff but **read-only** (no action buttons); all mutations (`POST /admin/users/:id`: promote/demote staff, promote/demote owner, suspend/unsuspend, delete) require `ctx.owner`. Owners can add/remove other owners; the last owner can't be removed/deleted.
+- **Bootstrapping the first owner is manual** (owner = "has server access"): `UPDATE users SET is_owner = 1 WHERE username = '...';`.
+- **Timeouts:** an owner can "time out" a user via `suspended_until` (+ a free-text `suspended_reason` shown to the user). A timed-out user **can still log in and browse and manage existing drafts** — they just can't `/submit` or propose (`src/routes/submit.ts`, `my.ts` `myPropose` gate on `isSuspended`). Suspending does NOT revoke sessions.
 
 ## Database schema
 
@@ -74,14 +85,17 @@ Free tier is 300 sends/month. We read Resend's `x-resend-monthly-quota` response
 
 Key columns on `submissions`:
 
-- `id` (PK), `public_id` (legacy slug), `eah_number` (the A-number), `title`, `tracking_hash` (BINARY(32)), `notify_token` (plaintext code, only set if email given), `submitter_email`.
-- `prompt`, `output`, `ai_model`, `summary`, `notes`, `shared_chat_url`, `category`, `author_name`, `hallucination_date`, `allow_author_edits`.
-- `entry_status` ENUM('active','patched') — distinct from moderation `status` ENUM('pending','published','rejected','withdrawn').
+- `id` (PK), `public_id` (legacy slug), `eah_number` (the A-number), `title`, `tracking_hash` (BINARY(32), legacy/unused for new rows), `notify_token` / `submitter_email` (legacy anonymous-tracking; null for new account submissions).
+- `owner_user_id` (FK `users(id)`, ON DELETE SET NULL — the submitter's account).
+- `prompt`, `output`, `ai_model`, `summary`, `notes`, `shared_chat_url`, `category`, `hallucination_date`.
+- **Public attribution:** by default the entry shows the owner's account **username**. `anon_public` TINYINT (default 0) = "anonymous to public": when 1, the public entry shows "anonymous" and only staff see the submitter. `author_name` is a legacy free-text field, now only used as a display fallback for owner-less rows (staff-created direct entries / legacy data) — the submit/edit forms no longer collect it.
+- `allow_author_edits` TINYINT — submitter opt-in that **staff may edit this submission** (see staff-edit rules above). Default 0.
+- `entry_status` ENUM('active','patched') — distinct from moderation `status` ENUM('draft','pending','published','rejected','withdrawn') (default 'draft').
 - `verified_hits` / `verified_total` — "prompt reproduced N/M times when staff tried it."
 - `reviewed_by`, `reviewed_at`, `reviewer_notes` (private), `rejection_reason` (shown to submitter), `staff_review_message` (shown to submitter, included in decision email).
 - `ip_hash` (BINARY(32)).
 
-Other tables: `users` + `user_sessions` (account auth), `email_verifications` (signup codes), `tags` + `submission_tags` join, `submission_messages` (chat; `sender_user_id` FKs `users(id)`), `freed_eah_numbers` (A-number pool).
+Key columns on `users`: `is_admin` (staff), `is_owner` (owner), `suspended_until` + `suspended_reason` (timeout). Other tables: `user_sessions` (account auth), `email_verifications` (signup codes), `tags` + `submission_tags` join, `submission_messages` (chat; `sender_user_id` FKs `users(id)`), `submission_versions` (edit-diff audit log), `freed_eah_numbers` (A-number pool).
 
 ## Email (Resend)
 
@@ -106,12 +120,17 @@ Trigger points (all fire-and-forget):
 | GET    | `/e/:public_id`                     | `routes/entry.ts` (accepts A-number OR legacy slug; legacy 301→canonical) |
 | GET    | `/submit`                           | `routes/submit.ts` |
 | POST   | `/submit`                           | `routes/submit.ts` |
-| GET    | `/track[?code=…]`                   | `routes/track.ts` (submitter draft view) |
-| POST   | `/track/withdraw`                   | `routes/track.ts` (frees A-number) |
-| POST   | `/track/message`                    | `routes/track.ts` (submitter posts chat msg) |
-| GET    | `/draft/:token`                     | `routes/track.ts` (same view, friendlier URL) |
-| GET    | `/lookup`                           | `routes/lookup.ts` |
-| POST   | `/lookup`                           | `routes/lookup.ts` (email digest) |
+| GET    | `/my/submissions`                   | `routes/my.ts` (submitter dashboard) |
+| GET    | `/my/submissions/:eahId/edit`       | `routes/my.ts` |
+| POST   | `/my/submissions/:eahId/edit`       | `routes/my.ts` (save draft) |
+| POST   | `/my/submissions/:eahId/propose`    | `routes/my.ts` (draft → pending) |
+| POST   | `/my/submissions/:eahId/withdraw`   | `routes/my.ts` (frees A-number) |
+| GET    | `/my/submissions/:eahId/history`    | `routes/my.ts` (version diffs) |
+| GET    | `/my/submissions/:eahId/discussion` | `routes/my-discussion.ts` |
+| POST   | `/my/submissions/:eahId/message`    | `routes/my-discussion.ts` |
+| GET    | `/api/username-check`               | `routes/api.ts` |
+| GET    | `/rss`                              | `routes/rss.ts` |
+| GET    | `/sitemap.xml`                      | `routes/sitemap.ts` |
 | GET    | `/login`                            | `routes/login.ts` |
 | POST   | `/login`                            | `routes/login.ts` |
 | POST   | `/logout`                           | `routes/login.ts` |
@@ -120,13 +139,16 @@ Trigger points (all fire-and-forget):
 | GET    | `/verify`                           | `routes/verify.ts` |
 | POST   | `/verify`                           | `routes/verify.ts` |
 | POST   | `/verify/resend`                    | `routes/verify.ts` |
-| POST   | `/oauth/google/start`               | `routes/oauth-google-routes.ts` |
-| GET    | `/oauth/google/callback`            | `routes/oauth-google-routes.ts` |
+| POST   | `/oauth/google/verify`              | `routes/oauth-google-routes.ts` (GIS ID-token verify) |
 | GET    | `/admin/queue`                      | `routes/admin/queue.ts` |
 | GET    | `/admin/queue/:id`                  | `routes/admin/queue.ts` (detail + chat) |
 | POST   | `/admin/queue/:id`                  | `routes/admin/review.ts` (approve/reject) |
 | POST   | `/admin/queue/:id/message`          | `routes/admin/review.ts` (staff chat msg) |
 | GET    | `/admin/all`                        | `routes/admin/all.ts` |
+| POST   | `/admin/bulk`                       | `routes/admin/bulk.ts` (bulk approve/reject) |
+| GET    | `/admin/users`                      | `routes/admin/users.ts` (staff: read-only; owner: actions) |
+| GET    | `/admin/staff`                      | `routes/admin/users.ts` (privileged roster) |
+| POST   | `/admin/users/:id`                  | `routes/admin/users.ts` (owner-only; action field) |
 | GET    | `/admin/entries/new`                | `routes/admin/entries.ts` (direct-add) |
 | POST   | `/admin/entries/new`                | `routes/admin/entries.ts` |
 | GET    | `/admin/entries/:eahId/edit`        | `routes/admin/entries.ts` |
@@ -170,7 +192,7 @@ The deployment target may move at some point (it's currently `randy`, a temporar
 
 - Don't add a "jailbreak" category. Compiling working jailbreaks has obvious downsides.
 - Don't bypass `h\`\`` for HTML — that's the XSS chokepoint.
-- Don't add user accounts / OAuth. The model is intentionally email-tracking-token only for submitters; admin login is username+password.
+- (Historical note: this file used to say "don't add user accounts." That's obsolete — accounts now exist and submission is account-only. Don't *remove* the account system without a deliberate decision.)
 - Don't drop columns in `scripts/migrate.ts`. Add via `ALTER TABLE … IF NOT EXISTS`. Destructive changes go in a separate script.
 - Don't store raw IPs.
 - Don't write client-side JS frameworks. The theme toggle is the only JS, and it's deliberate.

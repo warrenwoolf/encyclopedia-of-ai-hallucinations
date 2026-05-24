@@ -378,6 +378,8 @@ async function loadByEahId(eahIdParam: string): Promise<{
   shared_chat_url: string | null;
   category: string;
   author_name: string | null;
+  owner_user_id: number | null;
+  allow_author_edits: number;
   hallucination_date: string | null;
   entry_status: "active" | "patched";
   verified_hits: number | null;
@@ -388,7 +390,8 @@ async function loadByEahId(eahIdParam: string): Promise<{
   if (n === null) return null;
   const row = await queryOne<any>(
     `SELECT id, eah_number, title, prompt, output, ai_model, summary, notes, shared_chat_url,
-            category, author_name, hallucination_date, entry_status, verified_hits, verified_total, status
+            category, author_name, owner_user_id, allow_author_edits, hallucination_date,
+            entry_status, verified_hits, verified_total, status
        FROM submissions
        WHERE eah_number = ?`,
     [n],
@@ -396,10 +399,31 @@ async function loadByEahId(eahIdParam: string): Promise<{
   return row ?? null;
 }
 
+/**
+ * Whether the current staffer may edit this submission. Staff can edit a
+ * submission they don't own only when the submitter opted in
+ * (allow_author_edits), but owners can edit anything, and owner-less
+ * (legacy / staff-created direct) entries are freely editable.
+ */
+function mayEdit(
+  row: { owner_user_id: number | null; allow_author_edits: number },
+  ctx: RouteContext,
+): boolean {
+  return (
+    !!ctx.owner ||
+    row.owner_user_id == null ||
+    row.owner_user_id === ctx.admin!.userId ||
+    row.allow_author_edits === 1
+  );
+}
+
 export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Response> {
   if (!ctx.admin) return authRedirect();
   const row = await loadByEahId(ctx.params.eahId ?? "");
   if (!row) return await badRequest("No entry with that A-number.", 404);
+  if (!mayEdit(row, ctx)) {
+    return await badRequest("The submitter hasn't allowed staff to edit this submission.", 403);
+  }
 
   const tagRows = await query<{ name: string }>(
     `SELECT t.name FROM submission_tags st JOIN tags t ON t.id = st.tag_id
@@ -444,6 +468,9 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
   const eahIdParam = ctx.params.eahId ?? "";
   const row = await loadByEahId(eahIdParam);
   if (!row) return await badRequest("No entry with that A-number.", 404);
+  if (!mayEdit(row, ctx)) {
+    return await badRequest("The submitter hasn't allowed staff to edit this submission.", 403);
+  }
 
   let form: URLSearchParams;
   try {
@@ -543,7 +570,12 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
     return await badRequest("Could not save changes.", 500);
   }
 
-  return new Response(null, { status: 303, headers: { Location: `/e/${formatEahId(row.eah_number)}` } });
+  // Published entries have a public page; drafts/pending/etc. don't, so send
+  // staff back to the queue detail for those instead of a 404'ing /e/ URL.
+  const dest = row.status === "published"
+    ? `/e/${formatEahId(row.eah_number)}`
+    : `/admin/queue/${row.id}`;
+  return new Response(null, { status: 303, headers: { Location: dest } });
 }
 
 // ─── flip active/patched ────────────────────────────────────────────────────

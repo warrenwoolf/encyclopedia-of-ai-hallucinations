@@ -29,6 +29,7 @@ import {
   getNewEntry, postNewEntry, getEditEntry, postEditEntry, postEntryStatus, redirectToEntry,
 } from "./routes/admin/entries.ts";
 import { getAll } from "./routes/admin/all.ts";
+import { getUsers, getStaff, postUserAction } from "./routes/admin/users.ts";
 import {
   mySubmissions, myEditGet, myEditPost, myPropose, myWithdraw, myHistory,
 } from "./routes/my.ts";
@@ -98,6 +99,11 @@ const ROUTES: RouteDef[] = [
   route("POST", "/admin/queue/:id", postReview),
   route("POST", "/admin/queue/:id/message", postReviewMessage),
   route("GET", "/admin/all", getAll),
+  // Account management (users + staff roster). One POST endpoint dispatches on
+  // the `action` field: promote/demote/suspend/unsuspend/delete.
+  route("GET", "/admin/users", getUsers),
+  route("GET", "/admin/staff", getStaff),
+  route("POST", "/admin/users/:id", postUserAction),
   // Direct add/edit of entries (bypasses the draft workflow). The path is
   // /admin/entries/new and /admin/entries/:eahId/edit so it's clear these are
   // admin-only actions, even though the public entry URL is /e/A000001.
@@ -228,8 +234,10 @@ async function handle(req: Request, server: any): Promise<Response> {
   const user = await getSessionFromRequest(req).catch(() => null);
   // `admin` is the same session, but only set when the user is an admin —
   // lets admin route handlers keep their `if (!ctx.admin) return authRedirect()`
-  // gating pattern without an isAdmin check at every site.
+  // gating pattern without an isAdmin check at every site. Owners are admins.
   const admin = user && user.isAdmin ? user : null;
+  // `owner` is only set for owners — account-management mutations gate on it.
+  const owner = user && user.isOwner ? user : null;
 
   if (!matched) {
     // 404 — try to render a styled page via the layout module.
@@ -283,6 +291,7 @@ async function handle(req: Request, server: any): Promise<Response> {
     ip: clientIp(req, server),
     user,
     admin,
+    owner,
   };
 
   try {

@@ -10,7 +10,9 @@ import { queryOne } from "../db.ts";
 import { check } from "../ratelimit.ts";
 import type { RouteHandler } from "./types.ts";
 
-const USERNAME_RE = /^[A-Za-z0-9_.-]{3,40}$/;
+// Letters, digits, underscore, dot, hyphen, and spaces. Callers trim, so a
+// leading/trailing space can't sneak in; internal spaces are allowed.
+const USERNAME_RE = /^[A-Za-z0-9_. -]{3,40}$/;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

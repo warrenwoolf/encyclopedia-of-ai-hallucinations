@@ -38,7 +38,9 @@ import { config } from "../config.ts";
 import { emailCapReached, sendVerificationCode } from "../email.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "./types.ts";
 
-const USERNAME_RE = /^[A-Za-z0-9_.-]{3,40}$/;
+// Letters, digits, underscore, dot, hyphen, and spaces. The value is trimmed
+// before validation, so leading/trailing spaces can't slip through.
+const USERNAME_RE = /^[A-Za-z0-9_. -]{3,40}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LEN = 10;
 const MAX_PASSWORD_LEN = 200;
@@ -107,7 +109,7 @@ function renderSignupPage(opts: {
         ${error}
         <p>
           <label for="username">Username</label><br>
-          <small class="muted">3–40 chars, letters / digits / _ . -</small><br>
+          <small class="muted">3–40 chars: letters, digits, spaces, and _ . -</small><br>
           <input type="text" id="username" name="username"
                  value="${opts.values?.username ?? ""}"
                  minlength="3" maxlength="40" required autofocus
@@ -207,7 +209,7 @@ export async function postSignup(req: Request, ctx: RouteContext): Promise<Respo
   // fine. The username-taken case is handled below.
   const errors: string[] = [];
   if (!USERNAME_RE.test(username)) {
-    errors.push("Username must be 3–40 chars: letters, digits, underscore, dot, or hyphen.");
+    errors.push("Username must be 3–40 chars: letters, digits, spaces, underscore, dot, or hyphen.");
   }
   if (emailRaw.length === 0 || emailRaw.length > 254 || !EMAIL_RE.test(emailRaw)) {
     errors.push("Please enter a valid email address.");

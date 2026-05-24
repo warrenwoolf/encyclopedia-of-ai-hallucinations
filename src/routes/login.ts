@@ -177,6 +177,10 @@ export async function postLogin(req: Request, ctx: RouteContext): Promise<Respon
     });
   }
 
+  // Suspended ("timed out") accounts CAN log in — they just can't submit.
+  // The gate lives in the submit/propose handlers, not here, so a timed-out
+  // user can still browse, read reviewer messages, and manage existing drafts.
+
   // Unverified accounts don't get a session — sessions imply "fully signed
   // in", and an unverified account can't act on submissions etc. Instead we
   // hand them a pending-verify cookie and send them through the /verify

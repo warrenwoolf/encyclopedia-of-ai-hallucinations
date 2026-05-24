@@ -46,6 +46,8 @@ interface SubmissionFull {
   hallucination_date: string | null;
   allow_author_edits: number;
   author_name: string | null;
+  owner_user_id: number | null;
+  anon_public: number;
   submitter_email: string | null;
   submitted_at: Date;
   status: "pending" | "published" | "rejected" | "withdrawn";
@@ -159,14 +161,21 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
   const row = await queryOne<SubmissionFull>(
     `SELECT id, public_id, eah_number, title, prompt, output, ai_model, summary, notes,
             shared_chat_url, category, entry_status, hallucination_date, allow_author_edits,
-            author_name, submitter_email, submitted_at, status, reviewed_by, reviewed_at,
-            reviewer_notes, staff_review_message, verified_hits, verified_total,
-            rejection_reason, ip_hash
+            author_name, owner_user_id, anon_public, submitter_email, submitted_at, status,
+            reviewed_by, reviewed_at, reviewer_notes, staff_review_message,
+            verified_hits, verified_total, rejection_reason, ip_hash
        FROM submissions
        WHERE id = ?`,
     [id],
   );
   if (!row) return await notFound(ctx);
+
+  const ownerUsername = row.owner_user_id
+    ? (await queryOne<{ username: string }>(
+        "SELECT username FROM users WHERE id = ?",
+        [row.owner_user_id],
+      ))?.username ?? null
+    : null;
 
   const tags = await query<{ name: string }>(
     `SELECT t.name FROM submission_tags st
@@ -213,6 +222,21 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
 
   const eahId = formatEahId(row.eah_number);
 
+  // Staff may edit a submission they don't own only if the submitter allowed
+  // it (allow_author_edits) — owners can always edit, and anyone can edit
+  // owner-less (legacy / direct) entries or their own.
+  const canStaffEdit = eahId !== "" && (
+    !!ctx.owner ||
+    row.owner_user_id == null ||
+    row.owner_user_id === ctx.admin!.userId ||
+    row.allow_author_edits === 1
+  );
+  const editLink: SafeHtml = eahId === ""
+    ? raw("")
+    : canStaffEdit
+      ? h`<p><a href="/admin/entries/${eahId}/edit">✎ edit this submission's content →</a></p>`
+      : h`<p class="muted">The submitter hasn't allowed staff to edit this submission.</p>`;
+
   const chatBlock: SafeHtml = h`
     <h3>Conversation with submitter</h3>
     ${messages.length === 0
@@ -258,7 +282,6 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
                     ${row.entry_status === "patched" ? raw('disabled') : raw('')}>Mark patched</button>
           </p>
         </form>
-        <p><a href="/admin/entries/${eahId}/edit">Edit this entry's content →</a></p>
       `
     : raw("");
 
@@ -329,6 +352,7 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
   const body = h`
     ${jumpToForm}
     <p><a href="/admin/queue">← back to queue</a></p>
+    ${editLink}
 
     <dl class="meta">
       <dt>EAH ID</dt><dd><code>${eahId || raw("<em>(none)</em>")}</code></dd>
@@ -337,8 +361,10 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
       <dt>entry status</dt><dd>${row.entry_status}</dd>
       <dt>model</dt><dd>${row.ai_model ?? "—"}</dd>
       <dt>category</dt><dd>${categoryLabel(row.category)}</dd>
-      <dt>author</dt><dd>${row.author_name ?? "anonymous"}</dd>
-      <dt>author edits</dt><dd>${row.allow_author_edits ? "allowed" : "not allowed"}</dd>
+      <dt>submitter</dt><dd>${
+        ownerUsername ? h`${ownerUsername}` : (row.author_name ? h`${row.author_name}` : h`<em>none</em>`)
+      }${row.anon_public ? raw(' <small>(anonymous to public)</small>') : raw("")}</dd>
+      <dt>staff edits</dt><dd>${row.allow_author_edits ? "allowed by submitter" : "not allowed by submitter"}</dd>
       <dt>email</dt><dd>${row.submitter_email ? h`<code>${row.submitter_email}</code>` : h`<em>none</em>`}</dd>
       <dt>submitted</dt><dd>${fmtDate(row.submitted_at)}</dd>
       <dt>hallucination date</dt><dd>${row.hallucination_date ?? h`<em>(unspecified)</em>`}</dd>

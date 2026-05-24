@@ -13,9 +13,16 @@ export interface RouteContext {
    * Same data as `user` but only set when the user is an admin. Lets admin
    * route handlers keep their `if (!ctx.admin) return authRedirect()` pattern
    * without an `isAdmin` check at every site. Non-admin users see this as
-   * null even when logged in.
+   * null even when logged in. NOTE: owners (is_owner=1) are included here —
+   * they have all staff privileges plus account management.
    */
   admin: UserSession | null;
+  /**
+   * Same data as `user` but only set when the user is an owner. Account
+   * management (promote/demote/suspend/delete, including managing other
+   * owners) gates on this. Staff who are not owners see it as null.
+   */
+  owner: UserSession | null;
 }
 
 export type RouteHandler = (req: Request, ctx: RouteContext) => Promise<Response> | Response;

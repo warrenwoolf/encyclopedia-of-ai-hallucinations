@@ -241,11 +241,23 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; sql: string }> = 
     sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS hallucination_date DATE NULL",
   },
   {
-    // Submitter opt-in: if true, the original author keeps direct edit rights
-    // post-publication. If false (default), edits require staff approval.
+    // Submitter opt-in: if true (1), EAH staff may edit this submission even
+    // though they don't own it (e.g. fix typos, add reproduction notes). If
+    // false (0, default), staff cannot edit someone else's submission. The
+    // owner can always edit their own; owners (is_owner=1) can edit anything.
     table: "submissions",
     column: "allow_author_edits",
     sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS allow_author_edits TINYINT(1) NOT NULL DEFAULT 0",
+  },
+  {
+    // Public anonymity opt-in. 0 (default) = the submitter's account username
+    // is shown publicly as the author. 1 = the public entry shows "anonymous"
+    // and only staff can see which account submitted it. Replaces the old
+    // free-text author_name field for account submissions (author_name is kept
+    // for legacy rows and staff-created direct entries that have no owner).
+    table: "submissions",
+    column: "anon_public",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS anon_public TINYINT(1) NOT NULL DEFAULT 0",
   },
   {
     // Index for "next eah_number" lookups when the freed-numbers pool is empty.
@@ -278,6 +290,32 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; sql: string }> = 
     table: "submissions",
     column: "idx_owner",
     sql: "ALTER TABLE submissions ADD INDEX IF NOT EXISTS idx_owner (owner_user_id)",
+  },
+  {
+    // Staff "time out" a user by setting suspended_until to a future datetime.
+    // A suspended user can still log in and browse — they just can't submit or
+    // propose submissions for review until the window passes (see submit.ts).
+    // NULL (the default) = not suspended. Past values are harmless: the
+    // comparison is against NOW() each request.
+    table: "users",
+    column: "suspended_until",
+    sql: "ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_until DATETIME NULL",
+  },
+  {
+    // Free-text reason a staffer wrote when timing a user out. Shown to the
+    // user on the submit page so they know why they can't submit. NULL = none.
+    table: "users",
+    column: "suspended_reason",
+    sql: "ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_reason TEXT NULL",
+  },
+  {
+    // Owner role. Owners have ALL privileges, including managing accounts and
+    // adding/removing other owners; staff (is_admin=1) can only manage the
+    // submission queue, not accounts. Bootstrap the first owner by hand:
+    //   UPDATE users SET is_owner = 1 WHERE username = '...';
+    table: "users",
+    column: "is_owner",
+    sql: "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_owner TINYINT(1) NOT NULL DEFAULT 0",
   },
   {
     // Extend the moderation status enum to include 'draft'. MODIFY COLUMN is

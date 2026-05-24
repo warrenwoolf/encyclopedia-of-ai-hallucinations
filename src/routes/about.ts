@@ -7,7 +7,7 @@ import { CATEGORIES } from "../categories.ts";
 import { type RouteHandler } from "./types.ts";
 
 export const about: RouteHandler = (req, ctx) => {
-  const body = h`
+    const body = h`
     <p><strong>What is EAH?</strong> The <strong>Encyclopedia of AI
        Hallucinations</strong> is a community-maintained database of real,
        reproducible AI hallucinations — confident-but-wrong outputs produced
@@ -36,12 +36,6 @@ export const about: RouteHandler = (req, ctx) => {
     <p>We do not accept fabricated, dramatized, or made-up "hallucinations."
        The point is to catalog what these systems actually do, not what we
        imagine they might.</p>
-
-    <p><strong>Why the strawberry?</strong> The logo is a strawberry — a nod
-       to the once-famous failure where many large language models, asked
-       how many R's are in "strawberry," confidently answered two. It is a
-       small, vivid example of the kind of error this site exists to
-       document.</p>
 
     <p><strong>How to submit.</strong> Anyone can submit. Go to
        <a href="/submit">/submit</a> and paste the prompt, the model's
@@ -107,10 +101,10 @@ export const about: RouteHandler = (req, ctx) => {
 
     <p class="muted">Initial scaffolding written by Claude (Anthropic), May 2026.</p>
   `;
-  return pageResponse(req, {
-    title: "About · EAH",
-    heading: "About",
-    body,
-    user: ctx.user,
-  });
+    return pageResponse(req, {
+        title: "About · EAH",
+        heading: "About",
+        body,
+        user: ctx.user,
+    });
 };
