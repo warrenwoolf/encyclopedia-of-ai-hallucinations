@@ -145,6 +145,7 @@ export async function getQueue(req: Request, ctx: RouteContext): Promise<Respons
     heading: "Pending submissions",
     body,
     user: ctx.user, csrfToken,
+    bodyClass: "admin-wide",
   });
   return htmlResponse(html, { setCookie });
 }

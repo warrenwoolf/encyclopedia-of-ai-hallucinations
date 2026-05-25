@@ -232,6 +232,7 @@ async function renderListing(
     body,
     user: ctx.user,
     csrfToken: csrf,
+    bodyClass: "admin-wide",
   });
   return htmlResponse(html, { setCookie });
 }

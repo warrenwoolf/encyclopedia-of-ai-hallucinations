@@ -5,10 +5,11 @@
  */
 import { h, raw, type SafeHtml } from "../../html.ts";
 import { layout } from "../../layout.ts";
-import { query, queryOne } from "../../db.ts";
+import { query, queryOne, execute } from "../../db.ts";
 import { categoryLabel } from "../../categories.ts";
-import { tokenForRequest } from "../../csrf.ts";
-import { htmlResponse, type RouteContext } from "../types.ts";
+import { tokenForRequest, verifyCsrf } from "../../csrf.ts";
+import { formatEahId } from "../../eah-id.ts";
+import { htmlResponse, parseForm, type RouteContext } from "../types.ts";
 
 const PAGE_SIZE = 100;
 
@@ -46,6 +47,7 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
   }
 
   const { token: csrfToken, setCookie } = tokenForRequest(req);
+  const canDelete = !!ctx.owner;
 
   const rawStatus = ctx.url.searchParams.get("status");
   const status = rawStatus && VALID_STATUSES.has(rawStatus) ? rawStatus : null;
@@ -122,7 +124,13 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
                   <td>${fmtDate(r.submitted_at)}</td>
                   <td>${fmtDate(r.reviewed_at)}</td>
                   <td>${r.reviewed_by_username ?? "—"}</td>
-                  <td><a href="/admin/queue/${r.id}">view →</a></td>
+                  <td>
+                    <a href="/admin/queue/${r.id}">view →</a>${
+                      canDelete && r.status === "published"
+                        ? h` · <a class="del-link" href="/admin/all/${r.id}/delete">delete</a>`
+                        : raw("")
+                    }
+                  </td>
                 </tr>
               `)}
             </tbody>
@@ -177,6 +185,90 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
     heading: status ? `All submissions — ${status}` : "All submissions",
     body,
     user: ctx.user, csrfToken,
+    bodyClass: "admin-wide",
   });
   return htmlResponse(html, { setCookie });
+}
+
+// ─── owner-only delete of a published entry ──────────────────────────────────
+//
+// Deleting is permanent and OWNER-only (the same trust level as deleting an
+// account). It's two-step: GET renders a confirmation page, POST with confirm=1
+// actually deletes. The submission's child rows (tags, messages, version diffs)
+// cascade away via FK ON DELETE CASCADE.
+//
+// A-number policy: a deleted entry's number is RETIRED, not recycled — we do
+// NOT push it into freed_eah_numbers. Interior numbers therefore leave a
+// permanent gap. (Caveat: allocation is MAX(eah_number)+1, so deleting the
+// single highest number lets the next new draft reclaim that integer; there's
+// no high-water-mark table to prevent that edge case.)
+
+function deleteAuthRedirect(): Response {
+  return new Response(null, { status: 303, headers: { Location: "/admin/all" } });
+}
+
+async function deleteBadRequest(message: string, status = 400): Promise<Response> {
+  const body = await layout({
+    title: "Bad request",
+    heading: "Bad request",
+    body: h`<p>${message} <a href="/admin/all">Back to all submissions</a>.</p>`,
+  });
+  return htmlResponse(body, { status });
+}
+
+function parseId(raw: string | undefined): number | null {
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const n = parseInt(raw, 10);
+  return n > 0 ? n : null;
+}
+
+export async function getDeleteConfirm(req: Request, ctx: RouteContext): Promise<Response> {
+  if (!ctx.owner) return deleteAuthRedirect();
+
+  const id = parseId(ctx.params.id);
+  if (id === null) return await deleteBadRequest("Invalid submission id.", 404);
+
+  const row = await queryOne<{ id: number; eah_number: number | null; title: string | null; status: string }>(
+    "SELECT id, eah_number, title, status FROM submissions WHERE id = ?",
+    [id],
+  );
+  if (!row) return await deleteBadRequest("Submission not found.", 404);
+
+  const { token: csrf, setCookie } = tokenForRequest(req);
+  const label = row.eah_number !== null ? formatEahId(row.eah_number) : `id ${row.id}`;
+  const body = h`
+    <p>Delete <strong>${label}</strong> — “${row.title ?? "(no title)"}” [${row.status}]? This is
+    permanent: the entry, its discussion, and its edit history are removed, and its A-number is
+    retired (not reused).</p>
+    <form method="post" action="/admin/all/${row.id}/delete">
+      <input type="hidden" name="_csrf" value="${csrf}">
+      <input type="hidden" name="confirm" value="1">
+      <button type="submit" class="btn-danger">Delete entry</button>
+    </form>
+    <p><a href="/admin/all">Cancel</a></p>
+  `;
+  return htmlResponse(
+    await layout({ title: "Delete entry · EAH admin", heading: "Delete entry", body, user: ctx.user, csrfToken: csrf }),
+    { setCookie },
+  );
+}
+
+export async function postDelete(req: Request, ctx: RouteContext): Promise<Response> {
+  if (!ctx.owner) return await deleteBadRequest("Only owners can delete entries.", 403);
+
+  const id = parseId(ctx.params.id);
+  if (id === null) return await deleteBadRequest("Invalid submission id.", 404);
+
+  let form: URLSearchParams;
+  try {
+    form = await parseForm(req, 8 * 1024);
+  } catch {
+    return await deleteBadRequest("Form too large or malformed.", 413);
+  }
+  if (!verifyCsrf(req, form.get("_csrf"))) return await deleteBadRequest("Invalid CSRF token.", 403);
+  if (form.get("confirm") !== "1") return deleteAuthRedirect();
+
+  // Single statement: child rows cascade, the number is retired with the row.
+  await execute("DELETE FROM submissions WHERE id = ?", [id]);
+  return deleteAuthRedirect();
 }

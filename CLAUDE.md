@@ -28,13 +28,13 @@ Co-founders: **Rudra Jadhav** and **Warren Woolf** (`Interrobang` / `warrenwoolf
 Every submission has `submissions.eah_number` (nullable INT). Displayed everywhere as `A` + 6-digit zero-padded → `A000001`. Helpers in `src/eah-id.ts`:
 
 - `allocateEahNumber(tx)` — pops MIN from `freed_eah_numbers` if any, else uses `MAX(eah_number) + 1`. **Must be called inside the same transaction that inserts the row claiming the number**, otherwise it leaks on contention.
-- `freeEahNumber(tx, submissionId)` — sets `eah_number = NULL` on the row and inserts the integer into `freed_eah_numbers`. Called on **reject** and on **withdraw**. Must be in the same transaction as the status flip — never expose a `rejected`-with-live-A-number state to readers.
+- `freeEahNumber(tx, submissionId)` — sets `eah_number = NULL` on the row and inserts the integer into `freed_eah_numbers`. Called on **reject** and on **draft delete** (`myDelete`, which then hard-deletes the row). (Submitter **withdraw** is now pending→draft and does NOT free the number.) Must be in the same transaction as the status flip/delete — never expose a `rejected`-with-live-A-number state to readers.
 - `formatEahId(n)` / `parseEahId(s)` — format/parse the `A######` string.
 
 Allocation rules (matches OEIS):
 - Allocated at **draft creation** (submit time).
-- Freed on **reject** and **withdraw**.
-- Locked permanently on **publish**.
+- Freed (recycled into the pool) on **reject** and on **draft delete**.
+- Locked permanently on **publish**. (Owner deleting a *published* entry from `/admin/all` **retires** the number instead — it is NOT recycled; see the all.ts delete handler.)
 
 The migration's `backfillEahNumbers()` step assigns numbers to existing `pending`/`published` rows in (`submitted_at`, `id`) order. It deliberately skips `rejected`/`withdrawn` rows so they don't consume numbers in the new scheme.
 
@@ -64,14 +64,14 @@ Free tier is 300 sends/month. We read Resend's `x-resend-monthly-quota` response
 
 **Submission is account-only now.** `/submit` (GET and POST) redirects anonymous visitors to `/login`. There is no anonymous/email-tracking path anymore — the old `/track`, `/lookup`, `/draft/:token`, tracking codes, and `notify_token`/`submitter_email` flows are gone (the columns still exist but new submissions leave them null). Submitter notifications go through the account.
 
-- `/submit` enforces: a 4-open-drafts cap per **account** (`status IN ('draft','pending')`), required fields, all length caps, valid category, tag format `^[a-z0-9-]+$`, date parsing, URL validation. The form has **two submit buttons** (`name="action"`): **Save as draft** inserts `status='draft'` and redirects to `/my/submissions/:eahId/edit` to keep refining; **Submit for review** inserts the row already `status='pending'` (and posts the `proposed` system message) in the same transaction, then redirects to `/my/submissions`.
-- **A submission's status flow:** `draft` ⇄ (submitter "proposes" / "unproposes") `pending` → (staff) → `published` | `rejected`; `withdrawn` from draft/pending. The `submissions.status` enum includes `draft`; default is `draft`.
-- **Drafts and proposed (pending) submissions are equally editable by the owner** — they differ only in whether staff can see them. `myEditGet`/`myEditPost` render and accept the edit form for both statuses; published/rejected/withdrawn stay read-only.
-- `/my/submissions` (`src/routes/my.ts`) — the submitter's dashboard: list (withdrawn rows are excluded — they freed their A-number so their detail links would 404), edit (draft or pending), **propose for review**, **unpropose**, withdraw, and view edit history. `/my/submissions/:eahId/discussion` (`src/routes/my-discussion.ts`) is the submitter's chat thread with reviewers.
-- **Unpropose** (`myUnpropose`, `POST /my/submissions/:eahId/unpropose`) is the in-place alternative to withdraw + remake: flips `pending → draft`, **deletes the discussion thread** (clears proposal state), keeps the A-number and edit history. No suspension gate (it's pulling work back, not submitting).
+- `/submit` enforces: a cap on submissions **awaiting review** (`MAX_PENDING_PER_USER = 5`, counting `status='pending'`) — drafts are **unlimited** — plus required fields, all length caps, valid category, tag format `^[a-z0-9-]+$`, date parsing, URL validation. The cap is only checked on the **Submit for review** path (so a capped user can always still save a draft). The form has **two submit buttons** (`name="action"`): **Save as draft** inserts `status='draft'` and redirects to `/my/submissions/:eahId/edit`; **Submit for review** inserts the row already `status='pending'` (and posts the `proposed` system message) in the same transaction, then redirects to `/my/submissions`.
+- **A submission's status flow (simplified model):** `draft` ⇄ `pending` via the submitter's **propose** (draft→pending) and **withdraw** (pending→draft) buttons; staff then move `pending` → `published` | `rejected`. A draft can be **deleted** outright. To discard a proposed submission you withdraw it (back to draft) then delete it — two buttons, no single "withdrawn" path from the dashboard anymore. (`withdrawn` still exists in the enum for legacy rows and is excluded from the dashboard.) `MAX_PENDING_PER_USER` is re-checked on **propose** too (`myPropose`).
+- **Drafts and proposed (pending) submissions are equally editable by the owner** — they differ only in whether staff can see them. `myEditGet`/`myEditPost` render/accept the edit form for both; other statuses are read-only (`myEditGet` 303-redirects them to the overview page).
+- `/my/submissions` (`src/routes/my.ts`) — the submitter's dashboard, rendered as a list (withdrawn rows excluded — they freed their A-number so detail links would 404). Each row's **A-number links to the overview page** `/my/submissions/:eahId` (`myView`): a single read-only page showing metadata, prompt/output, the discussion thread, and edit history. Every submission page (overview, edit, history, discussion) renders the same shared **action bar** (`actionBar` in `src/routes/my-shared.ts`) so all actions are reachable everywhere. `/my/submissions/:eahId/discussion` (`src/routes/my-discussion.ts`) is the chat thread with reviewers.
+- **Withdraw** (`myWithdraw`, `GET` confirm + `POST /my/submissions/:eahId/withdraw`) flips `pending → draft`, **keeps** the discussion and A-number, and posts a `system` message recording the withdrawal. (This replaced the old "unpropose", which used to wipe the discussion — it no longer does.) **Delete** (`myDelete`, `GET` confirm + `POST /my/submissions/:eahId/delete`) is **draft-only**: it hard-deletes the row (children cascade) and recycles its A-number into `freed_eah_numbers`. Both have a GET confirmation page so the action-bar entries can be plain links (no nested `<form>`s).
 - `/admin/queue` and `/admin/queue/:id` — staff queue + detail with chat thread. The detail page has a gated "edit this submission" link (see staff-edit rules below). `POST /admin/queue/:id` approves/rejects (and on reject, frees the A-number in the same tx). `POST /admin/queue/:id/message` posts a staff chat message and emails the submitter via `sendReviewerMessage`.
 - `/admin/entries/new`, `/admin/entries/:eahId/edit`, `/admin/entries/:eahId/status` — direct staff actions, bypass the draft queue. `:eahId/edit` works on a submission of any status (not just published); on save it redirects to `/e/:eahId` if published, else back to `/admin/queue/:id`.
-- **Staff editing someone else's submission** is allowed only when `allow_author_edits = 1` (the submitter opted in). The owner can always edit their own; **owners (is_owner=1) can edit anything**; owner-less (legacy / direct) entries are freely editable. Enforced in `src/routes/admin/entries.ts` (`mayEdit`).
+- **Staff editing someone else's submission** is allowed only when `allow_author_edits = 1` (the submitter opted in). **Published entries are owner-only** — once live, only an owner can edit content via `/admin/entries/:eahId/edit` (staff can still flip active/patched via the status endpoint). The owner can always edit their own; **owners (is_owner=1) can edit anything**; owner-less (legacy / direct) entries are freely editable. Enforced in `src/routes/admin/entries.ts` (`mayEdit`, which now takes the row's `status`).
 - `submission_messages` table holds the chat. `sender_type` is `staff` / `user` / `system`. `system` rows are auto-posted on accept/reject/withdraw/propose.
 
 ## Roles, accounts management, and timeouts
@@ -122,12 +122,15 @@ Trigger points (all fire-and-forget):
 | GET    | `/e/:public_id`                     | `routes/entry.ts` (accepts A-number OR legacy slug; legacy 301→canonical) |
 | GET    | `/submit`                           | `routes/submit.ts` |
 | POST   | `/submit`                           | `routes/submit.ts` |
-| GET    | `/my/submissions`                   | `routes/my.ts` (submitter dashboard) |
-| GET    | `/my/submissions/:eahId/edit`       | `routes/my.ts` |
+| GET    | `/my/submissions`                   | `routes/my.ts` (submitter dashboard; list, A-number → overview) |
+| GET    | `/my/submissions/:eahId`            | `routes/my.ts` (`myView`; read-only overview: info + discussion + history) |
+| GET    | `/my/submissions/:eahId/edit`       | `routes/my.ts` (non-editable statuses 303→overview) |
 | POST   | `/my/submissions/:eahId/edit`       | `routes/my.ts` (save draft) |
-| POST   | `/my/submissions/:eahId/propose`    | `routes/my.ts` (draft → pending) |
-| POST   | `/my/submissions/:eahId/unpropose`  | `routes/my.ts` (pending → draft; clears discussion) |
-| POST   | `/my/submissions/:eahId/withdraw`   | `routes/my.ts` (frees A-number) |
+| POST   | `/my/submissions/:eahId/propose`    | `routes/my.ts` (draft → pending; pending-cap re-checked) |
+| GET    | `/my/submissions/:eahId/withdraw`   | `routes/my.ts` (withdraw confirm page) |
+| POST   | `/my/submissions/:eahId/withdraw`   | `routes/my.ts` (pending → draft; keeps discussion + A-number) |
+| GET    | `/my/submissions/:eahId/delete`     | `routes/my.ts` (delete confirm page) |
+| POST   | `/my/submissions/:eahId/delete`     | `routes/my.ts` (draft-only hard delete; recycles A-number) |
 | GET    | `/my/submissions/:eahId/history`    | `routes/my.ts` (version diffs) |
 | GET    | `/my/submissions/:eahId/discussion` | `routes/my-discussion.ts` |
 | POST   | `/my/submissions/:eahId/message`    | `routes/my-discussion.ts` |
@@ -148,6 +151,8 @@ Trigger points (all fire-and-forget):
 | POST   | `/admin/queue/:id`                  | `routes/admin/review.ts` (approve/reject) |
 | POST   | `/admin/queue/:id/message`          | `routes/admin/review.ts` (staff chat msg) |
 | GET    | `/admin/all`                        | `routes/admin/all.ts` |
+| GET    | `/admin/all/:id/delete`             | `routes/admin/all.ts` (owner-only delete confirm) |
+| POST   | `/admin/all/:id/delete`             | `routes/admin/all.ts` (owner-only permanent delete; retires A-number) |
 | POST   | `/admin/bulk`                       | `routes/admin/bulk.ts` (bulk approve/reject) |
 | GET    | `/admin/users`                      | `routes/admin/users.ts` (staff: read-only; owner: actions) |
 | GET    | `/admin/staff`                      | `routes/admin/users.ts` (privileged roster) |

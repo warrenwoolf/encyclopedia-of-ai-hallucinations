@@ -120,6 +120,13 @@ body {
 
 @media (max-width: 600px) {
   body { font-size: 16px; }
+  /* The full title at 2.4em overflows narrow viewports — the longest word
+     ("Hallucinations") can't shrink below its min-content width inside the
+     row flex, forcing horizontal scroll. Scale title/credit/logo down so it
+     fits ~320px wide. */
+  .site-title-text { font-size: 1.4em; }
+  .site-credit { font-size: 1em; }
+  .site-logo { width: 3em; height: 3em; }
 }
 
 a { color: var(--link); }
@@ -353,6 +360,9 @@ table a:hover { text-decoration: underline; }
 
 /* Browse / admin compact table helpers */
 .queue-table code { font-size: 0.9em; }
+
+/* Owner-only delete action in the all-submissions table */
+.del-link:link, .del-link:visited { color: var(--error); }
 
 /* === 8e Forms === */
 .form-group { margin-bottom: 12px; }
@@ -945,6 +955,40 @@ details.longtext[open] .less { display: inline; }
 /* === 8l My submissions dashboard === */
 .my-submissions-section { margin-bottom: 20px; }
 .my-submissions-section h2 { font-size: 1em; }
+
+/* Submission list: each item is an info row + an action row stacked, so long
+   titles can't push the buttons off-screen. */
+.my-sub-list { list-style: none; padding: 0; margin: 1em 0; }
+.my-sub-item {
+  padding: 0.5em 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.my-sub-info {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+}
+.my-sub-date { color: var(--text-muted); font-size: 0.85em; font-family: var(--font-ui); }
+/* Title takes the remaining width and truncates with an ellipsis rather than
+   wrapping or stretching the row. */
+.my-sub-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.my-sub-actions { margin-top: 0.15em; }
+
+/* The shared action bar (also used on overview/edit/history/discussion). */
+.action-bar {
+  font-size: 0.9em;
+  font-family: var(--font-ui);
+  color: var(--text-muted);
+  margin: 0.3em 0;
+}
+.action-bar .inline-form { display: inline; }
+.action-bar .del-link:link, .action-bar .del-link:visited { color: var(--error); }
 .draft-warning {
   color: var(--warning);
   font-size: 0.9em;
@@ -954,6 +998,11 @@ details.longtext[open] .less { display: inline; }
 }
 
 /* === 8m Admin-specific === */
+/* Table-heavy admin pages opt into a wider content column for density —
+   staff want information over whitespace. Overriding the variable widens
+   header/nav/main/footer uniformly so nothing looks misaligned. */
+body.admin-wide { --content-width: min(1400px, 96vw); }
+
 .jump-to-form {
   display: flex;
   align-items: center;

@@ -43,7 +43,7 @@ import type { UserSession } from "../../src/auth.ts";
 
 import { entry } from "../../src/routes/entry.ts";
 import { submitPost } from "../../src/routes/submit.ts";
-import { myEditPost, myPropose, myWithdraw } from "../../src/routes/my.ts";
+import { myEditPost, myPropose, myWithdraw, myDelete } from "../../src/routes/my.ts";
 import { postReview } from "../../src/routes/admin/review.ts";
 import { postBulk } from "../../src/routes/admin/bulk.ts";
 
@@ -548,9 +548,9 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
       expect(row?.status).toBe("pending");
     });
 
-    test("myWithdraw sets status='withdrawn' and frees the A-number", async () => {
+    test("myWithdraw moves a pending submission back to draft, keeping its A-number", async () => {
       const userId = await insertUser({ username: "user1", email: "user1@example.com" });
-      const id = await insertSubmission({ eahNumber: 52, status: "draft", ownerUserId: userId });
+      const id = await insertSubmission({ eahNumber: 52, status: "pending", ownerUserId: userId });
 
       const res = await myWithdraw(
         csrfPost("/my/submissions/A000052/withdraw", {}),
@@ -563,12 +563,60 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
         "SELECT status, eah_number FROM submissions WHERE id = ?",
         [id],
       );
-      expect(row?.status).toBe("withdrawn");
-      // A-number must be freed (NULLed on the row).
-      expect(row?.eah_number).toBeNull();
-      // A-number must be in the pool so it can be reused.
+      // Back to draft, A-number retained (not freed).
+      expect(row?.status).toBe("draft");
+      expect(Number(row?.eah_number)).toBe(52);
+      // A-number is NOT in the freed pool.
       const pooled = await query<{ n: number }>("SELECT n FROM freed_eah_numbers");
-      expect(pooled.map((r) => Number(r.n))).toContain(52);
+      expect(pooled.map((r) => Number(r.n))).not.toContain(52);
+      // A system message records the withdrawal (discussion is kept).
+      const msgs = await query<{ sender_type: string }>(
+        "SELECT sender_type FROM submission_messages WHERE submission_id = ?",
+        [id],
+      );
+      expect(msgs.some((m) => m.sender_type === "system")).toBe(true);
+    });
+
+    test("myWithdraw refuses a draft (only pending can be withdrawn)", async () => {
+      const userId = await insertUser({ username: "user1", email: "user1@example.com" });
+      await insertSubmission({ eahNumber: 53, status: "draft", ownerUserId: userId });
+
+      const res = await myWithdraw(
+        csrfPost("/my/submissions/A000053/withdraw", {}),
+        ctx({ params: { eahId: "A000053" }, user: fakeUser(userId) }),
+      );
+      expect(res.status).toBe(404);
+    });
+
+    test("myDelete removes a draft and recycles its A-number", async () => {
+      const userId = await insertUser({ username: "user1", email: "user1@example.com" });
+      const id = await insertSubmission({ eahNumber: 54, status: "draft", ownerUserId: userId });
+
+      const res = await myDelete(
+        csrfPost("/my/submissions/A000054/delete", {}),
+        ctx({ params: { eahId: "A000054" }, user: fakeUser(userId) }),
+      );
+      expect(res.status).toBe(303);
+
+      // Row is gone.
+      const row = await queryOne<{ id: number }>("SELECT id FROM submissions WHERE id = ?", [id]);
+      expect(row).toBeUndefined();
+      // A-number recycled into the pool.
+      const pooled = await query<{ n: number }>("SELECT n FROM freed_eah_numbers");
+      expect(pooled.map((r) => Number(r.n))).toContain(54);
+    });
+
+    test("myDelete refuses a pending submission (must withdraw to draft first)", async () => {
+      const userId = await insertUser({ username: "user1", email: "user1@example.com" });
+      const id = await insertSubmission({ eahNumber: 55, status: "pending", ownerUserId: userId });
+
+      const res = await myDelete(
+        csrfPost("/my/submissions/A000055/delete", {}),
+        ctx({ params: { eahId: "A000055" }, user: fakeUser(userId) }),
+      );
+      expect(res.status).toBe(404);
+      const row = await queryOne<{ id: number }>("SELECT id FROM submissions WHERE id = ?", [id]);
+      expect(row?.id).toBe(id);
     });
   });
 });

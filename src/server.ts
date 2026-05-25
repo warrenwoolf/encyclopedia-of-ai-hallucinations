@@ -28,10 +28,11 @@ import { postReview, postReviewMessage } from "./routes/admin/review.ts";
 import {
   getNewEntry, postNewEntry, getEditEntry, postEditEntry, postEntryStatus, redirectToEntry,
 } from "./routes/admin/entries.ts";
-import { getAll } from "./routes/admin/all.ts";
+import { getAll, getDeleteConfirm, postDelete } from "./routes/admin/all.ts";
 import { getUsers, getStaff, postUserAction } from "./routes/admin/users.ts";
 import {
-  mySubmissions, myEditGet, myEditPost, myPropose, myUnpropose, myWithdraw, myHistory,
+  mySubmissions, myView, myEditGet, myEditPost, myPropose,
+  myWithdrawConfirm, myWithdraw, myDeleteConfirm, myDelete, myHistory,
 } from "./routes/my.ts";
 import { myDiscussionGet, myDiscussionPost } from "./routes/my-discussion.ts";
 import { usernameCheck } from "./routes/api.ts";
@@ -85,11 +86,19 @@ const ROUTES: RouteDef[] = [
   route("GET",  "/my/submissions/:eahId/edit",        myEditGet),
   route("POST", "/my/submissions/:eahId/edit",        myEditPost),
   route("POST", "/my/submissions/:eahId/propose",     myPropose),
-  route("POST", "/my/submissions/:eahId/unpropose",   myUnpropose),
+  // withdraw (pending→draft) and delete (draft→gone) each have a GET confirm
+  // page and a POST that performs the action.
+  route("GET",  "/my/submissions/:eahId/withdraw",    myWithdrawConfirm),
   route("POST", "/my/submissions/:eahId/withdraw",    myWithdraw),
+  route("GET",  "/my/submissions/:eahId/delete",      myDeleteConfirm),
+  route("POST", "/my/submissions/:eahId/delete",      myDelete),
   route("GET",  "/my/submissions/:eahId/history",     myHistory),
   route("GET",  "/my/submissions/:eahId/discussion",  myDiscussionGet),
   route("POST", "/my/submissions/:eahId/message",     myDiscussionPost),
+  // Overview page — single read-only view of a submission. Registered last so
+  // its single-segment :eahId pattern can't shadow the more specific routes
+  // above (the regex is anchored per-segment anyway).
+  route("GET",  "/my/submissions/:eahId",             myView),
   // API endpoints
   route("GET",  "/api/username-check",  usernameCheck),
   // Feeds / discovery
@@ -100,6 +109,10 @@ const ROUTES: RouteDef[] = [
   route("POST", "/admin/queue/:id", postReview),
   route("POST", "/admin/queue/:id/message", postReviewMessage),
   route("GET", "/admin/all", getAll),
+  // Owner-only permanent delete of an entry from the all-submissions view.
+  // Two-step: GET confirms, POST deletes.
+  route("GET", "/admin/all/:id/delete", getDeleteConfirm),
+  route("POST", "/admin/all/:id/delete", postDelete),
   // Account management (users + staff roster). One POST endpoint dispatches on
   // the `action` field: promote/demote/suspend/unsuspend/delete.
   route("GET", "/admin/users", getUsers),

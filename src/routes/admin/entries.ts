@@ -400,17 +400,22 @@ async function loadByEahId(eahIdParam: string): Promise<{
 }
 
 /**
- * Whether the current staffer may edit this submission. Staff can edit a
- * submission they don't own only when the submitter opted in
- * (allow_author_edits), but owners can edit anything, and owner-less
- * (legacy / staff-created direct) entries are freely editable.
+ * Whether the current staffer may edit this submission.
+ *
+ * Published entries are owner-only: once something is live, only an owner can
+ * change its content (staff can still flip active/patched via the status
+ * endpoint). For everything still in the pipeline (draft/pending/etc.), staff
+ * can edit a submission they don't own when the submitter opted in
+ * (allow_author_edits); owners can edit anything; owner-less (legacy /
+ * staff-created direct) entries are freely editable.
  */
 function mayEdit(
-  row: { owner_user_id: number | null; allow_author_edits: number },
+  row: { owner_user_id: number | null; allow_author_edits: number; status: string },
   ctx: RouteContext,
 ): boolean {
+  if (ctx.owner) return true;
+  if (row.status === "published") return false;
   return (
-    !!ctx.owner ||
     row.owner_user_id == null ||
     row.owner_user_id === ctx.admin!.userId ||
     row.allow_author_edits === 1
@@ -422,7 +427,12 @@ export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Res
   const row = await loadByEahId(ctx.params.eahId ?? "");
   if (!row) return await badRequest("No entry with that A-number.", 404);
   if (!mayEdit(row, ctx)) {
-    return await badRequest("The submitter hasn't allowed staff to edit this submission.", 403);
+    return await badRequest(
+      row.status === "published"
+        ? "Published entries can only be edited by an owner."
+        : "The submitter hasn't allowed staff to edit this submission.",
+      403,
+    );
   }
 
   const tagRows = await query<{ name: string }>(
@@ -469,7 +479,12 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
   const row = await loadByEahId(eahIdParam);
   if (!row) return await badRequest("No entry with that A-number.", 404);
   if (!mayEdit(row, ctx)) {
-    return await badRequest("The submitter hasn't allowed staff to edit this submission.", 403);
+    return await badRequest(
+      row.status === "published"
+        ? "Published entries can only be edited by an owner."
+        : "The submitter hasn't allowed staff to edit this submission.",
+      403,
+    );
   }
 
   let form: URLSearchParams;

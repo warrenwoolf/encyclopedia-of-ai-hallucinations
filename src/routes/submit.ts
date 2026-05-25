@@ -26,8 +26,12 @@ const LIMITS = {
   tags: 600, // bounding the raw tags input
 };
 
-/** OEIS-style cap on simultaneous open drafts per account. */
-const MAX_OPEN_DRAFTS_PER_USER = 4;
+/**
+ * Drafts are unlimited. The cap is on submissions *awaiting review* (status
+ * 'pending') per account, so a user can't flood the staff queue. Enforced both
+ * here (the "Submit for review" button) and in my.ts (the "propose" action).
+ */
+export const MAX_PENDING_PER_USER = 5;
 
 /** Pragmatic ISO-8601 date check, in the past or today. */
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -170,8 +174,9 @@ function renderForm(opts: {
 
     <p><small>Submissions are reviewed by staff before being published. Manage
     your drafts and chat with reviewers from
-    <a href="/my/submissions">/my/submissions</a>. You may have at most
-    ${MAX_OPEN_DRAFTS_PER_USER} drafts open at once.</small></p>
+    <a href="/my/submissions">/my/submissions</a>. You can keep as many drafts
+    as you like; you may have at most ${MAX_PENDING_PER_USER} submissions
+    awaiting review at once.</small></p>
   `;
 }
 
@@ -383,22 +388,32 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   if (!tagResult.ok) return showForm(req, ctx, { values, error: tagResult.error, status: 400 });
   const tags = tagResult.tags;
 
-  // OEIS-style draft cap: at most MAX_OPEN_DRAFTS_PER_USER open submissions
-  // (draft or pending) per account at a time.
-  const openRow = await queryOne<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM submissions
-      WHERE owner_user_id = ? AND status IN ('draft', 'pending')`,
-    [ctx.user.userId],
-  );
-  const open = Number(openRow?.n ?? 0);
-  if (open >= MAX_OPEN_DRAFTS_PER_USER) {
-    return showForm(req, ctx, {
-      values,
-      error: `You already have ${open} open submissions. ` +
-        `EAH allows at most ${MAX_OPEN_DRAFTS_PER_USER} open drafts at a time — please ` +
-        `submit one for review, withdraw one, or wait for a decision before starting another.`,
-      status: 429,
-    });
+  // Two submit buttons: "Submit for review" proposes immediately (status
+  // 'pending'); "Save as draft" keeps it private ('draft'). Anything else
+  // defaults to draft.
+  const wantPropose = form.get("action") === "propose";
+
+  // Drafts are unlimited. Only the "Submit for review" path is capped, on the
+  // number of submissions already awaiting review. We let them save as a draft
+  // regardless, so nothing they typed is lost.
+  if (wantPropose) {
+    const pendingRow = await queryOne<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM submissions
+        WHERE owner_user_id = ? AND status = 'pending'`,
+      [ctx.user.userId],
+    );
+    const pending = Number(pendingRow?.n ?? 0);
+    if (pending >= MAX_PENDING_PER_USER) {
+      return showForm(req, ctx, {
+        values,
+        error: `You already have ${pending} submissions awaiting review, which is ` +
+          `the maximum (${MAX_PENDING_PER_USER}). You can still save this as a draft — ` +
+          `use the “Save as draft” button below. To submit it for review later, first ` +
+          `wait for a decision on one of your pending submissions, or withdraw one back ` +
+          `to a draft from your submissions page.`,
+        status: 429,
+      });
+    }
   }
 
   // Generate IDs and hashes.
@@ -408,11 +423,6 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   const ipHash = createHash("sha256")
     .update(`${config.sessionSecret}:${ctx.ip}`)
     .digest();
-
-  // Two submit buttons: "Submit for review" proposes immediately (status
-  // 'pending'); "Save as draft" keeps it private ('draft'). Anything else
-  // defaults to draft.
-  const wantPropose = form.get("action") === "propose";
 
   // Submission is account-only now: every row is owned by the submitter, with
   // no submitter_email (notifications go through the account).

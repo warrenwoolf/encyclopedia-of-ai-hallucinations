@@ -27,6 +27,12 @@ export interface LayoutOptions {
   csrfToken?: string;
   /** Optional sub-nav links above the body. */
   subnav?: SafeHtml | null;
+  /**
+   * Optional class on <body>. Used by table-heavy admin pages to widen the
+   * content column (`admin-wide` bumps --content-width). Constant strings
+   * only — never user input.
+   */
+  bodyClass?: string;
 }
 
 /**
@@ -98,6 +104,8 @@ export function layout(opts: LayoutOptions): string {
 
   const subnav = opts.subnav ?? raw("");
 
+  const bodyClassAttr = opts.bodyClass ? h` class="${opts.bodyClass}"` : raw("");
+
   const page = h`<!doctype html>
 <html lang="en">
   <head>
@@ -111,7 +119,7 @@ export function layout(opts: LayoutOptions): string {
     ${googleOAuthEnabled() ? raw('<script src="https://accounts.google.com/gsi/client" async defer></script><script src="/static/google.js" defer></script>') : raw('')}
     <script src="/static/theme.js"></script>
   </head>
-  <body>
+  <body${bodyClassAttr}>
     ${banner}
     <header>
       <div class="site-header-top">

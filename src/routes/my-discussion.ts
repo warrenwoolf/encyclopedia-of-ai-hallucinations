@@ -18,6 +18,7 @@ import { query, queryOne, execute } from "../db.ts";
 import { verifyCsrf } from "../csrf.ts";
 import { check as rateCheck } from "../ratelimit.ts";
 import { formatEahId, parseEahId } from "../eah-id.ts";
+import { actionBar } from "./my-shared.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteHandler } from "./types.ts";
 
 const MAX_MESSAGE_CHARS = 4000;
@@ -46,7 +47,7 @@ async function fetchOwned(eahIdStr: string, userId: number): Promise<OwnedRow | 
 
 // ─── rendering helpers ────────────────────────────────────────────────────────
 
-interface MessageRow {
+export interface MessageRow {
   id: number;
   submission_id: number;
   sender_type: string;
@@ -56,7 +57,7 @@ interface MessageRow {
   sender_username: string | null;
 }
 
-function renderNote(msg: MessageRow): SafeHtml {
+export function renderNote(msg: MessageRow): SafeHtml {
   const ts = new Date(msg.created_at);
   // Display as YYYY-MM-DD HH:MM UTC (minute granularity is fine here)
   const dateStr = ts.toISOString().slice(0, 16).replace("T", " ");
@@ -150,11 +151,7 @@ export const myDiscussionGet: RouteHandler = async (req, ctx) => {
     `
     : h`<p class="muted">Discussion is closed (status: ${row.status}).</p>`;
 
-  const subnav = h`<p class="subnav">
-    <a href="/my/submissions">← my submissions</a> ·
-    <a href="/my/submissions/${eahId}/edit">edit</a> ·
-    <a href="/my/submissions/${eahId}/history">history</a>
-  </p>`;
+  const subnav = actionBar(eahId, row.status, token);
 
   const body = h`
     <p><strong>${eahId}</strong> — ${row.title ?? "(untitled)"}</p>
