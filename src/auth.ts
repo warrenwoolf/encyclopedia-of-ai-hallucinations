@@ -255,6 +255,71 @@ export function clearPendingVerifyCookie(): string {
   return `${PENDING_VERIFY_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/verify; Max-Age=0`;
 }
 
+// -- Pending Google-signup cookie --------------------------------------------
+//
+// A NEW Google account isn't created the moment Google's ID token verifies —
+// the user must first pick a username (we never derive one silently from the
+// email). Between "token verified" and "username chosen" we hold the verified
+// identity (Google subject id + email) in this HMAC-signed cookie, scoped to
+// /choose-username so it isn't sent anywhere else. The identity is already
+// proven by Google's signature, so this cookie only needs integrity, not
+// secrecy — but we keep it HttpOnly anyway. Short TTL: choosing a username is
+// a one-screen step.
+
+const PENDING_GOOGLE_COOKIE = "eah_pending_google";
+const PENDING_GOOGLE_TTL_MS = 15 * 60 * 1000;
+
+export interface PendingGoogle {
+  sub: string;
+  email: string;
+}
+
+/** Build a Set-Cookie carrying the verified Google identity for /choose-username. */
+export function encodePendingGoogleCookie(identity: PendingGoogle): string {
+  const expires = Date.now() + PENDING_GOOGLE_TTL_MS;
+  const payloadObj = { sub: identity.sub, email: identity.email, expires };
+  const payload = Buffer.from(JSON.stringify(payloadObj), "utf8").toString("base64url");
+  const mac = hmacSign(payload);
+  const value = `${payload}.${mac}`;
+  return (
+    `${PENDING_GOOGLE_COOKIE}=${value}; HttpOnly; Secure; SameSite=Lax; ` +
+    `Path=/choose-username; Max-Age=${Math.floor(PENDING_GOOGLE_TTL_MS / 1000)}`
+  );
+}
+
+/** Parse + verify the pending-google cookie. Returns null on any inconsistency. */
+export function decodePendingGoogleCookie(req: Request): PendingGoogle | null {
+  const header = req.headers.get("cookie");
+  if (!header) return null;
+  const raw = parseCookie(header, PENDING_GOOGLE_COOKIE);
+  if (!raw) return null;
+  const dot = raw.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const payload = raw.slice(0, dot);
+  const mac = raw.slice(dot + 1);
+  if (!/^[a-f0-9]{64}$/.test(mac)) return null;
+  const expected = hmacSign(payload);
+  const a = Buffer.from(expected, "hex");
+  const b = Buffer.from(mac, "hex");
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  let obj: { sub?: unknown; email?: unknown; expires?: unknown };
+  try {
+    obj = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+  if (typeof obj.sub !== "string" || typeof obj.email !== "string" || typeof obj.expires !== "number") {
+    return null;
+  }
+  if (obj.expires < Date.now()) return null;
+  return { sub: obj.sub, email: obj.email };
+}
+
+/** Set-Cookie that clears the pending-google cookie. */
+export function clearPendingGoogleCookie(): string {
+  return `${PENDING_GOOGLE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/choose-username; Max-Age=0`;
+}
+
 // -- Email verification ------------------------------------------------------
 
 function generateSixDigit(): string {

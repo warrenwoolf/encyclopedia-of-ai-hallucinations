@@ -21,7 +21,7 @@ import { pageResponse } from "../layout.ts";
 import { isSuspended } from "../auth.ts";
 import { query, queryOne, transaction } from "../db.ts";
 import { tokenForRequest, verifyCsrf } from "../csrf.ts";
-import { CATEGORIES, isValidCategory } from "../categories.ts";
+import { CATEGORIES, categoryLabel, isValidCategory } from "../categories.ts";
 import { formatEahId, parseEahId, freeEahNumber } from "../eah-id.ts";
 import { recordVersionDiffs, type TrackedValues } from "../versions.ts";
 import { statusBadge, actionBar } from "./my-shared.ts";
@@ -174,7 +174,8 @@ function validateEditForm(
   if (values.output.length > LIMITS.output) return { ok: false, error: `Output too long (max ${LIMITS.output}).` };
   if (!values.ai_model) return { ok: false, error: "AI model is required." };
   if (values.ai_model.length > LIMITS.ai_model) return { ok: false, error: `Model name too long (max ${LIMITS.ai_model}).` };
-  if (!values.category || !isValidCategory(values.category)) return { ok: false, error: "Pick a valid category." };
+  // Optional; staff categorize before publish. Validate only if one was picked.
+  if (values.category && !isValidCategory(values.category)) return { ok: false, error: "Pick a valid category, or leave it blank." };
   if (values.summary.length > LIMITS.summary) return { ok: false, error: `Summary too long (max ${LIMITS.summary}).` };
   if (values.notes.length > LIMITS.notes) return { ok: false, error: `Notes too long (max ${LIMITS.notes}).` };
 
@@ -231,9 +232,9 @@ function renderEditForm(opts: {
       <input id="ai_model" name="ai_model" type="text" maxlength="${LIMITS.ai_model}"
              required value="${values.ai_model}">
 
-      <label for="category">Category</label>
-      <select id="category" name="category" required>
-        <option value="">-- choose one --</option>
+      <label for="category">Category <small>(optional — staff will categorize it during review)</small></label>
+      <select id="category" name="category">
+        <option value="">-- let staff choose --</option>
         ${categoryOptions}
       </select>
 
@@ -311,7 +312,7 @@ function renderReadOnlyInfo(row: SubmissionRow, tags: string[]): SafeHtml {
       <dt>Title</dt><dd>${row.title ?? "(none)"}</dd>
       <dt>Status</dt><dd>${statusBadge(row.status)}</dd>
       <dt>AI model</dt><dd>${row.ai_model}</dd>
-      <dt>Category</dt><dd>${row.category}</dd>
+      <dt>Category</dt><dd>${categoryLabel(row.category)}</dd>
       ${row.hallucination_date ? h`<dt>Date</dt><dd>${row.hallucination_date}</dd>` : raw("")}
       ${tags.length > 0 ? h`<dt>Tags</dt><dd>${tags.join(", ")}</dd>` : raw("")}
     </dl>

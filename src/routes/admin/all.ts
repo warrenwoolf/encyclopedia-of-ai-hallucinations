@@ -18,7 +18,7 @@ const VALID_STATUSES = new Set(["pending", "published", "rejected", "withdrawn"]
 interface Row {
   id: number;
   public_id: string;
-  ai_model: string | null;
+  title: string | null;
   category: string;
   status: string;
   submitted_at: Date;
@@ -71,7 +71,7 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
   const total = totalRow?.c ?? 0;
 
   const rows = await query<Row>(
-    `SELECT s.id, s.public_id, s.ai_model, s.category, s.status, s.submitted_at, s.reviewed_at,
+    `SELECT s.id, s.public_id, s.title, s.category, s.status, s.submitted_at, s.reviewed_at,
             u.username AS reviewed_by_username
        FROM submissions s
        LEFT JOIN users u ON u.id = s.reviewed_by
@@ -92,55 +92,49 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
     </p>
   `;
 
+  // No bulk approve/reject here on purpose: every decision must carry a
+  // reviewer message / rejection reason, which only the per-submission review
+  // form (/admin/queue/:id) collects. So this page is read-only triage — click
+  // through to "view →" to act on a row.
   const tableBody: SafeHtml = rows.length === 0
     ? h`<p><em>No submissions match.</em></p>`
     : h`
-        <form class="bulk-form" method="post" action="/admin/bulk">
-          <input type="hidden" name="_csrf" value="${csrfToken}">
-          <table class="all">
-            <thead>
+        <table class="all">
+          <thead>
+            <tr>
+              <th>id</th>
+              <th>public id</th>
+              <th>title</th>
+              <th>category</th>
+              <th>status</th>
+              <th>submitted</th>
+              <th>reviewed</th>
+              <th>reviewed by</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((r) => h`
               <tr>
-                <th><input type="checkbox" data-bulk-select-all></th>
-                <th>id</th>
-                <th>public id</th>
-                <th>model</th>
-                <th>category</th>
-                <th>status</th>
-                <th>submitted</th>
-                <th>reviewed</th>
-                <th>reviewed by</th>
-                <th></th>
+                <td>${r.id}</td>
+                <td><code>${r.public_id}</code></td>
+                <td>${r.title ?? h`<em>(no title)</em>`}</td>
+                <td>${categoryLabel(r.category)}</td>
+                <td>[${r.status}]</td>
+                <td>${fmtDate(r.submitted_at)}</td>
+                <td>${fmtDate(r.reviewed_at)}</td>
+                <td>${r.reviewed_by_username ?? "—"}</td>
+                <td>
+                  <a href="/admin/queue/${r.id}">view →</a>${
+                    canDelete && r.status === "published"
+                      ? h` · <a class="del-link" href="/admin/all/${r.id}/delete">delete</a>`
+                      : raw("")
+                  }
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              ${rows.map((r) => h`
-                <tr>
-                  <td><input type="checkbox" name="ids[]" value="${r.id}" data-bulk-checkbox></td>
-                  <td>${r.id}</td>
-                  <td><code>${r.public_id}</code></td>
-                  <td>${r.ai_model ?? ""}</td>
-                  <td>${categoryLabel(r.category)}</td>
-                  <td>[${r.status}]</td>
-                  <td>${fmtDate(r.submitted_at)}</td>
-                  <td>${fmtDate(r.reviewed_at)}</td>
-                  <td>${r.reviewed_by_username ?? "—"}</td>
-                  <td>
-                    <a href="/admin/queue/${r.id}">view →</a>${
-                      canDelete && r.status === "published"
-                        ? h` · <a class="del-link" href="/admin/all/${r.id}/delete">delete</a>`
-                        : raw("")
-                    }
-                  </td>
-                </tr>
-              `)}
-            </tbody>
-          </table>
-          <p class="bulk-actions">
-            With selected:
-            <button name="action" value="approve" type="submit">Approve</button>
-            <button name="action" value="reject" type="submit" class="btn-danger">Reject</button>
-          </p>
-        </form>
+            `)}
+          </tbody>
+        </table>
       `;
 
   const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));

@@ -11,6 +11,7 @@ import { config, isProd } from "./config.ts";
 import { gc as ratelimitGc } from "./ratelimit.ts";
 import { getSessionFromRequest, purgeExpiredSessions } from "./auth.ts";
 import { primeQuotaCache } from "./email.ts";
+import { loadCategories } from "./categories.ts";
 import type { RouteContext, RouteHandler } from "./routes/types.ts";
 
 import { home } from "./routes/home.ts";
@@ -18,17 +19,20 @@ import { entry } from "./routes/entry.ts";
 import { browse } from "./routes/browse.ts";
 import { submitGet, submitPost } from "./routes/submit.ts";
 import { about } from "./routes/about.ts";
+import { guide } from "./routes/guide.ts";
+import { terms } from "./routes/terms.ts";
 import { privacy } from "./routes/privacy.ts";
 import { getLogin, postLogin, postLogout } from "./routes/login.ts";
 import { getSignup, postSignup } from "./routes/signup.ts";
 import { getVerify, postVerify, postVerifyResend } from "./routes/verify.ts";
-import { postGisVerify } from "./routes/oauth-google-routes.ts";
+import { postGisVerify, getChooseUsername, postChooseUsername } from "./routes/oauth-google-routes.ts";
 import { getQueue, getQueueDetail } from "./routes/admin/queue.ts";
 import { postReview, postReviewMessage } from "./routes/admin/review.ts";
 import {
   getNewEntry, postNewEntry, getEditEntry, postEditEntry, postEntryStatus, redirectToEntry,
 } from "./routes/admin/entries.ts";
 import { getAll, getDeleteConfirm, postDelete } from "./routes/admin/all.ts";
+import { getCategories, postCategory } from "./routes/admin/categories.ts";
 import { getUsers, getStaff, postUserAction } from "./routes/admin/users.ts";
 import {
   mySubmissions, myView, myEditGet, myEditPost, myPropose,
@@ -38,7 +42,6 @@ import { myDiscussionGet, myDiscussionPost } from "./routes/my-discussion.ts";
 import { usernameCheck } from "./routes/api.ts";
 import { rss } from "./routes/rss.ts";
 import { sitemap } from "./routes/sitemap.ts";
-import { postBulk } from "./routes/admin/bulk.ts";
 
 interface RouteDef {
   method: "GET" | "POST";
@@ -65,6 +68,8 @@ const ROUTES: RouteDef[] = [
   // Public
   route("GET", "/", home),
   route("GET", "/about", about),
+  route("GET", "/guide", guide),
+  route("GET", "/terms", terms),
   route("GET", "/privacy", privacy),
   route("GET", "/browse", browse),
   route("GET", "/e/:public_id", entry),
@@ -80,6 +85,9 @@ const ROUTES: RouteDef[] = [
   route("POST", "/verify", postVerify),
   route("POST", "/verify/resend", postVerifyResend),
   route("POST", "/oauth/google/verify", postGisVerify),
+  // New Google accounts pick a username before the account is created.
+  route("GET", "/choose-username", getChooseUsername),
+  route("POST", "/choose-username", postChooseUsername),
   // User draft dashboard. The :eahId segment is always in A-number format so it
   // never collides with literal path segments like "new" used in admin routes.
   route("GET",  "/my/submissions",                    mySubmissions),
@@ -109,6 +117,9 @@ const ROUTES: RouteDef[] = [
   route("POST", "/admin/queue/:id", postReview),
   route("POST", "/admin/queue/:id/message", postReviewMessage),
   route("GET", "/admin/all", getAll),
+  // Staff-managed category list (add new categories at runtime).
+  route("GET", "/admin/categories", getCategories),
+  route("POST", "/admin/categories", postCategory),
   // Owner-only permanent delete of an entry from the all-submissions view.
   // Two-step: GET confirms, POST deletes.
   route("GET", "/admin/all/:id/delete", getDeleteConfirm),
@@ -128,8 +139,6 @@ const ROUTES: RouteDef[] = [
   route("POST", "/admin/entries/:eahId/status", postEntryStatus),
   // Jump-to-entry helper used by the admin jump-to form.
   route("GET", "/admin/entries/redirect", redirectToEntry),
-  // Bulk approve/reject from the admin all-submissions view.
-  route("POST", "/admin/bulk", postBulk),
 ];
 
 const SECURITY_HEADERS: Record<string, string> = {
@@ -342,6 +351,10 @@ console.log(`EAH listening on http://${server.hostname}:${server.port}`);
 // so the signup form knows whether we're at cap before any send happens. Fire
 // and forget; a failure here just leaves the cache empty (fail-open).
 void primeQuotaCache().catch(e => console.warn("[startup] primeQuotaCache failed:", e));
+
+// Load the category set from the DB into the in-memory cache. Until this
+// resolves, src/categories.ts serves the built-in defaults.
+void loadCategories().catch(e => console.warn("[startup] loadCategories failed:", e));
 
 // Periodic GC for in-memory rate-limit buckets and expired sessions.
 setInterval(() => {

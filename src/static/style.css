@@ -641,6 +641,21 @@ small.field-hint,
 
 .entry-title { font-size: 1.3em; margin: 4px 0; }
 
+/* User-submitted titles can be a single very long unbroken token (no spaces),
+   which would otherwise force horizontal scroll on every page that shows them.
+   `overflow-wrap: anywhere` lets the browser break mid-token only when needed,
+   and (unlike break-word) it shrinks min-content width so it also works inside
+   table cells without needing table-layout: fixed. The /my dashboard is exempt
+   on purpose — it truncates with an ellipsis instead. */
+h1,
+.entry-title,
+.entry-head a,
+.entry-meta dd,
+table.queue td,
+table.all td {
+  overflow-wrap: anywhere;
+}
+
 .entry-category { color: var(--text-muted); font-size: 0.9em; margin: 0; }
 
 /* Model field — legacy big-display variant kept for back-compat */
@@ -961,7 +976,9 @@ details.longtext[open] .less { display: inline; }
 .my-sub-list { list-style: none; padding: 0; margin: 1em 0; }
 .my-sub-item {
   padding: 0.5em 0;
-  border-bottom: 1px solid var(--border-light);
+  /* Darker + thicker than the default row rule so the boundary between
+     submissions reads clearly in the drafts list. */
+  border-bottom: 2px solid var(--border);
 }
 .my-sub-info {
   display: flex;
@@ -1013,18 +1030,6 @@ body.admin-wide { --content-width: min(1400px, 96vw); }
 }
 .jump-to-form input { max-width: 100px; }
 
-.bulk-form {
-  margin-top: 12px;
-  padding: 8px;
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-ui);
-  font-size: 0.9em;
-}
-
 /* === Minimal tracking-code styles (kept for any cached admin/staff pages) === */
 .tracking-code-block {
   margin: 1em 0;
@@ -1038,4 +1043,79 @@ pre.tracking-code {
   background: transparent;
   border: none;
   padding: 0;
+}
+
+/* ── Mobile responsiveness ─────────────────────────────────── */
+@media (max-width: 700px) {
+  body {
+    padding: 0.75rem;
+    font-size: 15px;
+  }
+
+  .site-header-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  nav a {
+    margin-right: 0.6rem;
+    font-size: 1rem;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  pre.prompt,
+  pre.output,
+  pre.citation {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-x: auto;
+  }
+
+  .submit-form input[type="text"],
+  .submit-form input[type="url"],
+  .submit-form input[type="date"],
+  .submit-form select,
+  .submit-form textarea {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .form-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .form-actions button {
+    width: 100%;
+  }
+
+  .entry-nav {
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .queue table th:nth-child(3),
+  .queue table td:nth-child(3) {
+    display: none; /* hide "model" column on small screens */
+  }
+}
+
+/* ── Similarity warning block ─────────────────────────────── */
+.similar-warning {
+  margin: 1em 0;
+  padding: 0.75em 1em;
+  border: 1px solid var(--warning);
+  background: var(--bg-alt);
+  color: var(--text);
+}
+.similar-warning ul {
+  margin: 0.5em 0 0;
+  padding-left: 1.5em;
 }

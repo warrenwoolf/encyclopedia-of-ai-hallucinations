@@ -72,6 +72,10 @@ function renderLoginPage(opts: {
       </p>
     </form>
     <p>Don't have an account yet? <a href="/signup">Sign up</a>.</p>
+    <p class="field-hint"><small>Heads up: your <strong>username is shown publicly</strong>
+       as the author of any entry you submit. If you'd like to be credited by name,
+       use your first and last name as your username. Prefer not to be named? You can
+       mark any individual submission as anonymous to the public when you submit it.</small></p>
   `;
   return htmlResponse(
     layout({ title: "Sign in · EAH", heading: "Sign in", body, user: opts.user ?? null }),

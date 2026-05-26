@@ -96,9 +96,9 @@ function renderForm(opts: {
         (e.g. Google's AI Overview, Bing search summaries), write the service name
         and the date you accessed it.</small></p>
 
-      <label for="category">Category</label>
-      <select id="category" name="category" required>
-        <option value="">-- choose one --</option>
+      <label for="category">Category <small>(optional — leave blank and our reviewers will categorize it)</small></label>
+      <select id="category" name="category">
+        <option value="">-- let staff choose --</option>
         ${categoryOptions}
       </select>
 
@@ -357,8 +357,10 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   if (values.ai_model.length > LIMITS.ai_model)
     return showForm(req, ctx, { values, error: `AI model name is too long (max ${LIMITS.ai_model} chars).`, status: 400 });
 
-  if (!values.category || !isValidCategory(values.category))
-    return showForm(req, ctx, { values, error: "Please choose a valid category.", status: 400 });
+  // Category is optional; staff assign one before publishing. But if the
+  // submitter did pick something, it must be a real category.
+  if (values.category && !isValidCategory(values.category))
+    return showForm(req, ctx, { values, error: "Please choose a valid category, or leave it blank.", status: 400 });
 
   if (values.summary.length > LIMITS.summary)
     return showForm(req, ctx, { values, error: `Summary is too long (max ${LIMITS.summary} chars).`, status: 400 });

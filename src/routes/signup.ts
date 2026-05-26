@@ -114,6 +114,8 @@ function renderSignupPage(opts: {
                  value="${opts.values?.username ?? ""}"
                  minlength="3" maxlength="40" required autofocus
                  autocomplete="username">
+          <br><small class="muted">Shown publicly as the author of your entries — use
+          your real name if you want to be credited, or stay anonymous per-submission.</small>
         </p>
         <p>
           <label for="email">Email</label><br>

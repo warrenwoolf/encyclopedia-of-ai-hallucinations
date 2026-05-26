@@ -30,7 +30,14 @@
       credentials: "same-origin",
     });
 
-    if (res.ok || res.redirected) {
+    // The server 303s either to "/" (existing user, session set) or to
+    // "/choose-username" (new account — pick a username first). fetch follows
+    // the redirect, so res.url is the final destination; navigate there.
+    if (res.redirected && res.url) {
+      window.location.href = res.url;
+      return;
+    }
+    if (res.ok) {
       window.location.href = "/";
       return;
     }

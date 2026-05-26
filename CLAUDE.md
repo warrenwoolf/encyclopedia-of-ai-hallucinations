@@ -2,7 +2,7 @@
 
 You're working on the **Encyclopedia of AI Hallucinations (EAH)**: an OEIS-inspired, community-submitted, staff-reviewed catalog of LLM hallucinations. Read README.md for the user-facing story. This file is the "what you actually need to know to make changes safely" file.
 
-Co-founders: **Rudra Jadhav** and **Warren Woolf** (`Interrobang` / `warrenwoolf` on GitHub). The site footer credit and About page reflect this.
+Co-founders: **Rudra Jadhav** and **Warren Woolf** (`warrenwoolf` on GitHub). The site footer credit and About page reflect this.
 
 ## Stack and conventions
 
@@ -64,7 +64,7 @@ Free tier is 300 sends/month. We read Resend's `x-resend-monthly-quota` response
 
 **Submission is account-only now.** `/submit` (GET and POST) redirects anonymous visitors to `/login`. There is no anonymous/email-tracking path anymore — the old `/track`, `/lookup`, `/draft/:token`, tracking codes, and `notify_token`/`submitter_email` flows are gone (the columns still exist but new submissions leave them null). Submitter notifications go through the account.
 
-- `/submit` enforces: a cap on submissions **awaiting review** (`MAX_PENDING_PER_USER = 5`, counting `status='pending'`) — drafts are **unlimited** — plus required fields, all length caps, valid category, tag format `^[a-z0-9-]+$`, date parsing, URL validation. The cap is only checked on the **Submit for review** path (so a capped user can always still save a draft). The form has **two submit buttons** (`name="action"`): **Save as draft** inserts `status='draft'` and redirects to `/my/submissions/:eahId/edit`; **Submit for review** inserts the row already `status='pending'` (and posts the `proposed` system message) in the same transaction, then redirects to `/my/submissions`.
+- `/submit` enforces: a cap on submissions **awaiting review** (`MAX_PENDING_PER_USER = 5`, counting `status='pending'`) — drafts are **unlimited** — plus required fields, all length caps, tag format `^[a-z0-9-]+$`, date parsing, URL validation. **Category is OPTIONAL for submitters** (they may leave it blank and let staff categorize); if they do pick one it must be valid. The gate is at publish: `postReview` **refuses to approve a submission with an empty category** (so staff must assign one via the edit form first). Staff direct-add (`/admin/entries/*`) still requires a category since those publish immediately. The cap is only checked on the **Submit for review** path (so a capped user can always still save a draft). The form has **two submit buttons** (`name="action"`): **Save as draft** inserts `status='draft'` and redirects to `/my/submissions/:eahId/edit`; **Submit for review** inserts the row already `status='pending'` (and posts the `proposed` system message) in the same transaction, then redirects to `/my/submissions`.
 - **A submission's status flow (simplified model):** `draft` ⇄ `pending` via the submitter's **propose** (draft→pending) and **withdraw** (pending→draft) buttons; staff then move `pending` → `published` | `rejected`. A draft can be **deleted** outright. To discard a proposed submission you withdraw it (back to draft) then delete it — two buttons, no single "withdrawn" path from the dashboard anymore. (`withdrawn` still exists in the enum for legacy rows and is excluded from the dashboard.) `MAX_PENDING_PER_USER` is re-checked on **propose** too (`myPropose`).
 - **Drafts and proposed (pending) submissions are equally editable by the owner** — they differ only in whether staff can see them. `myEditGet`/`myEditPost` render/accept the edit form for both; other statuses are read-only (`myEditGet` 303-redirects them to the overview page).
 - `/my/submissions` (`src/routes/my.ts`) — the submitter's dashboard, rendered as a list (withdrawn rows excluded — they freed their A-number so detail links would 404). Each row's **A-number links to the overview page** `/my/submissions/:eahId` (`myView`): a single read-only page showing metadata, prompt/output, the discussion thread, and edit history. Every submission page (overview, edit, history, discussion) renders the same shared **action bar** (`actionBar` in `src/routes/my-shared.ts`) so all actions are reachable everywhere. `/my/submissions/:eahId/discussion` (`src/routes/my-discussion.ts`) is the chat thread with reviewers.
@@ -89,7 +89,7 @@ Key columns on `submissions`:
 
 - `id` (PK), `public_id` (legacy slug), `eah_number` (the A-number), `title`, `tracking_hash` (BINARY(32), legacy/unused for new rows), `notify_token` / `submitter_email` (legacy anonymous-tracking; null for new account submissions).
 - `owner_user_id` (FK `users(id)`, ON DELETE SET NULL — the submitter's account).
-- `prompt`, `output`, `ai_model`, `summary`, `notes`, `shared_chat_url`, `category`, `hallucination_date`.
+- `prompt`, `output`, `ai_model`, `summary`, `notes`, `shared_chat_url`, `category` (VARCHAR, NOT NULL; **empty string `''` = uncategorized**, the optional-at-submit state — `categoryLabel("")` renders "uncategorized"; a published entry always has a real category), `hallucination_date`.
 - **Public attribution:** by default the entry shows the owner's account **username**. `anon_public` TINYINT (default 0) = "anonymous to public": when 1, the public entry shows "anonymous" and only staff see the submitter. `author_name` is a legacy free-text field, now only used as a display fallback for owner-less rows (staff-created direct entries / legacy data) — the submit/edit forms no longer collect it.
 - `allow_author_edits` TINYINT — submitter opt-in that **staff may edit this submission** (see staff-edit rules above). Default 0.
 - `entry_status` ENUM('active','patched') — distinct from moderation `status` ENUM('draft','pending','published','rejected','withdrawn') (default 'draft').
@@ -150,10 +150,9 @@ Trigger points (all fire-and-forget):
 | GET    | `/admin/queue/:id`                  | `routes/admin/queue.ts` (detail + chat) |
 | POST   | `/admin/queue/:id`                  | `routes/admin/review.ts` (approve/reject) |
 | POST   | `/admin/queue/:id/message`          | `routes/admin/review.ts` (staff chat msg) |
-| GET    | `/admin/all`                        | `routes/admin/all.ts` |
+| GET    | `/admin/all`                        | `routes/admin/all.ts` (read-only triage list; **no bulk actions** — every decision must carry a reviewer message, so acting on a row means clicking through to `/admin/queue/:id`) |
 | GET    | `/admin/all/:id/delete`             | `routes/admin/all.ts` (owner-only delete confirm) |
 | POST   | `/admin/all/:id/delete`             | `routes/admin/all.ts` (owner-only permanent delete; retires A-number) |
-| POST   | `/admin/bulk`                       | `routes/admin/bulk.ts` (bulk approve/reject) |
 | GET    | `/admin/users`                      | `routes/admin/users.ts` (staff: read-only; owner: actions) |
 | GET    | `/admin/staff`                      | `routes/admin/users.ts` (privileged roster) |
 | POST   | `/admin/users/:id`                  | `routes/admin/users.ts` (owner-only; action field) |

@@ -14,7 +14,7 @@ import { h, raw, type SafeHtml } from "../html.ts";
 import { pageResponse } from "../layout.ts";
 import { query, queryOne } from "../db.ts";
 import { CATEGORIES, categoryLabel, isValidCategory, resolveCategory } from "../categories.ts";
-import { formatEahId } from "../eah-id.ts";
+import { formatEahId, parseEahId } from "../eah-id.ts";
 import { type RouteContext, type RouteHandler } from "./types.ts";
 
 interface Row {
@@ -30,6 +30,9 @@ interface Row {
   verified_total: number | null;
   prompt: string;
   output: string;
+  anon_public: number;
+  author_name: string | null;
+  owner_username: string | null;
 }
 
 /**
@@ -150,10 +153,31 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     const like = `%${escapeLike(q)}%`;
     // MariaDB requires ESCAPE '\\' in SQL (two backslashes). In a JS string literal,
     // each backslash must be doubled, so '\\\\' in JS → '\\' in SQL → correct ESCAPE clause.
-    where.push(
-      "(s.title LIKE ? ESCAPE '\\\\' OR s.prompt LIKE ? ESCAPE '\\\\' OR s.output LIKE ? ESCAPE '\\\\' OR s.ai_model LIKE ? ESCAPE '\\\\' OR s.summary LIKE ? ESCAPE '\\\\')",
-    );
-    params.push(like, like, like, like, like);
+    // Search across every user-visible property: title, prompt, output, model,
+    // summary, notes, the public author name, and the owner's username. We do
+    // NOT search internal fields (ip_hash, reviewer notes, tracking columns).
+    const clauses = [
+      "s.title LIKE ? ESCAPE '\\\\'",
+      "s.prompt LIKE ? ESCAPE '\\\\'",
+      "s.output LIKE ? ESCAPE '\\\\'",
+      "s.ai_model LIKE ? ESCAPE '\\\\'",
+      "s.summary LIKE ? ESCAPE '\\\\'",
+      "s.notes LIKE ? ESCAPE '\\\\'",
+      "s.author_name LIKE ? ESCAPE '\\\\'",
+      "u.username LIKE ? ESCAPE '\\\\'",
+    ];
+    const qParams: unknown[] = [like, like, like, like, like, like, like, like];
+    // EAH ID search: "A000123", "a123", or a bare number all match eah_number.
+    let eahNum = parseEahId(q);
+    if (eahNum === null && /^A?\d{1,6}$/i.test(q)) {
+      eahNum = parseInt(q.replace(/^[Aa]/, ""), 10);
+    }
+    if (eahNum !== null) {
+      clauses.push("s.eah_number = ?");
+      qParams.push(eahNum);
+    }
+    where.push(`(${clauses.join(" OR ")})`);
+    params.push(...qParams);
   }
   if (tagValid) {
     join = "JOIN submission_tags st ON st.submission_id = s.id JOIN tags t ON t.id = st.tag_id";
@@ -164,7 +188,11 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   const whereSql = where.join(" AND ");
 
   const countRow = await queryOne<{ n: number }>(
-    `SELECT COUNT(DISTINCT s.id) AS n FROM submissions s ${join} WHERE ${whereSql}`,
+    `SELECT COUNT(DISTINCT s.id) AS n
+       FROM submissions s
+       LEFT JOIN users u ON u.id = s.owner_user_id
+       ${join}
+      WHERE ${whereSql}`,
     params,
   );
   const totalCount = Number(countRow?.n ?? 0);
@@ -172,8 +200,10 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
 
   const rows = await query<Row>(
     `SELECT DISTINCT s.id, s.public_id, s.eah_number, s.title, s.ai_model, s.category, s.entry_status,
-            s.submitted_at, s.verified_hits, s.verified_total, s.prompt, s.output
+            s.submitted_at, s.verified_hits, s.verified_total, s.prompt, s.output,
+            s.anon_public, s.author_name, u.username AS owner_username
        FROM submissions s
+       LEFT JOIN users u ON u.id = s.owner_user_id
        ${join}
        WHERE ${whereSql}
        ORDER BY ${sortClause(sort)}
@@ -219,7 +249,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   // Category sidebar / quick links
   const categoryLinks = h`<div class="category-links">
     ${CATEGORIES.map(
-      (c) => h`<a href="/browse?category=${c.key}">${c.label}</a> `,
+      (c, i) => h`${i > 0 ? raw(", ") : raw("")}<a href="/browse?category=${c.key}">${c.label}</a>`,
     )}
   </div>`;
 
@@ -280,6 +310,14 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
             ? `${r.verified_hits ?? 0}/${r.verified_total}`
             : "—";
           const tags = tagsByRow.get(r.id) ?? [];
+          // Same attribution rule as the entry page: account username unless the
+          // submitter opted to be anonymous; owner-less rows fall back to the
+          // legacy free-text author_name, else "anonymous".
+          const author = r.anon_public === 1
+            ? h`<em>anonymous</em>`
+            : r.owner_username
+              ? h`${r.owner_username}`
+              : (r.author_name && r.author_name.length > 0 ? h`${r.author_name}` : h`<em>anonymous</em>`);
           return h`<li class="entry-item">
             <div class="entry-head">
               <a href="${linkTarget}"><code>${eahId || r.public_id}</code></a> —
@@ -289,6 +327,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
                 : raw("")}
             </div>
             <div class="entry-props">
+              ${prop("Author", author)}
               ${prop("Model", h`${r.ai_model}`)}
               ${prop("Category", h`${categoryLabel(r.category)}`)}
               ${prop("Date", h`${ymd(r.submitted_at)}`)}
@@ -312,7 +351,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   // sits on its own row below.
   const searchForm = h`<form action="/browse" method="get" class="search-form">
     <div class="search-row">
-      <input type="search" name="q" value="${q}" placeholder="search titles, prompts, outputs, models..." maxlength="200">
+      <input type="search" name="q" value="${q}" placeholder="search title, prompt, output, model, author, A-number…" maxlength="200">
       <button type="submit">Search</button>
     </div>
     ${category ? h`<input type="hidden" name="category" value="${category}">` : h``}

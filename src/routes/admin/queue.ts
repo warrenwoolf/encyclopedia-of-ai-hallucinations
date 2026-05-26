@@ -7,10 +7,11 @@
 import { h, raw, type SafeHtml } from "../../html.ts";
 import { layout } from "../../layout.ts";
 import { query, queryOne } from "../../db.ts";
-import { categoryLabel } from "../../categories.ts";
+import { CATEGORIES, categoryLabel } from "../../categories.ts";
 import { tokenForRequest } from "../../csrf.ts";
 import { formatEahId } from "../../eah-id.ts";
 import { htmlResponse, type RouteContext } from "../types.ts";
+import { findSimilar } from "../../similarity.ts";
 
 /** Jump-to-entry form used in both queue list and detail views. */
 const jumpToForm: SafeHtml = h`
@@ -136,7 +137,8 @@ export async function getQueue(req: Request, ctx: RouteContext): Promise<Respons
     ${jumpToForm}
     <p>${rows.length} pending submission${rows.length === 1 ? "" : "s"}.
        <a href="/admin/entries/new">+ add a new entry directly</a>
-       (bypasses the draft queue).</p>
+       (bypasses the draft queue) ·
+       <a href="/admin/categories">manage categories</a>.</p>
     ${tableBody}
   `;
 
@@ -170,6 +172,8 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
     [id],
   );
   if (!row) return await notFound(ctx);
+
+  const similarEntries = await findSimilar(row.prompt, row.output, row.id);
 
   const ownerUsername = row.owner_user_id
     ? (await queryOne<{ username: string }>(
@@ -380,6 +384,21 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
     ${summaryHtml}
     ${notesHtml}
 
+    ${similarEntries.length > 0
+      ? h`<div class="similar-warning" role="alert">
+          <strong>⚠ Possible duplicates detected</strong> — the following published or pending entries have high text overlap with this submission. Review before approving:
+          <ul>
+            ${similarEntries.map(e => h`
+              <li>
+                <a href="/e/${formatEahId(e.eah_number)}">${formatEahId(e.eah_number)}</a>
+                — ${e.title ?? h`<em>(no title)</em>`}
+                (${String(Math.round(e.score * 100))}% overlap)
+              </li>
+            `)}
+          </ul>
+        </div>`
+      : raw("")}
+
     <h3>Prompt</h3>
     <pre class="prompt">${row.prompt}</pre>
 
@@ -415,6 +434,16 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
           (emailed to the submitter on accept/reject; also shown on /track)</label><br>
         <textarea id="staff_review_message" name="staff_review_message" rows="4" cols="80"
                   maxlength="4000">${staffReviewMessagePrev}</textarea>
+      </p>
+      <p>
+        <label for="review_category">Category</label><br>
+        <select id="review_category" name="category">
+          <option value="" ${row.category ? raw("") : raw("selected")}>-- uncategorized --</option>
+          ${CATEGORIES.map((c) => h`<option value="${c.key}" ${c.key === row.category ? raw("selected") : raw("")}>${c.label}</option>`)}
+        </select>
+        <br><small class="muted">A category is required to approve. Set it right here —
+          no need to open the edit form or ask the submitter for edit consent.
+          <a href="/admin/categories">manage categories →</a></small>
       </p>
       <p>
         <button name="action" value="approve" type="submit">Approve and publish</button>

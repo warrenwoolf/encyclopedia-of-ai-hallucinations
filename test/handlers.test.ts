@@ -31,7 +31,6 @@ let sitemap: any;
 let entry: any;
 let postReview: any;
 let postReviewMessage: any;
-let postBulk: any;
 
 // Saved real module — captured under a separate import key so Bun does not
 // live-update it when the mocked `../src/db.ts` binding changes.
@@ -63,7 +62,6 @@ beforeAll(async () => {
     sitemap = (await import("../src/routes/sitemap.ts")).sitemap;
     entry = (await import("../src/routes/entry.ts")).entry;
     ({ postReview, postReviewMessage } = await import("../src/routes/admin/review.ts"));
-    postBulk = (await import("../src/routes/admin/bulk.ts")).postBulk;
     return;
   }
 
@@ -81,7 +79,6 @@ beforeAll(async () => {
   sitemap = (await import("../src/routes/sitemap.ts")).sitemap;
   entry = (await import("../src/routes/entry.ts")).entry;
   ({ postReview, postReviewMessage } = await import("../src/routes/admin/review.ts"));
-  postBulk = (await import("../src/routes/admin/bulk.ts")).postBulk;
 });
 
 // Restore the real src/db.ts after all handler tests complete so the
@@ -289,7 +286,7 @@ handlerDescribe("GET /e/:public_id", () => {
 // ── admin auth gate (no DB hit on the unauthenticated path) ───────────────────
 
 handlerDescribe("admin actions redirect unauthenticated requests to a REAL login route", () => {
-  // BUG D (see TESTING_HANDOFF.md): postReview / postReviewMessage / postBulk
+  // BUG D (see TESTING_HANDOFF.md): postReview / postReviewMessage
   // redirect to "/admin/login", which is NOT a registered route (the login page
   // is "/login"). So an unauthenticated admin POST lands on a 404. The
   // equivalent /my/* handlers correctly use "/login".
@@ -307,12 +304,6 @@ handlerDescribe("admin actions redirect unauthenticated requests to a REAL login
 
   test("postReviewMessage → /login when not an admin", async () => {
     const res = await postReviewMessage(post("/admin/queue/1/message"), ctx({ params: { id: "1" } }));
-    expect(res.status).toBe(303);
-    expect(res.headers.get("Location")).toBe("/login");
-  });
-
-  test("postBulk → /login when not an admin", async () => {
-    const res = await postBulk(post("/admin/bulk"), ctx());
     expect(res.status).toBe(303);
     expect(res.headers.get("Location")).toBe("/login");
   });

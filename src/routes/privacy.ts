@@ -11,8 +11,8 @@ export const privacy: RouteHandler = (req, ctx) => {
   const body = h`
     <p>This policy describes what data the Encyclopedia of AI Hallucinations
        ("EAH", "we") collects when you use the site, how we use it, and what
-       choices you have. EAH is a small personal project; there are no
-       advertising networks, no analytics services, and no tracking pixels.</p>
+       choices you have. There are no advertising networks, no analytics
+       services, and no tracking pixels.</p>
 
     <h2>What we collect</h2>
 

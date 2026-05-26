@@ -135,7 +135,9 @@ export function layout(opts: LayoutOptions): string {
       <nav>
         <a href="/browse">browse</a>
         <a href="/submit">submit</a>
+        <a href="/guide">guide</a>
         <a href="/about">about</a>
+        <a href="/terms">terms</a>
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">
           <span class="theme-icon">◐</span><span class="theme-label">theme</span>
         </button>
@@ -148,7 +150,7 @@ export function layout(opts: LayoutOptions): string {
       ${opts.body}
     </main>
     <footer>
-      <p><a href="/about">about</a> · <a href="/privacy">privacy</a> · <a href="/rss">rss</a></p>
+      <p><a href="/about">about</a> · <a href="/guide">guide</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a> · <a href="/rss">rss</a></p>
       <p class="muted">Founded in 2026 by Rudra Jadhav and Warren Woolf.</p>
     </footer>
   </body>

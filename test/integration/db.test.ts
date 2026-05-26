@@ -45,7 +45,6 @@ import { entry } from "../../src/routes/entry.ts";
 import { submitPost } from "../../src/routes/submit.ts";
 import { myEditPost, myPropose, myWithdraw, myDelete } from "../../src/routes/my.ts";
 import { postReview } from "../../src/routes/admin/review.ts";
-import { postBulk } from "../../src/routes/admin/bulk.ts";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -317,6 +316,23 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
       expect(await messageCount(id)).toBeGreaterThan(0); // system message posted
     });
 
+    test("approve is blocked when the submission has no category", async () => {
+      // Category is optional for submitters; staff must assign one before an
+      // entry can go live. An uncategorized submission must not publish.
+      const id = await insertSubmission({ eahNumber: 19, status: "pending" });
+      await execute("UPDATE submissions SET category = '' WHERE id = ?", [id]);
+      const res = await postReview(
+        csrfPost(`/admin/queue/${id}`, { action: "approve" }),
+        ctx({ params: { id: String(id) }, admin: fakeAdmin(1) }),
+      );
+      expect(res.status).toBe(400);
+      const row = await queryOne<{ status: string }>(
+        "SELECT status FROM submissions WHERE id = ?",
+        [id],
+      );
+      expect(row?.status).toBe("pending"); // unchanged — still awaiting a category
+    });
+
     test("reject sets status='rejected' and frees the A-number", async () => {
       const id = await insertSubmission({ eahNumber: 11, status: "pending" });
       await postReview(
@@ -362,52 +378,6 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
       );
       // A published entry must never have a NULL A-number.
       expect(row?.status === "published" && row?.eah_number === null).toBe(false);
-    });
-  });
-
-  // ── admin bulk ──────────────────────────────────────────────────────────────
-  describe("POST /admin/bulk", () => {
-    test("bulk-approve publishes all selected pending submissions", async () => {
-      const a = await insertSubmission({ eahNumber: 20, status: "pending" });
-      const b = await insertSubmission({ eahNumber: 21, status: "pending" });
-      const res = await postBulk(
-        csrfPost("/admin/bulk", { action: "approve", "ids[]": [String(a), String(b)] }),
-        ctx({ admin: fakeAdmin(1) }),
-      );
-      expect(res.status).toBe(303);
-      const rows = await query<{ status: string }>(
-        "SELECT status FROM submissions WHERE id IN (?, ?)",
-        [a, b],
-      );
-      expect(rows.every((r) => r.status === "published")).toBe(true);
-    });
-
-    test("bulk-reject frees the A-numbers", async () => {
-      const a = await insertSubmission({ eahNumber: 22, status: "pending" });
-      await postBulk(
-        csrfPost("/admin/bulk", { action: "reject", "ids[]": [String(a)] }),
-        ctx({ admin: fakeAdmin(1) }),
-      );
-      const row = await queryOne<{ status: string; eah_number: number | null }>(
-        "SELECT status, eah_number FROM submissions WHERE id = ?",
-        [a],
-      );
-      expect(row?.status).toBe("rejected");
-      expect(row?.eah_number).toBeNull();
-    });
-
-    // BUG F: bulk guards the UPDATE with `AND status='pending'`, but posts the
-    // "approved/rejected (bulk action)" system message unconditionally — even when
-    // the row wasn't actually transitioned. Acting on an already-published row
-    // should leave no spurious message. EXPECTED TO FAIL until the message insert
-    // is gated on affectedRows.
-    test("bulk action on an already-decided row posts no spurious message (Bug F)", async () => {
-      const id = await insertSubmission({ eahNumber: 23, status: "published" });
-      await postBulk(
-        csrfPost("/admin/bulk", { action: "approve", "ids[]": [String(id)] }),
-        ctx({ admin: fakeAdmin(1) }),
-      );
-      expect(await messageCount(id)).toBe(0);
     });
   });
 

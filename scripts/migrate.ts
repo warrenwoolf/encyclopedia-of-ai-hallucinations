@@ -39,6 +39,20 @@ const TABLES: TableSpec[] = [
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   },
   {
+    // Hallucination categories. Seeded with DEFAULT_CATEGORIES (see
+    // seedCategories below) and extendable at runtime by staff via
+    // /admin/categories. `key` is the stable slug stored on submissions.category;
+    // `id` gives a stable display order (defaults first, then staff additions).
+    name: "categories",
+    sql: `CREATE TABLE IF NOT EXISTS categories (
+      id           INT AUTO_INCREMENT PRIMARY KEY,
+      \`key\`        VARCHAR(40) UNIQUE NOT NULL,
+      label        VARCHAR(120) NOT NULL,
+      description  TEXT,
+      created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+  },
+  {
     name: "tags",
     sql: `CREATE TABLE IF NOT EXISTS tags (
       id    INT AUTO_INCREMENT PRIMARY KEY,
@@ -373,6 +387,22 @@ async function backfillEahNumbers(): Promise<void> {
   console.log(`ok  backfill (${rows.length} row${rows.length === 1 ? "" : "s"} numbered)`);
 }
 
+/**
+ * Seed the `categories` table with DEFAULT_CATEGORIES. Idempotent: INSERT
+ * IGNORE skips any key that already exists, so re-running never clobbers
+ * staff-added categories or edits. Only seeds the built-in defaults.
+ */
+async function seedCategories(): Promise<void> {
+  const { DEFAULT_CATEGORIES } = await import("../src/categories.ts");
+  for (const c of DEFAULT_CATEGORIES) {
+    await execute(
+      "INSERT IGNORE INTO categories (`key`, label, description) VALUES (?, ?, ?)",
+      [c.key, c.label, c.description],
+    );
+  }
+  console.log(`ok  seed categories (${DEFAULT_CATEGORIES.length} defaults)`);
+}
+
 async function main(): Promise<void> {
   for (const t of TABLES) {
     await execute(t.sql);
@@ -382,6 +412,7 @@ async function main(): Promise<void> {
     await execute(c.sql);
     console.log(`ok  ${c.table}.${c.column}`);
   }
+  await seedCategories();
   await backfillEahNumbers();
 }
 

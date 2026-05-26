@@ -13,6 +13,7 @@ import { execute, transaction, queryOne } from "../../db.ts";
 import { verifyCsrf } from "../../csrf.ts";
 import { sendDecision, sendReviewerMessage } from "../../email.ts";
 import { freeEahNumber, formatEahId } from "../../eah-id.ts";
+import { isValidCategory } from "../../categories.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "../types.ts";
 
 async function badRequest(message: string, status = 400, returnTo?: string): Promise<Response> {
@@ -117,12 +118,40 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     public_id: string;
     eah_number: number | null;
     ai_model: string | null;
+    category: string;
     submitter_email: string | null;
   }>(
-    "SELECT id, public_id, eah_number, ai_model, submitter_email FROM submissions WHERE id = ?",
+    "SELECT id, public_id, eah_number, ai_model, category, submitter_email FROM submissions WHERE id = ?",
     [id],
   );
   if (!exists) return await badRequest("Submission not found.", 404);
+
+  // Category can be (re)assigned right here in the review form — staff no longer
+  // need the edit form (or the submitter's edit consent) just to categorize.
+  // A missing `category` field means "leave it unchanged"; an empty value means
+  // "uncategorized"; a non-empty value must be a valid category key.
+  let effectiveCategory = exists.category;
+  const categoryRaw = form.get("category");
+  if (categoryRaw !== null) {
+    const c = categoryRaw.trim();
+    if (c === "") {
+      effectiveCategory = "";
+    } else if (isValidCategory(c)) {
+      effectiveCategory = c;
+    } else {
+      return await badRequest("Invalid category selected.", 400, `/admin/queue/${id}`);
+    }
+  }
+
+  // Category is optional for submitters but required before an entry goes live.
+  // Staff pick one in the review form's category dropdown above.
+  if (action === "approve" && !effectiveCategory) {
+    return await badRequest(
+      "This submission has no category. Choose one from the category dropdown in the review form before approving.",
+      400,
+      `/admin/queue/${id}`,
+    );
+  }
 
   // The approve/reject + (optional) free-number step must be atomic: if we
   // freed before the status flip and then the status flip failed, we'd hand
@@ -137,6 +166,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
         const res = await tx.execute(
           `UPDATE submissions
               SET status = 'published',
+                  category = ?,
                   reviewed_by = ?,
                   reviewed_at = NOW(),
                   verified_hits = ?,
@@ -145,7 +175,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
                   staff_review_message = ?,
                   rejection_reason = NULL
             WHERE id = ? AND status = 'pending'`,
-          [ctx.admin!.userId, verifiedHits, verifiedTotal, reviewerNotes, staffReviewMessage, id],
+          [effectiveCategory, ctx.admin!.userId, verifiedHits, verifiedTotal, reviewerNotes, staffReviewMessage, id],
         );
         if (res.affectedRows > 0) {
           await tx.execute(
@@ -158,6 +188,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
         const res = await tx.execute(
           `UPDATE submissions
               SET status = 'rejected',
+                  category = ?,
                   reviewed_by = ?,
                   reviewed_at = NOW(),
                   rejection_reason = ?,
@@ -166,7 +197,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
                   verified_hits = ?,
                   verified_total = ?
             WHERE id = ? AND status = 'pending'`,
-          [ctx.admin!.userId, rejectionReason, reviewerNotes, staffReviewMessage, verifiedHits, verifiedTotal, id],
+          [effectiveCategory, ctx.admin!.userId, rejectionReason, reviewerNotes, staffReviewMessage, verifiedHits, verifiedTotal, id],
         );
         if (res.affectedRows > 0) {
           // OEIS rule: a rejected draft's A-number returns to the pool. Do

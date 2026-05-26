@@ -34,14 +34,23 @@ interface Row {
   title: string | null;
   summary: string | null;
   prompt: string;
+  output: string;
   ai_model: string | null;
+  category: string;
   submitted_at: Date | string | null;
   reviewed_at: Date | string | null;
 }
 
+/** Cap a field for the feed so 32k-char outputs don't bloat every item. */
+function clip(s: string | null | undefined, max: number): string {
+  const t = (s ?? "").trim();
+  return t.length > max ? t.slice(0, max) + " […]" : t;
+}
+
 export const rss: RouteHandler = async () => {
   const rows = await query<Row>(
-    `SELECT eah_number, public_id, title, summary, prompt, ai_model, submitted_at, reviewed_at
+    `SELECT eah_number, public_id, title, summary, prompt, output, ai_model, category,
+            submitted_at, reviewed_at
        FROM submissions
       WHERE status = 'published'
       ORDER BY COALESCE(reviewed_at, submitted_at) DESC
@@ -55,11 +64,29 @@ export const rss: RouteHandler = async () => {
     const link = `${base}/e/${xmlEscape(eahId)}`;
     const title = xmlEscape(`${eahId} — ${row.title ?? "(no title)"}`);
 
-    // Use summary when available; otherwise truncate the prompt to 300 chars.
+    // Plain-text <description> for readers that don't render content:encoded.
     const descRaw = row.summary && row.summary.trim().length > 0
       ? row.summary.trim()
       : row.prompt.trim().slice(0, 300);
     const description = xmlEscape(descRaw);
+
+    // content:encoded carries the full detail as escaped HTML: model, prompt,
+    // response, and summary. The inner HTML is built with real tags and the
+    // user content xml-escaped once; the whole blob is then xml-escaped again
+    // so it survives as a text node (the reader un-escapes once → gets HTML,
+    // and the user content un-escapes a second time → shows literally).
+    const promptText = clip(row.prompt, 4000);
+    const outputText = clip(row.output, 4000);
+    const innerHtml =
+      `<p><strong>Model:</strong> ${xmlEscape(row.ai_model ?? "(unknown)")}</p>` +
+      (row.category ? `<p><strong>Category:</strong> ${xmlEscape(row.category)}</p>` : "") +
+      (row.summary && row.summary.trim().length > 0
+        ? `<p><strong>Summary:</strong> ${xmlEscape(row.summary.trim())}</p>`
+        : "") +
+      `<p><strong>Prompt:</strong></p><pre>${xmlEscape(promptText)}</pre>` +
+      `<p><strong>Response:</strong></p><pre>${xmlEscape(outputText)}</pre>` +
+      `<p><a href="${xmlEscape(link)}">View the full entry on EAH</a></p>`;
+    const contentEncoded = xmlEscape(innerHtml);
 
     const pubDate = toRfc822(row.reviewed_at ?? row.submitted_at);
 
@@ -68,12 +95,13 @@ export const rss: RouteHandler = async () => {
       <link>${link}</link>
       <guid isPermaLink="true">${link}</guid>
       <description>${description}</description>
+      <content:encoded>${contentEncoded}</content:encoded>
       <pubDate>${pubDate}</pubDate>
     </item>`;
   }).join("\n");
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
   <channel>
     <title>Encyclopedia of AI Hallucinations</title>
     <link>${xmlEscape(base)}/</link>
