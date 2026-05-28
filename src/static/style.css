@@ -127,6 +127,21 @@ body {
   .site-title-text { font-size: 1.4em; }
   .site-credit { font-size: 1em; }
   .site-logo { width: 3em; height: 3em; }
+  /* Let the logo block + title center and wrap as a unit instead of being
+     pinned left with the title jammed against the right edge. overflow-wrap
+     is a last-resort guard so an unexpectedly long token can never force
+     horizontal scroll. */
+  .site-title { flex-wrap: wrap; justify-content: center; }
+  .site-title-text { overflow-wrap: anywhere; }
+}
+
+/* Phones narrower than ~400px: stack the logo above the title (centered) and
+   shrink the title another step so "Hallucinations" has comfortable margin. */
+@media (max-width: 400px) {
+  .site-title { flex-direction: column; gap: 2px; }
+  .site-title-text { font-size: 1.2em; }
+  .site-credit { font-size: 0.9em; margin-top: -0.3em; }
+  .site-logo { width: 2.6em; height: 2.6em; }
 }
 
 a { color: var(--link); }
@@ -1047,16 +1062,9 @@ pre.tracking-code {
 
 /* ── Mobile responsiveness ─────────────────────────────────── */
 @media (max-width: 700px) {
-  body {
-    padding: 0.75rem;
-    font-size: 15px;
-  }
-
-  .site-header-top {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.25rem;
-  }
+  /* NB: don't add `body { padding }` here — header/banner are full-bleed
+     bands and main/footer already carry 12px side padding. Body padding
+     would inset the header background and double-pad the content column. */
 
   nav a {
     margin-right: 0.6rem;

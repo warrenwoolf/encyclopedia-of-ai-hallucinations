@@ -111,8 +111,9 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   }
 
   // Confirm the submission exists before update so we can return a proper 404.
-  // Also pull the fields we'll need to compose the outbound email so we can
-  // skip the email entirely when there's no submitter_email.
+  // Also pull the fields we'll need to compose the outbound email. The
+  // notification address is the owner account's email (new account-only model);
+  // legacy anonymous rows fall back to the now-unused submitter_email column.
   const exists = await queryOne<{
     id: number;
     public_id: string;
@@ -120,8 +121,13 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     ai_model: string | null;
     category: string;
     submitter_email: string | null;
+    owner_email: string | null;
   }>(
-    "SELECT id, public_id, eah_number, ai_model, category, submitter_email FROM submissions WHERE id = ?",
+    `SELECT s.id, s.public_id, s.eah_number, s.ai_model, s.category, s.submitter_email,
+            u.email AS owner_email
+       FROM submissions s
+       LEFT JOIN users u ON u.id = s.owner_user_id
+      WHERE s.id = ?`,
     [id],
   );
   if (!exists) return await badRequest("Submission not found.", 404);
@@ -217,16 +223,18 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     return await badRequest("Could not save the review. Try again.", 500);
   }
 
-  // Fire-and-forget decision email. Only fires if we have a submitter_email.
+  // Fire-and-forget decision email. Prefer the owner account's email; fall
+  // back to the legacy submitter_email for old anonymous rows.
   // For approvals we use the (still-set) A-number; for rejections that number
   // has been freed, so use an empty string.
-  if (exists.submitter_email) {
+  const decisionTo = exists.owner_email ?? exists.submitter_email;
+  if (decisionTo) {
     const eahIdForEmail =
       action === "approve" && exists.eah_number !== null
         ? formatEahId(exists.eah_number)
         : "";
     void sendDecision({
-      to: exists.submitter_email,
+      to: decisionTo,
       eahId: eahIdForEmail,
       publicId: exists.public_id,
       modelLabel: exists.ai_model ?? "(unknown)",
@@ -279,8 +287,12 @@ export async function postReviewMessage(req: Request, ctx: RouteContext): Promis
     eah_number: number | null;
     ai_model: string | null;
     submitter_email: string | null;
+    owner_email: string | null;
   }>(
-    "SELECT id, eah_number, ai_model, submitter_email FROM submissions WHERE id = ?",
+    `SELECT s.id, s.eah_number, s.ai_model, s.submitter_email, u.email AS owner_email
+       FROM submissions s
+       LEFT JOIN users u ON u.id = s.owner_user_id
+      WHERE s.id = ?`,
     [id],
   );
   if (!exists) return await badRequest("Submission not found.", 404);
@@ -291,10 +303,11 @@ export async function postReviewMessage(req: Request, ctx: RouteContext): Promis
     [id, ctx.admin.userId, body],
   );
 
-  // Fire-and-forget email notification to the submitter (if they gave one).
-  if (exists.submitter_email) {
+  // Fire-and-forget email notification: owner account email, else legacy.
+  const messageTo = exists.owner_email ?? exists.submitter_email;
+  if (messageTo) {
     void sendReviewerMessage({
-      to: exists.submitter_email,
+      to: messageTo,
       eahId: formatEahId(exists.eah_number),
       modelLabel: exists.ai_model ?? "(unknown)",
       reviewerName: ctx.admin.username,
