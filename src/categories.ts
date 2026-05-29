@@ -98,6 +98,17 @@ function rebuildKeyset(): void {
 }
 
 /**
+ * Keep "Other" pinned to the end regardless of insertion order. The table is
+ * read `ORDER BY id ASC` and "other" is seeded early, so without this any
+ * staff-added category would sort ahead of it. Array.sort is stable in Bun, so
+ * non-"other" entries keep their existing relative order. Mutates in place.
+ */
+function pinOtherLast(): void {
+  CATEGORIES.sort((a, b) => Number(a.key === "other") - Number(b.key === "other"));
+}
+pinOtherLast();
+
+/**
  * Refresh the in-memory cache from the `categories` table. Called once at
  * server startup and after each `addCategory`. If the table is empty or the
  * query fails, the cache keeps its current (default) contents.
@@ -112,6 +123,7 @@ export async function loadCategories(): Promise<void> {
       for (const r of rows) {
         CATEGORIES.push({ key: r.key, label: r.label, description: r.description ?? "" });
       }
+      pinOtherLast();
       rebuildKeyset();
     }
   } catch {

@@ -611,6 +611,18 @@ small.field-hint,
   text-decoration: none;
 }
 
+/* Rainbow theme: a faint, click-through VIBGYOR wash over the light palette.
+ * Inserted/removed by theme.js (#rainbow-overlay). pointer-events:none keeps
+ * the page fully interactive underneath. */
+.rainbow-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 999999;
+  opacity: 0.25;
+  background: linear-gradient(135deg, violet, indigo, blue, green, yellow, orange, red);
+}
+
 /* === 8f Status badges === */
 .status-badge {
   font-family: var(--font-mono);

@@ -1,14 +1,16 @@
 /* Encyclopedia of AI Hallucinations — theme toggle.
  * Vanilla JS, no frameworks. The initial preference read runs synchronously
  * (top-level IIFE) to avoid flash-of-unstyled-content. Wiring the click
- * handler is deferred until DOMContentLoaded.
+ * handler — and inserting the rainbow overlay element, which needs <body> —
+ * is deferred until DOMContentLoaded.
  *
- * Preference values: "auto" (default; follows OS), "light", "dark".
+ * Preference values: "auto" (default; follows OS), "light", "dark", "rainbow".
+ * "rainbow" uses the light palette as its base plus a faint VIBGYOR overlay.
  * Stored under localStorage["eah-theme"].
  */
 (function () {
   var KEY = "eah-theme";
-  var VALID = { auto: 1, light: 1, dark: 1 };
+  var VALID = { auto: 1, light: 1, dark: 1, rainbow: 1 };
 
   function readPref() {
     try {
@@ -18,20 +20,39 @@
     return "auto";
   }
 
+  // The overlay needs document.body, which doesn't exist when this script runs
+  // synchronously in <head>. So overlay toggling is a no-op until init().
+  function setRainbowOverlay(on) {
+    if (!document.body) return;
+    var el = document.getElementById("rainbow-overlay");
+    if (on && !el) {
+      el = document.createElement("div");
+      el.id = "rainbow-overlay";
+      el.className = "rainbow-overlay";
+      el.setAttribute("aria-hidden", "true");
+      document.body.appendChild(el);
+    } else if (!on && el) {
+      el.remove();
+    }
+  }
+
   function applyPref(pref) {
     var root = document.documentElement;
     if (pref === "light" || pref === "dark") {
       root.setAttribute("data-theme", pref);
+    } else if (pref === "rainbow") {
+      root.setAttribute("data-theme", "light"); // light palette is the base
     } else {
       root.removeAttribute("data-theme");
     }
+    setRainbowOverlay(pref === "rainbow");
   }
 
-  // Synchronous: must run before paint.
+  // Synchronous: must run before paint (sets data-theme; overlay waits for body).
   applyPref(readPref());
 
-  var ICONS = { auto: "◐", light: "☀", dark: "☾" };
-  var NEXT  = { auto: "light", light: "dark", dark: "auto" };
+  var ICONS = { auto: "◐", light: "☀", dark: "☾", rainbow: "🌈" };
+  var NEXT  = { auto: "light", light: "dark", dark: "rainbow", rainbow: "auto" };
 
   function updateButton(btn, pref) {
     var icon = btn.querySelector(".theme-icon");
@@ -42,6 +63,7 @@
   }
 
   function init() {
+    setRainbowOverlay(readPref() === "rainbow"); // body exists now
     var btn = document.getElementById("theme-toggle");
     if (!btn) return;
     updateButton(btn, readPref());
