@@ -244,16 +244,20 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
         ${filterChips}
         <a href="/browse" class="clear-filters">clear filters</a>
       </div>`
-    : h`<div class="filters"><em>No filters applied.</em></div>`;
-
-  // Category sidebar / quick links
-  const categoryLinks = h`<div class="category-links">
-    ${CATEGORIES.map(
-      (c, i) => h`${i > 0 ? raw(", ") : raw("")}<a href="/browse?category=${c.key}">${c.label}</a>`,
-    )}
-  </div>`;
+    : raw("");
 
   const sharedQs = { category, tag: tagValid, model, q, status, sort };
+
+  // Category list in the sidebar (single-select; clicking the active one clears
+  // it). Backend filtering is single-category, so these stay plain links.
+  const categoryNav = h`<nav class="sidebar-cats">
+    <a href="/browse${raw(buildQs({ ...sharedQs, category: "" }))}" class="cat-link ${category === "" ? "active" : ""}">all categories</a>
+    ${CATEGORIES.map((c) => {
+      const active = c.key === category;
+      const qs = buildQs({ ...sharedQs, category: active ? "" : c.key });
+      return h`<a href="/browse${raw(qs)}" class="cat-link ${active ? "active" : ""}">${c.label}</a>`;
+    })}
+  </nav>`;
 
   const sortLink = (key: SortKey, label: string) => {
     const active = key === sort;
@@ -269,17 +273,6 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     return h`<a href="/browse${raw(qs)}">${label}</a>`;
   };
 
-  const controlsBar = h`<p class="browse-controls">
-    <span><strong>Status:</strong> ${statusLink("", "all")} ·
-      ${statusLink("active", "active")} ·
-      ${statusLink("patched", "patched")}</span>
-    &nbsp;|&nbsp;
-    <span><strong>Sort:</strong> ${sortLink("new", "newest")} ·
-      ${sortLink("old", "oldest")} ·
-      ${sortLink("verified", "most verified")} ·
-      ${sortLink("id", "by A-number")}</span>
-  </p>`;
-
   // Pagination — spec §5l format: "← prev · showing 26–50 of 1163 entries · next →"
   const prevQs = page > 1 ? buildQs({ ...sharedQs, page: page - 1 }) : null;
   const nextQs = page < totalPages ? buildQs({ ...sharedQs, page: page + 1 }) : null;
@@ -294,14 +287,17 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     ${nextQs ? h`<a href="/browse${raw(nextQs)}">next &rarr;</a>` : h`<span class="disabled">next &rarr;</span>`}
   </nav>`;
 
-  const prop = (label: string, value: SafeHtml): SafeHtml => h`
-    <div class="entry-prop">
-      <span class="prop-label">${label}</span>
-      <div class="prop-value">${value}</div>
-    </div>`;
+  const infoRow = (label: string, value: SafeHtml): SafeHtml =>
+    h`<dt>${label}</dt><dd>${value}</dd>`;
 
+  // Each entry is a collapsible card: the colored header (a <summary>) is the
+  // title + collapse toggle; the body holds the info grid plus the prompt and
+  // response, which are the focal content (full-width background-filled boxes,
+  // no indent). Pure HTML <details> — no JS. Open by default so the listing
+  // reads as content; click the header to collapse. The A-number lives in the
+  // info grid (it's the permalink), not the header.
   const list = rows.length === 0
-    ? h`<p><em>No matching entries.</em></p>`
+    ? h`<p class="empty"><em>No matching entries.</em></p>`
     : h`<ul class="entry-list">
         ${rows.map((r) => {
           const eahId = formatEahId(r.eah_number);
@@ -318,26 +314,37 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
             : r.owner_username
               ? h`${r.owner_username}`
               : (r.author_name && r.author_name.length > 0 ? h`${r.author_name}` : h`<em>anonymous</em>`);
-          return h`<li class="entry-item">
-            <div class="entry-head">
-              <a href="${linkTarget}"><code>${eahId || r.public_id}</code></a> —
-              <a href="${linkTarget}">${r.title ?? h`<em>(untitled)</em>`}</a>
-              ${r.entry_status === "patched"
-                ? h`<span class="entry-status entry-status-patched">patched</span>`
-                : raw("")}
-            </div>
-            <div class="entry-props">
-              ${prop("Author", author)}
-              ${prop("Model", h`${r.ai_model}`)}
-              ${prop("Category", h`${categoryLabel(r.category)}`)}
-              ${prop("Date", h`${ymd(r.submitted_at)}`)}
-              ${prop("Verified", h`${verifText}`)}
-              ${tags.length > 0
-                ? prop("Tags", h`${tags.map((t, i) => h`${i > 0 ? raw(", ") : raw("")}<a href="/browse?tag=${t}">${t}</a>`)}`)
-                : raw("")}
-              ${prop("Prompt", longField(r.prompt))}
-              ${prop("Response", longField(r.output))}
-            </div>
+          return h`<li class="entry-card">
+            <details open>
+              <summary class="entry-card-head">
+                <span class="entry-card-title">${r.title ?? h`<em>(untitled)</em>`}</span>
+                ${r.entry_status === "patched"
+                  ? h`<span class="entry-badge-patched">patched</span>`
+                  : raw("")}
+                <span class="entry-card-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="entry-card-body">
+                <dl class="entry-info">
+                  ${infoRow("Author", author)}
+                  ${infoRow("Model", h`${r.ai_model}`)}
+                  ${infoRow("Category", h`<a href="/browse?category=${r.category}">${categoryLabel(r.category)}</a>`)}
+                  ${infoRow("Date", h`${ymd(r.submitted_at)}`)}
+                  ${infoRow("Verified", h`${verifText}`)}
+                  ${tags.length > 0
+                    ? infoRow("Tags", h`${tags.map((t, i) => h`${i > 0 ? raw(", ") : raw("")}<a href="/browse?tag=${t}">${t}</a>`)}`)
+                    : raw("")}
+                  ${infoRow("Entry ID", h`<a href="${linkTarget}"><code>${eahId || r.public_id}</code></a>`)}
+                </dl>
+                <div class="entry-field">
+                  <div class="entry-field-label">Prompt</div>
+                  <div class="entry-field-box">${longField(r.prompt)}</div>
+                </div>
+                <div class="entry-field">
+                  <div class="entry-field-label">Response</div>
+                  <div class="entry-field-box">${longField(r.output)}</div>
+                </div>
+              </div>
+            </details>
           </li>`;
         })}
       </ul>`;
@@ -346,12 +353,12 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   const modelOptions = h`<option value="">all models</option>
     ${allModels.map((m) => h`<option value="${m.ai_model}" ${m.ai_model === model ? raw("selected") : raw("")}>${m.ai_model}</option>`)}`;
 
-  // Re-display search form pre-filled with current q so people can refine.
-  // The query box + Search button share one full-width row; the model filter
-  // sits on its own row below.
+  // Search form lives at the top of the sidebar: query box + Search button,
+  // model filter below. Hidden inputs preserve the other active filters so a
+  // search refines rather than resets them.
   const searchForm = h`<form action="/browse" method="get" class="search-form">
     <div class="search-row">
-      <input type="search" name="q" value="${q}" placeholder="search title, prompt, output, model, author, A-number…" maxlength="200">
+      <input type="search" name="q" value="${q}" placeholder="search title, prompt, output…" maxlength="200">
       <button type="submit">Search</button>
     </div>
     ${category ? h`<input type="hidden" name="category" value="${category}">` : h``}
@@ -359,7 +366,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     ${status ? h`<input type="hidden" name="status" value="${status}">` : h``}
     ${sort !== "new" ? h`<input type="hidden" name="sort" value="${sort}">` : h``}
     <div class="search-model">
-      <label for="model-filter">Model: </label>
+      <label for="model-filter">Model</label>
       <select id="model-filter" name="model">
         ${modelOptions}
       </select>
@@ -367,13 +374,40 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   </form>`;
 
   return h`
-    ${searchForm}
-    ${filtersBlock}
-    ${categoryLinks}
-    ${controlsBar}
-    <p class="result-count">${totalCount} ${totalCount === 1 ? raw("entry") : raw("entries")}</p>
-    ${list}
-    ${pagination}
+    <div class="browse-layout">
+      <aside class="browse-sidebar">
+        ${searchForm}
+        <div class="sidebar-section">
+          <h3 class="sidebar-h">Categories</h3>
+          ${categoryNav}
+        </div>
+        <div class="sidebar-section">
+          <h3 class="sidebar-h">Status</h3>
+          <div class="sidebar-links">
+            ${statusLink("", "all")}
+            ${statusLink("active", "active")}
+            ${statusLink("patched", "patched")}
+          </div>
+        </div>
+        <div class="sidebar-section">
+          <h3 class="sidebar-h">Sort</h3>
+          <div class="sidebar-links">
+            ${sortLink("new", "newest")}
+            ${sortLink("old", "oldest")}
+            ${sortLink("verified", "most verified")}
+            ${sortLink("id", "by A-number")}
+          </div>
+        </div>
+      </aside>
+      <div class="browse-main">
+        <div class="browse-main-head">
+          <p class="result-count">${totalCount} ${totalCount === 1 ? raw("entry") : raw("entries")}</p>
+          ${filtersBlock}
+        </div>
+        ${list}
+        ${pagination}
+      </div>
+    </div>
   `;
 }
 
@@ -381,8 +415,8 @@ export const browse: RouteHandler = async (req, ctx) => {
   const body = await renderBrowseBody(ctx);
   return pageResponse(req, {
     title: "Browse · EAH",
-    heading: "Browse",
     body,
     user: ctx.user,
+    bodyClass: "browse-page",
   });
 };

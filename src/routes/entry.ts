@@ -175,12 +175,14 @@ export const entry: RouteHandler = async (req, ctx) => {
   const canonicalUrl = `${config.publicBaseUrl}/e/${eahId}`;
   const citationText = `Encyclopedia of AI Hallucinations, entry ${eahId} (${row.title ?? row.ai_model}), submitted ${submittedYmd}. ${canonicalUrl}`;
 
-  // The big page heading uses the title + AI model. The A-number sits above.
+  // Colored header bar carrying the title (matches the browse-listing cards).
+  // The A-number, model, and category now live in the metadata grid below.
   const pageHeader = h`
-    <header class="entry-header">
-      <p class="entry-eah-id"><code>${eahId}</code> · <span class="entry-status entry-status-${row.entry_status}">${row.entry_status}</span></p>
-      <h1 class="entry-title">${row.title ?? row.ai_model}</h1>
-      <p class="entry-category">${row.ai_model} · ${categoryLabel(row.category)}</p>
+    <header class="entry-card-head entry-page-head">
+      <h1 class="entry-card-title">${row.title ?? row.ai_model}</h1>
+      ${row.entry_status === "patched"
+        ? h`<span class="entry-badge-patched">patched</span>`
+        : raw("")}
     </header>
   `;
 
@@ -189,8 +191,11 @@ export const entry: RouteHandler = async (req, ctx) => {
     ${patchedBanner}
 
     <dl class="entry-meta">
-      <dt>Tags</dt><dd>${tagList}</dd>
+      <dt>Entry ID</dt><dd><code>${eahId}</code></dd>
+      <dt>Model</dt><dd>${row.ai_model}</dd>
+      <dt>Category</dt><dd>${categoryLabel(row.category)}</dd>
       <dt>Author</dt><dd>${authorDisplay}</dd>
+      <dt>Tags</dt><dd>${tagList}</dd>
       <dt>Submitted</dt><dd>${submittedYmd}</dd>
       ${hallucinationDateLine}
       ${verificationLine}

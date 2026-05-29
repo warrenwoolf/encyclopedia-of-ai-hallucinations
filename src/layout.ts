@@ -121,6 +121,23 @@ export function layout(opts: LayoutOptions): string {
   </head>
   <body${bodyClassAttr}>
     ${banner}
+    <div class="topbar">
+      <nav class="site-nav">
+        <div class="nav-links">
+          <a href="/browse">browse</a>
+          <a href="/submit">submit</a>
+          <a href="/guide">guide</a>
+          <a href="/about">about</a>
+          <a href="/terms">terms</a>
+        </div>
+        <div class="nav-right">
+          <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">
+            <span class="theme-icon">◐</span><span class="theme-label">theme</span>
+          </button>
+          ${userNav}
+        </div>
+      </nav>
+    </div>
     <header>
       <div class="site-header-top">
         <a class="site-title" href="/">
@@ -132,17 +149,6 @@ export function layout(opts: LayoutOptions): string {
         </a>
         <p class="site-credit">Founded by Rudra Jadhav and Warren Woolf</p>
       </div>
-      <nav>
-        <a href="/browse">browse</a>
-        <a href="/submit">submit</a>
-        <a href="/guide">guide</a>
-        <a href="/about">about</a>
-        <a href="/terms">terms</a>
-        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">
-          <span class="theme-icon">◐</span><span class="theme-label">theme</span>
-        </button>
-        ${userNav}
-      </nav>
     </header>
     <main>
       ${heading}

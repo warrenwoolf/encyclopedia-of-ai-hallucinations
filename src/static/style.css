@@ -33,6 +33,8 @@
   --font-mono: 'Courier New', Courier, monospace;
   --font-ui: system-ui, -apple-system, sans-serif;
   --content-width: 900px;
+  --entry-head-bg: #1e3a5f;
+  --entry-head-fg: #ffffff;
 }
 
 /* Dark mode via OS preference — only when not explicitly forced light */
@@ -53,6 +55,8 @@
     --del-bg: #2a0a0a;
     --ins-color: #88cc88;
     --del-color: #cc8888;
+    --entry-head-bg: #24405f;
+    --entry-head-fg: #f0f0f0;
   }
 }
 
@@ -73,6 +77,8 @@
   --del-bg: #2a0a0a;
   --ins-color: #88cc88;
   --del-color: #cc8888;
+  --entry-head-bg: #24405f;
+  --entry-head-fg: #f0f0f0;
 }
 
 /* Force light when explicitly requested */
@@ -278,6 +284,7 @@ nav .nav-sep { color: var(--text-muted); margin-right: 4px; }
 /* Right-hand user area in nav */
 .user-nav {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 0.4em;
   color: var(--text-muted);
@@ -288,6 +295,48 @@ nav .nav-sep { color: var(--text-muted); margin-right: 4px; }
 }
 .user-nav a:link, .user-nav a:visited { color: var(--text-muted); }
 .user-nav a:hover { color: var(--link-hover); text-decoration: underline; }
+
+/* Slim modern top bar: nav links on the left, theme toggle + user area on the
+   right. Sits above the centered logo/title band. */
+.topbar {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 12px;
+}
+.site-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  max-width: var(--content-width);
+  margin: 0 auto;
+  text-align: left;
+  font-family: var(--font-ui);
+}
+.site-nav .nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.site-nav .nav-links a {
+  color: var(--link);
+  text-decoration: none;
+  margin: 0;
+}
+.site-nav .nav-links a:hover { text-decoration: underline; }
+.site-nav .nav-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* In the top bar the user-nav border-left would double up with the gap; drop it. */
+.site-nav .user-nav {
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
 
 main {
   max-width: var(--content-width);
@@ -660,6 +709,14 @@ small.field-hint,
 /* === 8g Entry page === */
 .entry-header { margin-bottom: 16px; }
 
+/* Colored title bar on the single-entry page — same look as the listing cards,
+   but it's a static <header>, not a collapse toggle. */
+.entry-page-head {
+  cursor: default;
+  margin-bottom: 16px;
+}
+.entry-page-head .entry-card-title { font-size: 1.3em; }
+
 .entry-eah-id {
   font-family: var(--font-mono);
   font-size: 1.1em;
@@ -859,24 +916,81 @@ pre.note {
 .chat-body { white-space: pre-wrap; word-wrap: break-word; }
 
 /* === 8j Search / browse === */
-/* Full-width search box; query + button share the top row, model filter below. */
-.search-form { width: 100%; margin: 12px 0; }
+/* Browse + home use the two-column layout, which wants a wider column. */
+body.browse-page { --content-width: min(1180px, 96vw); }
+
+/* Two-column browse: filter sidebar on the left, entry list on the right. */
+.browse-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 28px;
+  align-items: start;
+  margin-top: 12px;
+}
+.browse-sidebar { font-size: 0.9em; min-width: 0; }
+.browse-main { min-width: 0; }
+
+/* Search box: query + Search stacked full-width in the narrow sidebar, model
+   filter below. */
+.search-form { width: 100%; margin: 0 0 18px; }
 .search-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  align-items: center;
 }
 .search-row input[type=search] {
-  flex: 1 1 auto;
+  flex: 1 1 100%;
   max-width: none;
 }
+.search-row button { flex: 1 1 100%; }
 .search-model {
   margin-top: 8px;
   font-size: 0.9em;
   font-family: var(--font-ui);
 }
+.search-model label { display: block; }
+
+/* Sidebar filter sections */
+.sidebar-section { margin-bottom: 18px; }
+.sidebar-h {
+  font-family: var(--font-ui);
+  font-size: 0.8em;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 3px;
+  margin: 0 0 6px;
+}
+.sidebar-cats,
+.sidebar-links {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  font-family: var(--font-ui);
+  /* .sidebar-cats is a <nav>, so reset the centered text-align the generic
+     `nav` rule would otherwise impose. */
+  text-align: left;
+}
+.sidebar-cats a,
+.sidebar-links a { text-decoration: none; }
+.sidebar-cats a:hover,
+.sidebar-links a:hover { text-decoration: underline; }
+.sidebar-cats a.active { font-weight: bold; color: var(--text); }
+.sidebar-links strong { color: var(--text); }
 
 .filters  { font-size: 0.9em; margin: 8px 0; }
+.filters .chip {
+  display: inline-block;
+  font-family: var(--font-ui);
+  font-size: 0.85em;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  padding: 0.05em 0.5em;
+  margin-right: 6px;
+}
 
 .filter-bar {
   display: flex;
@@ -887,10 +1001,18 @@ pre.note {
   font-family: var(--font-ui);
 }
 
+.browse-main-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
 .result-count {
   color: var(--text-muted);
   font-size: 0.85em;
   font-family: var(--font-ui);
+  margin: 0;
 }
 
 .pagination,
@@ -905,53 +1027,89 @@ pre.note {
 .pagination .disabled,
 .pager .disabled { color: var(--text-muted); }
 
-/* Browse controls (sort / filter links bar) */
-.browse-controls {
-  margin: 0.6em 0 0.4em 0;
-  font-size: 0.95em;
-  color: var(--text-muted);
-}
-.browse-controls a:link, .browse-controls a:visited { color: var(--link); }
-
 /* Home page top section */
 .home-top { text-align: center; }
 .home-top .cta { font-size: 1.05em; }
 .tagline { font-size: 1.05em; color: var(--text-muted); margin: 0.4em 0 1em 0; }
 
-/* Entry listing (browse + home): ID/title on top, properties indented below. */
-.entry-list {
-  list-style: none;
-  padding: 0;
-  margin: 1em 0;
+/* Entry cards (browse + home listing). Each is a collapsible <details>: the
+   colored header is the <summary> (title + collapse toggle), the body holds the
+   info grid and the prompt/response boxes. */
+.entry-list { list-style: none; padding: 0; margin: 1em 0; }
+.entry-card {
+  border: 1px solid var(--border);
+  margin: 0 0 16px 0;
+  background: var(--bg);
 }
-.entry-item {
-  margin: 0 0 1.4em 0;
-  padding-bottom: 1.1em;
-  border-bottom: 1px solid var(--border);
-}
-.entry-head {
-  font-size: 1.05em;
-  margin-bottom: 0.4em;
-}
-.entry-head code { font-size: 0.95em; }
-.entry-props { margin-left: 1.5em; }
-.entry-prop {
+.entry-card > details { margin: 0; }
+
+.entry-card-head {
+  background: var(--entry-head-bg);
+  color: var(--entry-head-fg);
+  padding: 9px 14px;
+  cursor: pointer;
   display: flex;
-  gap: 0.6em;
-  margin: 0.3em 0;
-}
-.entry-prop .prop-label {
-  flex: 0 0 6em;
-  font-weight: bold;
-  font-size: 0.9em;
-  color: var(--text-muted);
+  align-items: center;
+  gap: 10px;
   font-family: var(--font-ui);
+  list-style: none;
 }
-.entry-prop .prop-value {
+/* Hide the native disclosure triangle; we draw our own chevron at the right. */
+.entry-card-head::-webkit-details-marker { display: none; }
+.entry-card-head::marker { content: ""; }
+.entry-card-title {
   flex: 1 1 auto;
   min-width: 0;
+  font-size: 1.1em;
+  font-weight: bold;
+  overflow-wrap: anywhere;
+  margin: 0;
 }
-.entry-prop .prop-value pre.note { margin: 0; }
+.entry-card-chevron { flex: none; font-size: 0.9em; }
+.entry-card-chevron::before { content: "\25B8"; } /* ▸ collapsed */
+details[open] > .entry-card-head .entry-card-chevron::before { content: "\25BE"; } /* ▾ open */
+
+/* Patched badge sits on the colored header; border uses the header text color. */
+.entry-badge-patched {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid currentColor;
+  padding: 0.1em 0.5em;
+}
+
+.entry-card-body { padding: 12px 14px; }
+
+.entry-info {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 14px;
+  margin: 0 0 12px 0;
+  font-size: 0.9em;
+}
+.entry-info dt { font-weight: bold; color: var(--text-muted); font-family: var(--font-ui); }
+.entry-info dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* Prompt / response: the focal content — full-width background-filled boxes,
+   no indent, no admonition styling. */
+.entry-field { margin: 12px 0 0; }
+.entry-field-label {
+  font-family: var(--font-ui);
+  font-size: 0.78em;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.entry-field-box {
+  background: var(--bg-alt);
+  border: 1px solid var(--border-light);
+  padding: 10px 12px;
+}
+.entry-field-box pre.note { margin: 0; }
 
 /* "show all" toggle for long prompt/response. Clamps height when closed and
    un-clamps when open — same <pre>, no duplicate content, no JS. */
@@ -972,10 +1130,9 @@ details.longtext .less { display: none; }
 details.longtext[open] .more { display: none; }
 details.longtext[open] .less { display: inline; }
 
-@media (max-width: 600px) {
-  .entry-props { margin-left: 0.8em; }
-  .entry-prop { flex-direction: column; gap: 0.1em; }
-  .entry-prop .prop-label { flex-basis: auto; }
+/* Single-column on narrow viewports: filters stack above the listing. */
+@media (max-width: 760px) {
+  .browse-layout { grid-template-columns: 1fr; gap: 16px; }
 }
 
 /* === 8k Autosave banner === */
