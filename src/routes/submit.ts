@@ -189,7 +189,7 @@ async function showForm(req: Request, ctx: { user: any }, opts: { values?: FormV
     username: ctx.user?.username ?? "",
   });
   return pageResponse(req,
-      { title: "Submit · EAH", heading: "Submit a hallucination", body, user: ctx.user },
+      { title: "Submit · EAH", heading: "Submit a hallucination", body, user: ctx.user, bodyClass: "text-page" },
       { status: opts.status ?? 200, setCookie },
     );
 }

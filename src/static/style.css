@@ -10,7 +10,7 @@
 
 /* === 8a CSS variables — light (default) === */
 :root {
-  --bg: #e7e7e7;
+  --bg: #fdfaef;
   --bg-alt: #f8f8f8;
   --bg-banner: #e8e8e8;
   --border: #cccccc;
@@ -37,6 +37,9 @@
   --font-mono: 'Courier New', Courier, monospace;
   --font-ui: system-ui, -apple-system, sans-serif;
   --content-width: 100%;
+  /* Outer horizontal page gutter (top bar links, search bar, main, footer).
+     Reduced on narrow viewports below — see the ≤700px breakpoint. */
+  --page-pad: 50px;
   --entry-head-bg: #0a3367;
   --entry-head-fg: #ffffff;
 }
@@ -87,7 +90,7 @@
 
 /* Force light when explicitly requested */
 :root[data-theme="light"] {
-  --bg: #e7e7e7;
+  --bg: #fdfaef;
   --bg-alt: #f8f8f8;
   --bg-banner: #e8e8e8;
   --border: #cccccc;
@@ -128,7 +131,13 @@ body {
   line-height: 1.6;
 }
 
+/* Shrink the outer page gutter on narrower viewports — 50px eats too much width
+   once the screen approaches tablet/phone size. */
+@media (max-width: 900px) {
+  :root { --page-pad: 24px; }
+}
 @media (max-width: 600px) {
+  :root { --page-pad: 12px; }
   body { font-size: 17px; }
   .site-logo { width: 3em; height: 3em; }
   /* The desktop -0.7em pull-up assumes the large-title line-box whitespace; at
@@ -196,13 +205,13 @@ body.text-page main { --content-width: 760px; }
 .site-wrapper {
   max-width: var(--content-width);
   margin: 0 auto;
-  padding: 0 12px;
+  padding: 0 var(--page-pad);
 }
 
 header {
   background: var(--bg-banner);
   border-bottom: 1px solid var(--border);
-  padding: 8px 12px;
+  padding: 8px var(--page-pad);
 }
 
 /* Top row: logo block + title text side by side */
@@ -248,7 +257,7 @@ header .site-header-top {
    bump, so it scales smoothly from tiny phones (~20px) up to a desktop cap
    (~46px) without per-breakpoint font overrides. */
 .site-title-text {
-  font-size: clamp(1.25rem, 3.2vw + 0.8rem, 2.9rem);
+  font-size: clamp(1.05rem, 2.69vw + 0.67rem, 2.44rem);
   font-weight: bold;
   color: var(--text);
   text-decoration: none;
@@ -273,7 +282,7 @@ header .site-header-top {
 .site-title:link, .site-title:visited { color: var(--text); text-decoration: none; }
 
 .site-credit {
-  font-size: clamp(0.9rem, 0.9vw + 0.6rem, 1.35rem);
+  font-size: clamp(0.76rem, 0.76vw + 0.5rem, 1.13rem);
   color: var(--text-muted);
   /* Lift the credit up into the whitespace below the centered title so it sits
      closer to the title, without disturbing the title/logo position. */
@@ -311,7 +320,7 @@ nav .nav-sep { color: var(--text-muted); margin-right: 4px; }
      Linux, and similar faces elsewhere) reserves so much space above the cap
      height that the glyphs sit visibly low. Dropping the top padding entirely
      lifts the row to optically center it and makes the bar ~4px shorter. */
-  padding: 0 12px 8px;
+  padding: 0 var(--page-pad) 8px;
 }
 .site-nav {
   display: flex;
@@ -432,13 +441,13 @@ nav .nav-sep { color: var(--text-muted); margin-right: 4px; }
 main {
   max-width: var(--content-width);
   margin: 16px auto;
-  padding: 0 12px;
+  padding: 0 var(--page-pad);
 }
 
 footer {
   border-top: 1px solid var(--border);
   margin-top: 32px;
-  padding: 12px;
+  padding: 12px var(--page-pad);
   font-size: 0.85em;
   color: var(--text-muted);
   text-align: center;
@@ -1155,6 +1164,8 @@ body.browse-page { --content-width: 100%; }
   border-radius: 6px 6px 0 0;
   /* clip the colored head's square corners to the card's rounded top */
   overflow: hidden;
+  /* subtle drop shadow to lift the card off the page background */
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.12);
 }
 .entry-card > details { margin: 0; }
 

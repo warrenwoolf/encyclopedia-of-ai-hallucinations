@@ -376,6 +376,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   return h`
     <div class="browse-layout">
       <aside class="browse-sidebar">
+        <h3 class="sidebar-h">Search</h3>
         ${searchForm}
         <div class="sidebar-section">
           <h3 class="sidebar-h">Categories</h3>
