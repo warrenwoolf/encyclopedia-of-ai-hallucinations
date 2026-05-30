@@ -189,13 +189,13 @@ export async function sendReviewerMessage(opts: {
 }): Promise<void> {
   const { to, eahId, modelLabel, reviewerName, bodyPreview } = opts;
   const link = `${config.publicBaseUrl}/my/submissions/${eahId}/discussion`;
-  const subject = `EAH: a reviewer commented on your submission (${eahId})`;
+  const subject = `ENAIH: a reviewer commented on your submission (${eahId})`;
   const preview = bodyPreview.length > 600 ? bodyPreview.slice(0, 600) + "…" : bodyPreview;
 
   const text =
     `A staff reviewer (${reviewerName}) posted a comment on your submission ` +
     `to the Encyclopedia of AI Hallucinations.\n\n` +
-    `EAH ID: ${eahId}\n` +
+    `ENAIH ID: ${eahId}\n` +
     `Model: ${modelLabel}\n\n` +
     `> ${preview.split("\n").join("\n> ")}\n\n` +
     `Read the full thread and reply:\n${link}\n`;
@@ -203,7 +203,7 @@ export async function sendReviewerMessage(opts: {
   const html = htmlWrap(
     `<p>A staff reviewer (<strong>${escape(reviewerName)}</strong>) posted a comment on your ` +
       `submission to the <strong>Encyclopedia of AI Hallucinations</strong>.</p>` +
-      `<p><strong>EAH ID:</strong> <code>${escape(eahId)}</code><br>` +
+      `<p><strong>ENAIH ID:</strong> <code>${escape(eahId)}</code><br>` +
       `<strong>Model:</strong> ${escape(modelLabel)}</p>` +
       `<blockquote style="border-left:3px solid #ccc;padding-left:0.8em;color:#444;white-space:pre-wrap">${escape(preview)}</blockquote>` +
       `<p><a href="${escape(link)}">Read the full thread and reply</a></p>`,
@@ -226,14 +226,14 @@ export async function sendDecision(opts: {
 
   const subject =
     decision === "approved"
-      ? `EAH: your submission was published (${eahId})`
-      : `EAH: your submission was not accepted`;
+      ? `ENAIH: your submission was published (${eahId})`
+      : `ENAIH: your submission was not accepted`;
 
   const lines: string[] = [];
   if (decision === "approved") {
     lines.push(`Your submission to the Encyclopedia of AI Hallucinations was approved and is now public.`);
     lines.push(``);
-    lines.push(`EAH ID: ${eahId}`);
+    lines.push(`ENAIH ID: ${eahId}`);
     lines.push(`Model: ${modelLabel}`);
     lines.push(`View it: ${entryUrl(eahId)}`);
   } else {
@@ -260,7 +260,7 @@ export async function sendDecision(opts: {
   const htmlParts: string[] = [];
   if (decision === "approved") {
     htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was approved and is now public.</p>`);
-    htmlParts.push(`<p><strong>EAH ID:</strong> <code>${escape(eahId)}</code><br>` +
+    htmlParts.push(`<p><strong>ENAIH ID:</strong> <code>${escape(eahId)}</code><br>` +
       `<strong>Model:</strong> ${escape(modelLabel)}</p>`);
     htmlParts.push(`<p><a href="${escape(entryUrl(eahId))}">View the published entry</a></p>`);
   } else {
@@ -292,7 +292,7 @@ export async function sendVerificationCode(opts: {
   username: string;
 }): Promise<void> {
   const { to, code, username } = opts;
-  const subject = `EAH: your verification code is ${code}`;
+  const subject = `ENAIH: your verification code is ${code}`;
   const text =
     `Hi ${username},\n\n` +
     `Your verification code for the Encyclopedia of AI Hallucinations is:\n\n` +

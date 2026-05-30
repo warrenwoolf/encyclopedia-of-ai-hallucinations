@@ -110,7 +110,7 @@ export async function getQueue(req: Request, ctx: RouteContext): Promise<Respons
         <table class="queue">
           <thead>
             <tr>
-              <th>EAH ID</th>
+              <th>ENAIH ID</th>
               <th>title</th>
               <th>model</th>
               <th>category</th>
@@ -360,7 +360,7 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
     ${editLink}
 
     <dl class="meta">
-      <dt>EAH ID</dt><dd><code>${eahId || raw("<em>(none)</em>")}</code></dd>
+      <dt>ENAIH ID</dt><dd><code>${eahId || raw("<em>(none)</em>")}</code></dd>
       <dt>title</dt><dd>${row.title ?? h`<em>(no title)</em>`}</dd>
       <dt>status</dt><dd>${statusBadge(row.status)}</dd>
       <dt>entry status</dt><dd>${row.entry_status}</dd>

@@ -52,7 +52,7 @@ async function notFound(req: Request, ctx: { user: any }): Promise<Response> {
     <p><a href="/browse">Browse entries</a> · <a href="/">Home</a></p>`;
   return pageResponse(
     req,
-    { title: "Not found · EAH", heading: "Not found", body, user: ctx.user },
+    { title: "Not found · ENAIH", heading: "Not found", body, user: ctx.user },
     { status: 404 },
   );
 }
@@ -233,7 +233,7 @@ export const entry: RouteHandler = async (req, ctx) => {
   `;
 
   return pageResponse(req, {
-    title: `${eahId} · ${row.title ?? row.ai_model} · EAH`,
+    title: `${eahId} · ${row.title ?? row.ai_model} · ENAIH`,
     bodyClass: "text-page",
     body,
     user: ctx.user,

@@ -284,7 +284,7 @@ export async function getNewEntry(req: Request, ctx: RouteContext): Promise<Resp
   const { token, setCookie } = tokenForRequest(req);
   const body = renderForm({ mode: "new", values: emptyForm(), csrf: token, error: null });
   return htmlResponse(
-    await layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
+    await layout({ title: "Add entry · ENAIH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
     { setCookie },
   );
 }
@@ -306,7 +306,7 @@ export async function postNewEntry(req: Request, ctx: RouteContext): Promise<Res
     const { token, setCookie } = tokenForRequest(req);
     const body = renderForm({ mode: "new", values, csrf: token, error: v.error });
     return htmlResponse(
-      await layout({ title: "Add entry · EAH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
+      await layout({ title: "Add entry · ENAIH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
       { status: 400, setCookie },
     );
   }
@@ -463,7 +463,7 @@ export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Res
   const body = renderForm({ mode: "edit", eahId, values, csrf: token, error: null });
   return htmlResponse(
     await layout({
-      title: `Edit ${eahId} · EAH admin`,
+      title: `Edit ${eahId} · ENAIH admin`,
       heading: `Edit ${eahId}`,
       body,
       user: ctx.user, csrfToken: token,
@@ -502,7 +502,7 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
     const body = renderForm({ mode: "edit", eahId: formatEahId(row.eah_number), values, csrf: token, error: v.error });
     return htmlResponse(
       await layout({
-        title: `Edit ${formatEahId(row.eah_number)} · EAH admin`,
+        title: `Edit ${formatEahId(row.eah_number)} · ENAIH admin`,
         heading: `Edit ${formatEahId(row.eah_number)}`,
         body,
         user: ctx.user, csrfToken: token,

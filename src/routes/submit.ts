@@ -155,14 +155,14 @@ function renderForm(opts: {
         <label class="checkbox-label">
           <input type="checkbox" name="allow_author_edits" value="1"
                  ${values.allow_author_edits ? raw('checked') : raw('')}>
-          Allow EAH staff to edit this submission (e.g. to add reproduction
+          Allow ENAIH staff to edit this submission (e.g. to add reproduction
           notes, fix typos, or update the patched status). You can always edit
           your own submission regardless.
         </label>
       </p>
 
       <p class="field-hint"><small><strong>Submit for review</strong> sends this
-        to EAH staff. <strong>Save as draft</strong> just stores it privately —
+        to ENAIH staff. <strong>Save as draft</strong> just stores it privately —
         nothing is sent to staff until you propose it for review (you can do that
         later from <a href="/my/submissions">/my/submissions</a>).</small></p>
 
@@ -189,7 +189,7 @@ async function showForm(req: Request, ctx: { user: any }, opts: { values?: FormV
     username: ctx.user?.username ?? "",
   });
   return pageResponse(req,
-      { title: "Submit · EAH", heading: "Submit a hallucination", body, user: ctx.user, bodyClass: "text-page" },
+      { title: "Submit · ENAIH", heading: "Submit a hallucination", body, user: ctx.user, bodyClass: "text-page" },
       { status: opts.status ?? 200, setCookie },
     );
 }
@@ -211,7 +211,7 @@ function showSuspendedNotice(req: Request, ctx: { user: any }, status = 403): Re
     <p><a href="/my/submissions">My submissions</a> · <a href="/browse">Browse</a></p>
   `;
   return pageResponse(req,
-    { title: "Timed out · EAH", heading: "You're timed out", body, user: ctx.user },
+    { title: "Timed out · ENAIH", heading: "You're timed out", body, user: ctx.user },
     { status },
   );
 }
@@ -303,7 +303,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   if (!rl.allowed) {
     const body = h`<p>Too many submissions. Please retry in ${rl.retryAfterSec ?? 60} seconds.</p>`;
     return pageResponse(req,
-      { title: "Rate limited · EAH", heading: "Slow down", body, user: ctx.user },
+      { title: "Rate limited · ENAIH", heading: "Slow down", body, user: ctx.user },
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 60) } },
     );
   }
@@ -319,7 +319,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   if (!verifyCsrf(req, form.get("_csrf"))) {
     const body = h`<p>Invalid CSRF token. Reload the form and try again.</p>`;
     return pageResponse(req,
-      { title: "Forbidden · EAH", heading: "Forbidden", body, user: ctx.user },
+      { title: "Forbidden · ENAIH", heading: "Forbidden", body, user: ctx.user },
       { status: 403 },
     );
   }

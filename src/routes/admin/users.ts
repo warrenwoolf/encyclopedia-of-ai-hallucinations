@@ -227,7 +227,7 @@ async function renderListing(
   `;
 
   const html = await layout({
-    title: `${heading} · EAH`,
+    title: `${heading} · ENAIH`,
     heading,
     body,
     user: ctx.user,
@@ -350,7 +350,7 @@ export async function postUserAction(req: Request, ctx: RouteContext): Promise<R
           <p><a href="${returnTo}">Cancel</a></p>
         `;
         return htmlResponse(
-          await layout({ title: "Delete account · EAH", heading: "Delete account", body, user: ctx.user, csrfToken: csrf }),
+          await layout({ title: "Delete account · ENAIH", heading: "Delete account", body, user: ctx.user, csrfToken: csrf }),
           { setCookie },
         );
       }

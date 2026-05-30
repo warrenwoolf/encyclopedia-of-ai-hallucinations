@@ -471,7 +471,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
 export const browse: RouteHandler = async (req, ctx) => {
   const body = await renderBrowseBody(ctx);
   return pageResponse(req, {
-    title: "Browse · EAH",
+    title: "Browse · ENAIH",
     body,
     user: ctx.user,
     bodyClass: "browse-page",

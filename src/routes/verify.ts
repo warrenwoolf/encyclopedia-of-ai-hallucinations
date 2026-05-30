@@ -58,7 +58,7 @@ function noPendingResponse(): Response {
     <a href="/signup">sign up</a>, or <a href="/login">sign in</a> if you
     already have an account.</p>`;
   return htmlResponse(
-    layout({ title: "Verify email · EAH", heading: "Verify your email", body }),
+    layout({ title: "Verify email · ENAIH", heading: "Verify your email", body }),
     { status: 400 },
   );
 }
@@ -100,7 +100,7 @@ function renderVerifyPage(opts: {
     </form>
   `;
   return htmlResponse(
-    layout({ title: "Verify email · EAH", heading: "Verify your email", body }),
+    layout({ title: "Verify email · ENAIH", heading: "Verify your email", body }),
     { status: opts.status ?? 200, setCookie: opts.csrfSetCookie },
   );
 }

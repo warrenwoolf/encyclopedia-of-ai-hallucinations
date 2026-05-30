@@ -43,7 +43,7 @@ export const attributionNote: SafeHtml = h`
 async function notConfigured(): Promise<Response> {
   return htmlResponse(
     await layout({
-      title: "Not found · EAH",
+      title: "Not found · ENAIH",
       heading: "Not found",
       body: h`<p>Google sign-in isn't configured on this server.</p>`,
     }),
@@ -57,7 +57,7 @@ async function failure(reason: string): Promise<Response> {
   console.warn(`[oauth google] failed:`, reason);
   return htmlResponse(
     await layout({
-      title: "Sign-in failed · EAH",
+      title: "Sign-in failed · ENAIH",
       heading: "Sign-in failed",
       body: h`<p>Google sign-in didn't complete. Try again or use a password.</p>
               <p><a href="/login">Back to sign in</a></p>`,
@@ -199,7 +199,7 @@ function renderChoosePage(opts: {
     </form>
   `;
   return htmlResponse(
-    layout({ title: "Choose a username · EAH", heading: "Choose a username", body }),
+    layout({ title: "Choose a username · ENAIH", heading: "Choose a username", body }),
     { status: opts.status ?? 200, setCookie: opts.setCookie },
   );
 }

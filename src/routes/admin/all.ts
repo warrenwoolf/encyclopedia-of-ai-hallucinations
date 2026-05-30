@@ -246,7 +246,7 @@ export async function getDeleteConfirm(req: Request, ctx: RouteContext): Promise
     <p><a href="/admin/all">Cancel</a></p>
   `;
   return htmlResponse(
-    await layout({ title: "Delete entry · EAH admin", heading: "Delete entry", body, user: ctx.user, csrfToken: csrf }),
+    await layout({ title: "Delete entry · ENAIH admin", heading: "Delete entry", body, user: ctx.user, csrfToken: csrf }),
     { setCookie },
   );
 }

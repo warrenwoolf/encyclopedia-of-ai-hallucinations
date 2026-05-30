@@ -151,9 +151,9 @@ export function layout(opts: LayoutOptions): string {
         <a class="site-title" href="/">
           <span class="site-logo-block">
             ${STRAWBERRY_SVG}
-            <span class="site-logo-caption">EAH</span>
+            <span class="site-logo-caption">ENAIH</span>
           </span>
-          <span class="site-title-text">Encyclopedia of AI Hallucinations</span>
+          <span class="site-title-text"><span class="acro">EN</span>cyclopedia of <span class="acro">AI</span> <span class="acro">H</span>allucinations</span>
         </a>
         <p class="site-credit">Founded by Rudra Jadhav and Warren Woolf</p>
       </div>

@@ -108,7 +108,7 @@ export const myDiscussionGet: RouteHandler = async (req, ctx) => {
   const row = await fetchOwned(eahIdStr, ctx.user.userId);
   if (!row) {
     return pageResponse(req, {
-      title: "Not found · EAH",
+      title: "Not found · ENAIH",
       heading: "Not found",
       body: h`<p>Submission not found. <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
@@ -160,7 +160,7 @@ export const myDiscussionGet: RouteHandler = async (req, ctx) => {
   `;
 
   return pageResponse(req, {
-    title: `Discussion ${eahId} · EAH`,
+    title: `Discussion ${eahId} · ENAIH`,
     heading: `Discussion — ${eahId}`,
     body,
     user: ctx.user,
@@ -179,7 +179,7 @@ export const myDiscussionPost: RouteHandler = async (req, ctx) => {
   const rl = rateCheck("withdraw", ctx.ip);
   if (!rl.allowed) {
     return pageResponse(req, {
-      title: "Rate limited · EAH",
+      title: "Rate limited · ENAIH",
       heading: "Slow down",
       body: h`<p>Too many messages. Please retry in ${String(rl.retryAfterSec ?? 60)} seconds.</p>`,
       user: ctx.user,
@@ -197,7 +197,7 @@ export const myDiscussionPost: RouteHandler = async (req, ctx) => {
 
   if (!verifyCsrf(req, form.get("_csrf"))) {
     return pageResponse(req, {
-      title: "Forbidden · EAH",
+      title: "Forbidden · ENAIH",
       heading: "Forbidden",
       body: h`<p>Invalid CSRF token. Please reload and try again.</p>`,
       user: ctx.user,
@@ -223,7 +223,7 @@ export const myDiscussionPost: RouteHandler = async (req, ctx) => {
 
   if (rawBody.length > MAX_MESSAGE_CHARS) {
     return pageResponse(req, {
-      title: "Error · EAH",
+      title: "Error · ENAIH",
       heading: "Error",
       body: h`<p>Message too long (max ${String(MAX_MESSAGE_CHARS)} characters).</p>`,
       user: ctx.user,

@@ -56,12 +56,12 @@ export const config = {
   sessionSecret: required("SESSION_SECRET"),
 
   /** Where the public site lives. Used to build absolute URLs in outbound emails. */
-  publicBaseUrl: optional("PUBLIC_BASE_URL", "https://eah.warrenwoolf.com"),
+  publicBaseUrl: optional("PUBLIC_BASE_URL", "https://enaih.org"),
 
   email: {
     /** When unset, email sending is disabled and the module no-ops. */
     resendApiKey: optionalFile("RESEND_API_KEY", ""),
-    from: optional("EMAIL_FROM", "EAH <noreply@eah.warrenwoolf.com>"),
+    from: optional("EMAIL_FROM", "ENAIH <noreply@eah.warrenwoolf.com>"),
     /** Where bounces / human replies should go. */
     replyTo: optional("EMAIL_REPLY_TO", "noreply@eah.warrenwoolf.com"),
     /** Public-facing address for privacy / data-deletion requests. Shown on /privacy. */

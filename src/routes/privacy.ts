@@ -10,7 +10,7 @@ export const privacy: RouteHandler = (req, ctx) => {
   const privacyEmail = config.email.privacy;
   const body = h`
     <p>This policy describes what data the Encyclopedia of AI Hallucinations
-       ("EAH", "we") collects when you use the site, how we use it, and what
+       ("ENAIH", "we") collects when you use the site, how we use it, and what
        choices you have. There are no advertising networks, no analytics
        services, and no tracking pixels.</p>
 
@@ -55,7 +55,7 @@ export const privacy: RouteHandler = (req, ctx) => {
     </ul>
 
     <h2>Cookies</h2>
-    <p>EAH sets two cookies:</p>
+    <p>ENAIH sets two cookies:</p>
     <ul>
       <li><strong>eah_session</strong> — set only when an admin logs in.
           HttpOnly, Secure, SameSite=Lax, 7-day expiry. Not set for regular
@@ -107,7 +107,7 @@ export const privacy: RouteHandler = (req, ctx) => {
     <p class="muted">Last updated: 2026-05-20.</p>
   `;
   return pageResponse(req, {
-    title: "Privacy · EAH",
+    title: "Privacy · ENAIH",
     heading: "Privacy",
     bodyClass: "text-page",
     body,

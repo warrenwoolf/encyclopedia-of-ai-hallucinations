@@ -230,7 +230,7 @@ header .site-header-top {
   margin-right: auto;
 }
 
-/* Logo block: strawberry SVG above "EAH" caption, flows inline with title */
+/* Logo block: strawberry SVG above "ENAIH" caption, flows inline with title */
 .site-logo-block {
   display: inline-flex;
   flex-direction: column;
@@ -238,7 +238,7 @@ header .site-header-top {
   gap: 2px;
   flex: none;
   line-height: 1;
-  /* shrink the strawberry + EAH caption together (both sized in em) */
+  /* shrink the strawberry + ENAIH caption together (both sized in em) */
   font-size: 0.9em;
 }
 
@@ -270,6 +270,12 @@ header .site-header-top {
 }
 .site-title-text:link,
 .site-title-text:visited { color: var(--text); text-decoration: none; }
+
+/* Highlight the letters that spell the domain handle ENAIH:
+   ENcyclopedia of AI Hallucinations. Accent color adapts per theme.
+   The caption under the logo is left plain — it's wholly the acronym, so
+   there's nothing to contrast against. */
+.acro { color: var(--accent); }
 
 /* Kept for back-compat — layout.ts may still render .site-title wrapper */
 .site-title {

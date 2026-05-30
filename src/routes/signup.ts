@@ -91,7 +91,7 @@ function renderSignupPage(opts: {
       <p><a href="/">Home</a> · <a href="/login">Sign in</a></p>
     `;
     return htmlResponse(
-      layout({ title: "Signup paused · EAH", heading: "Signup paused", body }),
+      layout({ title: "Signup paused · ENAIH", heading: "Signup paused", body }),
       { status: 503, setCookie: opts.csrfSetCookie },
     );
   }
@@ -146,7 +146,7 @@ function renderSignupPage(opts: {
     <p>Already have an account? <a href="/login">Sign in</a>.</p>
   `;
   return htmlResponse(
-    layout({ title: "Sign up · EAH", heading: "Create an account", body }),
+    layout({ title: "Sign up · ENAIH", heading: "Create an account", body }),
     { status: opts.status ?? 200, setCookie: opts.csrfSetCookie },
   );
 }

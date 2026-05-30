@@ -288,7 +288,7 @@ function renderEditForm(opts: {
         <label class="checkbox-label">
           <input type="checkbox" name="allow_author_edits" value="1"
                  ${values.allow_author_edits ? raw("checked") : raw("")}>
-          Allow EAH staff to edit this submission. You can always edit it
+          Allow ENAIH staff to edit this submission. You can always edit it
           yourself regardless of this setting.
         </label>
       </p>
@@ -477,7 +477,7 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
       `;
 
   return pageResponse(req, {
-    title: "My submissions · EAH",
+    title: "My submissions · ENAIH",
     heading: "My submissions",
     body,
     user: ctx.user,
@@ -495,7 +495,7 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
   const row = await fetchOwned(eahIdStr, ctx.user.userId);
   if (!row) {
     return pageResponse(req, {
-      title: "Not found · EAH",
+      title: "Not found · ENAIH",
       heading: "Not found",
       body: h`<p>Submission not found. <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
@@ -549,7 +549,7 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
   `;
 
   return pageResponse(req, {
-    title: `Edit ${eahId} · EAH`,
+    title: `Edit ${eahId} · ENAIH`,
     heading: `Edit ${eahId}`,
     body,
     user: ctx.user,
@@ -571,7 +571,7 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
     form = await parseForm(req, 128 * 1024);
   } catch {
     return pageResponse(req, {
-      title: "Error · EAH",
+      title: "Error · ENAIH",
       heading: "Error",
       body: h`<p>Form too large.</p>`,
       user: ctx.user,
@@ -580,7 +580,7 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
 
   if (!verifyCsrf(req, form.get("_csrf"))) {
     return pageResponse(req, {
-      title: "Forbidden · EAH",
+      title: "Forbidden · ENAIH",
       heading: "Forbidden",
       body: h`<p>Invalid CSRF token. Please reload and try again.</p>`,
       user: ctx.user,
@@ -591,7 +591,7 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
   // Drafts and proposed (pending) submissions are both editable.
   if (!row || (row.status !== "draft" && row.status !== "pending")) {
     return pageResponse(req, {
-      title: "Not found · EAH",
+      title: "Not found · ENAIH",
       heading: "Not found",
       body: h`<p>Submission not found. <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
@@ -610,7 +610,7 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
       ${formHtml}
     `;
     return pageResponse(req, {
-      title: `Edit ${eahId} · EAH`,
+      title: `Edit ${eahId} · ENAIH`,
       heading: `Edit ${eahId}`,
       body,
       user: ctx.user,
@@ -703,7 +703,7 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
   } catch (err) {
     console.error("draft edit failed", err);
     return pageResponse(req, {
-      title: "Error · EAH",
+      title: "Error · ENAIH",
       heading: "Error",
       body: h`<p>Could not save changes. Please try again.</p>`,
       user: ctx.user,
@@ -734,7 +734,7 @@ export const myPropose: RouteHandler = async (req, ctx) => {
 
   if (!verifyCsrf(req, form.get("_csrf"))) {
     return pageResponse(req, {
-      title: "Forbidden · EAH",
+      title: "Forbidden · ENAIH",
       heading: "Forbidden",
       body: h`<p>Invalid CSRF token.</p>`,
       user: ctx.user,
@@ -745,7 +745,7 @@ export const myPropose: RouteHandler = async (req, ctx) => {
   // timed-out user can't do it either. They can still edit/withdraw drafts.
   if (isSuspended(ctx.user)) {
     return pageResponse(req, {
-      title: "Timed out · EAH",
+      title: "Timed out · ENAIH",
       heading: "You're timed out",
       body: h`<p>You can't propose a submission for review while your account is
         timed out${ctx.user.suspendedReason ? h`: <em>${ctx.user.suspendedReason}</em>` : raw("")}.
@@ -771,7 +771,7 @@ export const myPropose: RouteHandler = async (req, ctx) => {
   if (pending >= MAX_PENDING_PER_USER) {
     const eahId = formatEahId(row.eah_number);
     return pageResponse(req, {
-      title: "Too many in review · EAH",
+      title: "Too many in review · ENAIH",
       heading: "Too many submissions in review",
       body: h`<p>You already have ${pending} submissions awaiting review, which is the
         maximum (${MAX_PENDING_PER_USER}). This one stays a draft for now.</p>
@@ -799,7 +799,7 @@ export const myPropose: RouteHandler = async (req, ctx) => {
   } catch (err) {
     console.error("propose failed", err);
     return pageResponse(req, {
-      title: "Error · EAH",
+      title: "Error · ENAIH",
       heading: "Error",
       body: h`<p>Could not propose submission. Please try again.</p>`,
       user: ctx.user,
@@ -823,7 +823,7 @@ export const myWithdrawConfirm: RouteHandler = async (req, ctx) => {
   const row = await fetchOwned(ctx.params.eahId ?? "", ctx.user.userId);
   if (!row || row.status !== "pending") {
     return pageResponse(req, {
-      title: "Not found · EAH",
+      title: "Not found · ENAIH",
       heading: "Not found",
       body: h`<p>No proposed submission with that ID. <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
@@ -842,7 +842,7 @@ export const myWithdrawConfirm: RouteHandler = async (req, ctx) => {
     <p><a href="/my/submissions/${eahId}">Cancel</a></p>
   `;
   return pageResponse(req, {
-    title: `Withdraw ${eahId} · EAH`, heading: `Withdraw ${eahId}`, body, user: ctx.user,
+    title: `Withdraw ${eahId} · ENAIH`, heading: `Withdraw ${eahId}`, body, user: ctx.user,
   }, { setCookie });
 };
 
@@ -860,7 +860,7 @@ export const myWithdraw: RouteHandler = async (req, ctx) => {
 
   if (!verifyCsrf(req, form.get("_csrf"))) {
     return pageResponse(req, {
-      title: "Forbidden · EAH", heading: "Forbidden",
+      title: "Forbidden · ENAIH", heading: "Forbidden",
       body: h`<p>Invalid CSRF token. Please reload and try again.</p>`,
       user: ctx.user,
     }, { status: 403 });
@@ -886,7 +886,7 @@ export const myWithdraw: RouteHandler = async (req, ctx) => {
   } catch (err) {
     console.error("withdraw failed", err);
     return pageResponse(req, {
-      title: "Error · EAH", heading: "Error",
+      title: "Error · ENAIH", heading: "Error",
       body: h`<p>Could not withdraw submission. Please try again.</p>`,
       user: ctx.user,
     }, { status: 500 });
@@ -903,7 +903,7 @@ export const myDeleteConfirm: RouteHandler = async (req, ctx) => {
   const row = await fetchOwned(ctx.params.eahId ?? "", ctx.user.userId);
   if (!row || row.status !== "draft") {
     return pageResponse(req, {
-      title: "Not found · EAH",
+      title: "Not found · ENAIH",
       heading: "Not found",
       body: h`<p>No draft with that ID. Only drafts can be deleted — withdraw a proposed
         submission back to a draft first. <a href="/my/submissions">My submissions</a></p>`,
@@ -923,7 +923,7 @@ export const myDeleteConfirm: RouteHandler = async (req, ctx) => {
     <p><a href="/my/submissions/${eahId}">Cancel</a></p>
   `;
   return pageResponse(req, {
-    title: `Delete ${eahId} · EAH`, heading: `Delete ${eahId}`, body, user: ctx.user,
+    title: `Delete ${eahId} · ENAIH`, heading: `Delete ${eahId}`, body, user: ctx.user,
   }, { setCookie });
 };
 
@@ -941,7 +941,7 @@ export const myDelete: RouteHandler = async (req, ctx) => {
 
   if (!verifyCsrf(req, form.get("_csrf"))) {
     return pageResponse(req, {
-      title: "Forbidden · EAH", heading: "Forbidden",
+      title: "Forbidden · ENAIH", heading: "Forbidden",
       body: h`<p>Invalid CSRF token. Please reload and try again.</p>`,
       user: ctx.user,
     }, { status: 403 });
@@ -962,7 +962,7 @@ export const myDelete: RouteHandler = async (req, ctx) => {
   } catch (err) {
     console.error("draft delete failed", err);
     return pageResponse(req, {
-      title: "Error · EAH", heading: "Error",
+      title: "Error · ENAIH", heading: "Error",
       body: h`<p>Could not delete the draft. Please try again.</p>`,
       user: ctx.user,
     }, { status: 500 });
@@ -982,7 +982,7 @@ export const myHistory: RouteHandler = async (req, ctx) => {
   const row = await fetchOwned(eahIdStr, ctx.user.userId);
   if (!row) {
     return pageResponse(req, {
-      title: "Not found · EAH",
+      title: "Not found · ENAIH",
       heading: "Not found",
       body: h`<p>Submission not found. <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
@@ -999,7 +999,7 @@ export const myHistory: RouteHandler = async (req, ctx) => {
   `;
 
   return pageResponse(req, {
-    title: `History ${eahId} · EAH`,
+    title: `History ${eahId} · ENAIH`,
     heading: `Edit history — ${eahId}`,
     body,
     user: ctx.user,
@@ -1022,7 +1022,7 @@ export const myView: RouteHandler = async (req, ctx) => {
   const row = await fetchOwned(eahIdStr, ctx.user.userId);
   if (!row) {
     return pageResponse(req, {
-      title: "Not found · EAH",
+      title: "Not found · ENAIH",
       heading: "Not found",
       body: h`<p>Submission not found. <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
@@ -1066,7 +1066,7 @@ export const myView: RouteHandler = async (req, ctx) => {
   `;
 
   return pageResponse(req, {
-    title: `${eahId} · EAH`,
+    title: `${eahId} · ENAIH`,
     heading: `${eahId} — ${row.title ?? "(untitled)"}`,
     body,
     user: ctx.user,

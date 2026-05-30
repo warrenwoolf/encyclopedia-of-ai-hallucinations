@@ -291,7 +291,7 @@ async function handle(req: Request, server: any): Promise<Response> {
       <p><a href="/">Home</a> · <a href="/browse">Browse</a></p>
     `;
     return htmlResponse(
-      await layout({ title: "Not found · EAH", heading: "Not found", body, user }),
+      await layout({ title: "Not found · ENAIH", heading: "Not found", body, user }),
       { status: 404 },
     );
   }
@@ -326,7 +326,7 @@ async function handle(req: Request, server: any): Promise<Response> {
     const { htmlResponse } = await import("./routes/types.ts");
     const body = h`<p>Something went wrong on our end. Please try again later.</p>`;
     return htmlResponse(
-      await layout({ title: "Server error · EAH", heading: "Server error", body, user }),
+      await layout({ title: "Server error · ENAIH", heading: "Server error", body, user }),
       { status: 500 },
     );
   }

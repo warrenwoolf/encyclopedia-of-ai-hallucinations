@@ -82,7 +82,7 @@ function renderPage(opts: {
   `;
 
   return htmlResponse(
-    layout({ title: "Categories · EAH admin", heading: "categories", body, user: opts.user, csrfToken: csrf, bodyClass: "admin-wide" }),
+    layout({ title: "Categories · ENAIH admin", heading: "categories", body, user: opts.user, csrfToken: csrf, bodyClass: "admin-wide" }),
     { status: opts.status ?? 200, setCookie: opts.setCookie },
   );
 }

@@ -85,7 +85,7 @@ export const rss: RouteHandler = async () => {
         : "") +
       `<p><strong>Prompt:</strong></p><pre>${xmlEscape(promptText)}</pre>` +
       `<p><strong>Response:</strong></p><pre>${xmlEscape(outputText)}</pre>` +
-      `<p><a href="${xmlEscape(link)}">View the full entry on EAH</a></p>`;
+      `<p><a href="${xmlEscape(link)}">View the full entry on ENAIH</a></p>`;
     const contentEncoded = xmlEscape(innerHtml);
 
     const pubDate = toRfc822(row.reviewed_at ?? row.submitted_at);

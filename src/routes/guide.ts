@@ -26,7 +26,7 @@ export const guide: RouteHandler = (req, ctx) => {
           have a reasonable chance of seeing similar behavior, OR there is a
           shared chat link demonstrating the session. Entries that were
           reproducible at submission time but later patched by the AI company
-          remain in EAH permanently under the "patched" status.</li>
+          remain in ENAIH permanently under the "patched" status.</li>
       <li><strong>Documented.</strong> The prompt and the model's response are
           recorded verbatim.</li>
       <li><strong>Verifiable as wrong OR Misleading/Overconfident.</strong>
@@ -57,7 +57,7 @@ export const guide: RouteHandler = (req, ctx) => {
     <h2>How to cite an entry</h2>
     <p><em>Encyclopedia of AI Hallucinations</em>, entry A000123 ("Entry
        Title"), submitted YYYY-MM-DD.
-       https://eah.warrenwoolf.com/e/A000123</p>
+       https://enaih.org/e/A000123</p>
     <p>Adjust to match your venue's style. The A-number and URL are the stable
        parts.</p>
 
@@ -85,7 +85,7 @@ export const guide: RouteHandler = (req, ctx) => {
   `;
 
     return pageResponse(req, {
-        title: "Submission Guide · EAH",
+        title: "Submission Guide · ENAIH",
         heading: "Submission Guide & FAQ",
         bodyClass: "text-page",
         body,

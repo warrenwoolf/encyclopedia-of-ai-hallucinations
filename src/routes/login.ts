@@ -78,7 +78,7 @@ function renderLoginPage(opts: {
        mark any individual submission as anonymous to the public when you submit it.</small></p>
   `;
   return htmlResponse(
-    layout({ title: "Sign in · EAH", heading: "Sign in", body, user: opts.user ?? null }),
+    layout({ title: "Sign in · ENAIH", heading: "Sign in", body, user: opts.user ?? null }),
     {
       status: opts.status ?? 200,
       setCookie: opts.csrfSetCookie,

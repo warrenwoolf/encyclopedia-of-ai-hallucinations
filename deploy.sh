@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Public origin, used to build the static-asset URLs we purge from Cloudflare
 # and to derive the Cloudflare zone (last two labels of the host).
-SITE_URL="${SITE_URL:-https://eah.warrenwoolf.com}"
+SITE_URL="${SITE_URL:-https://enaih.org}"
 
 # Cloudflare cache-purge creds (local laptop files, NOT shipped to the host).
 # The token needs Zone → Cache Purge (+ Zone Read, to resolve the zone id).
