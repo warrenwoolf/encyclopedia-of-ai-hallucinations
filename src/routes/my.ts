@@ -435,10 +435,19 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
       ? h`<a href="/my/submissions/${eahId}"><code>${eahId}</code></a>`
       : h`<span class="muted">—</span>`;
 
+    // Title links to the overview page (browse-card convention): clicking the
+    // title navigates, clicking elsewhere on the colored head toggles the
+    // <details>. Rejected rows have a freed A-number / no overview page, so
+    // they fall back to a plain (non-link) title.
+    const titleInner = row.title ?? h`<em>(untitled)</em>`;
+    const titleEl = eahId
+      ? h`<a class="entry-card-title" href="/my/submissions/${eahId}">${titleInner}</a>`
+      : h`<span class="entry-card-title">${titleInner}</span>`;
+
     return h`<li class="entry-card">
       <details open>
         <summary class="entry-card-head">
-          <span class="entry-card-title">${row.title ?? h`<em>(untitled)</em>`}</span>
+          ${titleEl}
           <span class="entry-card-status">${statusLabel(row.status)}</span>
           <span class="entry-card-chevron" aria-hidden="true"></span>
         </summary>
