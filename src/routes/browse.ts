@@ -299,14 +299,14 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   // it). Backend filtering is single-category, so these stay plain links.
   const categoryNav = h`<nav class="sidebar-cats count-list">
     <a href="/browse${raw(buildQs({ ...sharedQs, category: "" }))}" class="cat-link ${category === "" ? "active" : ""}">
-      <span class="cat-name">all categories</span><span class="cat-count">${allCatTotal}</span>
+      <span class="cat-name">all categories</span><span class="cat-count">(${allCatTotal})</span>
     </a>
     ${CATEGORIES.map((c) => {
       const active = c.key === category;
       const qs = buildQs({ ...sharedQs, category: active ? "" : c.key });
       const n = catCounts.get(c.key) ?? 0;
       return h`<a href="/browse${raw(qs)}" class="cat-link ${active ? "active" : ""}">
-        <span class="cat-name">${c.label}</span><span class="cat-count">${n}</span>
+        <span class="cat-name">${c.label}</span><span class="cat-count">(${n})</span>
       </a>`;
     })}
   </nav>`;
@@ -370,7 +370,10 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
           return h`<li class="entry-card">
             <details open>
               <summary class="entry-card-head">
-                <span class="entry-card-title">${r.title ?? h`<em>(untitled)</em>`}</span>
+                <span class="entry-card-headings">
+                  <a class="entry-card-eid" href="${linkTarget}">${eahId || r.public_id}</a>
+                  <a class="entry-card-title" href="${linkTarget}">${r.title ?? h`<em>(untitled)</em>`}</a>
+                </span>
                 ${r.entry_status === "patched"
                   ? h`<span class="entry-badge-patched">patched</span>`
                   : raw("")}
@@ -378,7 +381,6 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
               </summary>
               <div class="entry-card-body">
                 <dl class="entry-info">
-                  ${infoRow("Entry ID", h`<a href="${linkTarget}"><code>${eahId || r.public_id}</code></a>`)}
                   ${infoRow("Author", author)}
                   ${infoRow("Model", h`${r.ai_model}`)}
                   ${infoRow("Category", h`<a href="/browse?category=${r.category}">${categoryLabel(r.category)}</a>`)}
