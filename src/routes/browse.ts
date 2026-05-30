@@ -51,6 +51,12 @@ export function longField(text: string): SafeHtml {
 
 const PAGE_SIZE = 25;
 
+// Inline magnifier for the search box's submit button. Constant markup we fully
+// control, so it's emitted via raw(). stroke="currentColor" inherits the button
+// color (muted, → header-blue on hover).
+const SEARCH_ICON =
+  `<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><line x1="12.8" y1="12.8" x2="18" y2="18"/></svg>`;
+
 type SortKey = "new" | "old" | "verified" | "id";
 
 function sortClause(sort: SortKey): string {
@@ -133,21 +139,17 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   const offset = (page - 1) * PAGE_SIZE;
 
   // Assemble WHERE clauses + params. We never interpolate user values into SQL.
-  const where: string[] = ["s.status = 'published'"];
-  const params: unknown[] = [];
+  // `base` holds every filter EXCEPT category and entry_status; those two are
+  // applied on top per-query so the sidebar can show *faceted* counts — i.e. how
+  // many entries each category / status would yield given the other active
+  // filters, not a flat global tally.
+  const base: string[] = ["s.status = 'published'"];
+  const baseParams: unknown[] = [];
   let join = "";
 
-  if (category) {
-    where.push("s.category = ?");
-    params.push(category);
-  }
   if (model) {
-    where.push("s.ai_model = ?");
-    params.push(model);
-  }
-  if (status) {
-    where.push("s.entry_status = ?");
-    params.push(status);
+    base.push("s.ai_model = ?");
+    baseParams.push(model);
   }
   if (q) {
     const like = `%${escapeLike(q)}%`;
@@ -176,23 +178,70 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
       clauses.push("s.eah_number = ?");
       qParams.push(eahNum);
     }
-    where.push(`(${clauses.join(" OR ")})`);
-    params.push(...qParams);
+    base.push(`(${clauses.join(" OR ")})`);
+    baseParams.push(...qParams);
   }
   if (tagValid) {
     join = "JOIN submission_tags st ON st.submission_id = s.id JOIN tags t ON t.id = st.tag_id";
-    where.push("t.name = ?");
-    params.push(tagValid);
+    base.push("t.name = ?");
+    baseParams.push(tagValid);
   }
 
+  const from = `FROM submissions s LEFT JOIN users u ON u.id = s.owner_user_id ${join}`;
+
+  // Main listing where: base + the two facet filters when set.
+  const where = [...base];
+  const params: unknown[] = [...baseParams];
+  if (category) {
+    where.push("s.category = ?");
+    params.push(category);
+  }
+  if (status) {
+    where.push("s.entry_status = ?");
+    params.push(status);
+  }
   const whereSql = where.join(" AND ");
 
+  // Faceted category counts: base + status (category itself varies), grouped.
+  const catWhere = [...base];
+  const catParams: unknown[] = [...baseParams];
+  if (status) {
+    catWhere.push("s.entry_status = ?");
+    catParams.push(status);
+  }
+  const catCountRows = await query<{ category: string; n: number | bigint }>(
+    `SELECT s.category, COUNT(DISTINCT s.id) AS n ${from} WHERE ${catWhere.join(" AND ")} GROUP BY s.category`,
+    catParams,
+  );
+  const catCounts = new Map<string, number>();
+  let allCatTotal = 0;
+  for (const r of catCountRows) {
+    const n = Number(r.n);
+    catCounts.set(r.category, n);
+    allCatTotal += n;
+  }
+
+  // Faceted status counts: base + category (entry_status varies), grouped.
+  const stWhere = [...base];
+  const stParams: unknown[] = [...baseParams];
+  if (category) {
+    stWhere.push("s.category = ?");
+    stParams.push(category);
+  }
+  const stCountRows = await query<{ entry_status: string; n: number | bigint }>(
+    `SELECT s.entry_status, COUNT(DISTINCT s.id) AS n ${from} WHERE ${stWhere.join(" AND ")} GROUP BY s.entry_status`,
+    stParams,
+  );
+  const statusCounts = new Map<string, number>();
+  let allStatusTotal = 0;
+  for (const r of stCountRows) {
+    const n = Number(r.n);
+    statusCounts.set(r.entry_status, n);
+    allStatusTotal += n;
+  }
+
   const countRow = await queryOne<{ n: number }>(
-    `SELECT COUNT(DISTINCT s.id) AS n
-       FROM submissions s
-       LEFT JOIN users u ON u.id = s.owner_user_id
-       ${join}
-      WHERE ${whereSql}`,
+    `SELECT COUNT(DISTINCT s.id) AS n ${from} WHERE ${whereSql}`,
     params,
   );
   const totalCount = Number(countRow?.n ?? 0);
@@ -202,9 +251,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     `SELECT DISTINCT s.id, s.public_id, s.eah_number, s.title, s.ai_model, s.category, s.entry_status,
             s.submitted_at, s.verified_hits, s.verified_total, s.prompt, s.output,
             s.anon_public, s.author_name, u.username AS owner_username
-       FROM submissions s
-       LEFT JOIN users u ON u.id = s.owner_user_id
-       ${join}
+       ${from}
        WHERE ${whereSql}
        ORDER BY ${sortClause(sort)}
        LIMIT ? OFFSET ?`,
@@ -250,12 +297,17 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
 
   // Category list in the sidebar (single-select; clicking the active one clears
   // it). Backend filtering is single-category, so these stay plain links.
-  const categoryNav = h`<nav class="sidebar-cats">
-    <a href="/browse${raw(buildQs({ ...sharedQs, category: "" }))}" class="cat-link ${category === "" ? "active" : ""}">all categories</a>
+  const categoryNav = h`<nav class="sidebar-cats count-list">
+    <a href="/browse${raw(buildQs({ ...sharedQs, category: "" }))}" class="cat-link ${category === "" ? "active" : ""}">
+      <span class="cat-name">all categories</span><span class="cat-count">${allCatTotal}</span>
+    </a>
     ${CATEGORIES.map((c) => {
       const active = c.key === category;
       const qs = buildQs({ ...sharedQs, category: active ? "" : c.key });
-      return h`<a href="/browse${raw(qs)}" class="cat-link ${active ? "active" : ""}">${c.label}</a>`;
+      const n = catCounts.get(c.key) ?? 0;
+      return h`<a href="/browse${raw(qs)}" class="cat-link ${active ? "active" : ""}">
+        <span class="cat-name">${c.label}</span><span class="cat-count">${n}</span>
+      </a>`;
     })}
   </nav>`;
 
@@ -266,11 +318,12 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     return h`<a href="/browse${raw(qs)}">${label}</a>`;
   };
 
-  const statusLink = (s: "" | "active" | "patched", label: string) => {
+  const statusRow = (s: "" | "active" | "patched", label: string, count: number) => {
     const active = s === status;
-    if (active) return h`<strong>${label}</strong>`;
-    const qs = buildQs({ ...sharedQs, status: s });
-    return h`<a href="/browse${raw(qs)}">${label}</a>`;
+    const name = active
+      ? h`<strong class="cat-name">${label}</strong>`
+      : h`<a class="cat-name" href="/browse${raw(buildQs({ ...sharedQs, status: s }))}">${label}</a>`;
+    return h`<div class="filter-row ${active ? "active" : ""}">${name}<span class="cat-count">${count}</span></div>`;
   };
 
   // Pagination — spec §5l format: "← prev · showing 26–50 of 1163 entries · next →"
@@ -359,14 +412,14 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   const searchForm = h`<form action="/browse" method="get" class="search-form">
     <div class="search-row">
       <input type="search" name="q" value="${q}" placeholder="search title, prompt, output…" maxlength="200">
-      <button type="submit">Search</button>
+      <button type="submit" class="search-go" aria-label="Search">${raw(SEARCH_ICON)}</button>
     </div>
     ${category ? h`<input type="hidden" name="category" value="${category}">` : h``}
     ${tagValid ? h`<input type="hidden" name="tag" value="${tagValid}">` : h``}
     ${status ? h`<input type="hidden" name="status" value="${status}">` : h``}
     ${sort !== "new" ? h`<input type="hidden" name="sort" value="${sort}">` : h``}
     <div class="search-model">
-      <label for="model-filter">Model</label>
+      <label for="model-filter">Custom Model:</label>
       <select id="model-filter" name="model">
         ${modelOptions}
       </select>
@@ -376,7 +429,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   return h`
     <div class="browse-layout">
       <aside class="browse-sidebar">
-        <h3 class="sidebar-h">Search</h3>
+        <h2 class="sidebar-title">Refine Your Search</h2>
         ${searchForm}
         <div class="sidebar-section">
           <h3 class="sidebar-h">Categories</h3>
@@ -384,10 +437,10 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
         </div>
         <div class="sidebar-section">
           <h3 class="sidebar-h">Status</h3>
-          <div class="sidebar-links">
-            ${statusLink("", "all")}
-            ${statusLink("active", "active")}
-            ${statusLink("patched", "patched")}
+          <div class="sidebar-links count-list">
+            ${statusRow("", "all", allStatusTotal)}
+            ${statusRow("active", "active", statusCounts.get("active") ?? 0)}
+            ${statusRow("patched", "patched", statusCounts.get("patched") ?? 0)}
           </div>
         </div>
         <div class="sidebar-section">
@@ -402,6 +455,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
       </aside>
       <div class="browse-main">
         <div class="browse-main-head">
+          <h2 class="browse-title">Hallucination Entries</h2>
           <p class="result-count">${totalCount} ${totalCount === 1 ? raw("entry") : raw("entries")}</p>
           ${filtersBlock}
         </div>

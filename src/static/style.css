@@ -1041,6 +1041,9 @@ body.browse-page { --content-width: 100%; }
   align-self: start;
   max-height: calc(100vh - 24px);
   overflow-y: auto;
+  /* Right padding so the overflow scrollbar gets its own gutter instead of
+     clipping the full-width search box, button, and model picker. */
+  padding-right: 8px;
 }
 .browse-main { min-width: 0; }
 
@@ -1048,19 +1051,37 @@ body.browse-page { --content-width: 100%; }
    filter below. */
 .search-form { width: 100%; margin: 0 0 18px; }
 .search-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  position: relative;
+  display: block;
 }
 .search-row input[type=search] {
-  flex: 1 1 100%;
+  width: 100%;
   max-width: none;
+  box-sizing: border-box;
+  /* room for the inline magnifier button sitting inside the right edge */
+  padding-right: 40px;
 }
-.search-row button { flex: 1 1 100%; }
-/* Soft corners on the sidebar search controls (query box, Search button, model
-   picker) — matches the rounded entry cards. */
+/* Magnifier submit button nested inside the query box (replaces the old
+   full-width "Search" button — see concept art). */
+.search-row button.search-go {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.search-row button.search-go:hover { color: var(--entry-head-bg); }
+/* Soft corners on the sidebar search controls (query box, model picker) —
+   matches the rounded entry cards. */
 .search-row input[type=search],
-.search-row button,
 .search-model select {
   border-radius: 6px;
 }
@@ -1070,6 +1091,15 @@ body.browse-page { --content-width: 100%; }
   font-family: var(--font-ui);
 }
 .search-model label { display: block; }
+
+/* Master sidebar heading ("Refine Your Search") */
+.sidebar-title {
+  font-family: var(--font-ui);
+  font-size: 1.2em;
+  font-weight: bold;
+  color: var(--text);
+  margin: 0 0 12px;
+}
 
 /* Sidebar filter sections */
 .sidebar-section { margin-bottom: 18px; }
@@ -1102,6 +1132,27 @@ body.browse-page { --content-width: 100%; }
 .sidebar-cats a.active { font-weight: bold; color: var(--text); }
 .sidebar-links strong { color: var(--text); }
 
+/* Faceted count lists (categories, status): label on the left, a muted,
+   right-aligned tally on the right — each row spans the sidebar width. */
+.count-list { align-items: stretch; }
+.cat-link,
+.count-list .filter-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+}
+.cat-name { min-width: 0; overflow-wrap: anywhere; }
+.cat-count {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+/* keep the underline-on-hover affordance on the label only, not the tally */
+.cat-link:hover .cat-count { text-decoration: none; }
+
 .filters  { font-size: 0.9em; margin: 8px 0; }
 .filters .chip {
   display: inline-block;
@@ -1128,6 +1179,10 @@ body.browse-page { --content-width: 100%; }
   align-items: baseline;
   gap: 8px 16px;
   margin-bottom: 8px;
+}
+.browse-title {
+  margin: 0;
+  font-size: 1.4em;
 }
 .result-count {
   color: var(--text-muted);

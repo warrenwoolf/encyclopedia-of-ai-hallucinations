@@ -118,7 +118,7 @@ Trigger points (all fire-and-forget):
 | GET    | `/`                                 | `routes/home.ts` (intro + count + CTA, then `renderBrowseBody` — home *is* browse from the search box down) |
 | GET    | `/about`                            | `routes/about.ts` |
 | GET    | `/privacy`                          | `routes/privacy.ts` |
-| GET    | `/browse`                           | `routes/browse.ts` (filters: category, tag, model, status, q; sort: new/old/verified/id). Listing is an indented list (incl. prompt/output) via shared `renderBrowseBody`; `q` that names a category (`resolveCategory`) becomes a category filter. |
+| GET    | `/browse`                           | `routes/browse.ts` (filters: category, tag, model, status, q; sort: new/old/verified/id). Listing is an indented list (incl. prompt/output) via shared `renderBrowseBody`; `q` that names a category (`resolveCategory`) becomes a category filter. Sidebar category/status links show **faceted counts**: `renderBrowseBody` builds a `base` WHERE (every filter except category+entry_status) and runs two extra `GROUP BY` count queries — category counts honor the active status (and vice-versa), so a count reflects "what clicking would yield" given the *other* active filters. Single-select still (links, not checkboxes). |
 | GET    | `/e/:public_id`                     | `routes/entry.ts` (accepts A-number OR legacy slug; legacy 301→canonical) |
 | GET    | `/submit`                           | `routes/submit.ts` |
 | POST   | `/submit`                           | `routes/submit.ts` |
