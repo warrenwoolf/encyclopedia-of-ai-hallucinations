@@ -1027,22 +1027,18 @@ body.browse-page { --content-width: 100%; }
    viewport out to the right edge. */
 .browse-layout {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 300px 1fr;
   gap: 28px;
   align-items: start;
   margin-top: 12px;
 }
-/* Sticky so the filters follow you down a long listing. */
+/* Anchored at the top of the listing — deliberately NOT sticky, so the filters
+   stay put rather than following you down a long page, and the sidebar grows to
+   its natural height instead of getting its own inner scrollbar. */
 .browse-sidebar {
   font-size: 0.9em;
   min-width: 0;
-  position: sticky;
-  top: 12px;
   align-self: start;
-  max-height: calc(100vh - 24px);
-  overflow-y: auto;
-  /* Right padding so the overflow scrollbar gets its own gutter instead of
-     clipping the full-width search box, button, and model picker. */
   padding-right: 8px;
 }
 .browse-main { min-width: 0; }
@@ -1311,11 +1307,9 @@ details.longtext .less { display: none; }
 details.longtext[open] .more { display: none; }
 details.longtext[open] .less { display: inline; }
 
-/* Single-column on narrow viewports: filters stack above the listing. Drop the
-   sticky behavior here — a full-width sticky sidebar would cover the listing. */
+/* Single-column on narrow viewports: filters stack above the listing. */
 @media (max-width: 760px) {
   .browse-layout { grid-template-columns: 1fr; gap: 16px; }
-  .browse-sidebar { position: static; max-height: none; overflow: visible; }
 }
 
 /* === 8k Autosave banner === */
