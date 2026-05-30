@@ -634,6 +634,16 @@ button.linkbutton,
   font-family: var(--font-ui);
 }
 
+/* Sit the counter tight under its own box and put the gap *below* it, so it
+ * reads as belonging to the box above rather than the field below. */
+.submit-form textarea:has(+ .char-count) {
+  margin-bottom: 2px;
+}
+.submit-form .char-count {
+  display: block;
+  margin-bottom: 12px;
+}
+
 /* Validation messages */
 .form-error {
   color: var(--error);
@@ -709,6 +719,17 @@ small.field-hint,
 .submit-form label + p,
 .submit-form label + .field-hint {
   margin-bottom: 10px;
+}
+
+/* Let form fields run the full width of the column. The global input rule
+ * caps width at 500px, which on the wider submit column leaves the boxes
+ * ending partway across and looking off-centered. */
+.submit-form input[type=text],
+.submit-form input[type=url],
+.submit-form input[type=date],
+.submit-form select,
+.submit-form textarea {
+  max-width: none;
 }
 
 .submit-form button[type=submit] {
