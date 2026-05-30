@@ -5,16 +5,21 @@
  */
 import { h, type SafeHtml } from "../html.ts";
 
+const STATUS_LABELS: Record<string, string> = {
+  draft: "draft",
+  pending: "proposed",
+  published: "published",
+  rejected: "rejected",
+  withdrawn: "withdrawn",
+};
+
+/** Human-facing label for a moderation status (submitter vocabulary). */
+export function statusLabel(status: string): string {
+  return STATUS_LABELS[status] ?? status;
+}
+
 export function statusBadge(status: string): SafeHtml {
-  const labels: Record<string, string> = {
-    draft: "draft",
-    pending: "proposed",
-    published: "published",
-    rejected: "rejected",
-    withdrawn: "withdrawn",
-  };
-  const label = labels[status] ?? status;
-  return h`<span class="status-badge status-${status}">${label}</span>`;
+  return h`<span class="status-badge status-${status}">${statusLabel(status)}</span>`;
 }
 
 /**

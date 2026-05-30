@@ -50,6 +50,7 @@ export const about: RouteHandler = (req, ctx) => {
     return pageResponse(req, {
         title: "About · EAH",
         heading: "About",
+        bodyClass: "text-page",
         body,
         user: ctx.user,
     });

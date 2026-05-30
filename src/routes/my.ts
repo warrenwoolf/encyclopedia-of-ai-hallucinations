@@ -24,7 +24,8 @@ import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { CATEGORIES, categoryLabel, isValidCategory } from "../categories.ts";
 import { formatEahId, parseEahId, freeEahNumber } from "../eah-id.ts";
 import { recordVersionDiffs, type TrackedValues } from "../versions.ts";
-import { statusBadge, actionBar } from "./my-shared.ts";
+import { statusBadge, statusLabel, actionBar } from "./my-shared.ts";
+import { longField } from "./browse.ts";
 import { renderNote, type MessageRow } from "./my-discussion.ts";
 import { MAX_PENDING_PER_USER } from "./submit.ts";
 import { parseForm, sanitizeText, type RouteHandler } from "./types.ts";
@@ -317,9 +318,9 @@ function renderReadOnlyInfo(row: SubmissionRow, tags: string[]): SafeHtml {
       ${tags.length > 0 ? h`<dt>Tags</dt><dd>${tags.join(", ")}</dd>` : raw("")}
     </dl>
     <h2>Prompt</h2>
-    <pre class="note">${row.prompt}</pre>
+    <div class="entry-field-box">${longField(row.prompt)}</div>
     <h2>Output</h2>
-    <pre class="note">${row.output}</pre>
+    <div class="entry-field-box">${longField(row.output)}</div>
     ${row.summary ? h`<h2>Summary</h2><p>${row.summary}</p>` : raw("")}
     ${row.notes ? h`<h2>Notes</h2><p>${row.notes}</p>` : raw("")}
   `;
@@ -402,11 +403,15 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
     eah_number: number;
     title: string | null;
     status: string;
+    ai_model: string;
+    category: string;
+    prompt: string;
+    output: string;
     submitted_at: Date;
   }>(
     // Withdrawn submissions free their A-number, so they have no working
     // /my/submissions/:eahId links — exclude them from the list entirely.
-    `SELECT id, eah_number, title, status, submitted_at
+    `SELECT id, eah_number, title, status, ai_model, category, prompt, output, submitted_at
        FROM submissions
       WHERE owner_user_id = ? AND status != 'withdrawn'
       ORDER BY submitted_at DESC`,
@@ -415,6 +420,11 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
 
   const { token } = tokenForRequest(req);
 
+  const infoRow = (label: string, value: SafeHtml): SafeHtml => h`<dt>${label}</dt><dd>${value}</dd>`;
+
+  // Each submission renders as a browse-style collapsible card: colored header
+  // (title + status chip), then the info grid, prompt/output preview, and the
+  // shared action bar. Open by default to match the public browse listing.
   const items = rows.map((row) => {
     const eahId = formatEahId(row.eah_number);
     const submittedDate = new Date(row.submitted_at).toISOString().slice(0, 10);
@@ -425,17 +435,32 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
       ? h`<a href="/my/submissions/${eahId}"><code>${eahId}</code></a>`
       : h`<span class="muted">—</span>`;
 
-    return h`
-      <li class="my-sub-item">
-        <div class="my-sub-info">
-          ${idCell}
-          ${statusBadge(row.status)}
-          <span class="my-sub-date">${submittedDate}</span>
-          <span class="my-sub-title">${row.title ?? "(untitled)"}</span>
+    return h`<li class="entry-card">
+      <details open>
+        <summary class="entry-card-head">
+          <span class="entry-card-title">${row.title ?? h`<em>(untitled)</em>`}</span>
+          <span class="entry-card-status">${statusLabel(row.status)}</span>
+          <span class="entry-card-chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="entry-card-body">
+          <dl class="entry-info">
+            ${infoRow("Entry ID", idCell)}
+            ${infoRow("Model", h`${row.ai_model}`)}
+            ${infoRow("Category", h`${categoryLabel(row.category)}`)}
+            ${infoRow("Submitted", h`${submittedDate}`)}
+          </dl>
+          <div class="entry-field">
+            <div class="entry-field-label">Prompt</div>
+            <div class="entry-field-box">${longField(row.prompt)}</div>
+          </div>
+          <div class="entry-field">
+            <div class="entry-field-label">Response</div>
+            <div class="entry-field-box">${longField(row.output)}</div>
+          </div>
+          <div class="my-sub-actions">${actionBar(eahId, row.status, token)}</div>
         </div>
-        <div class="my-sub-actions">${actionBar(eahId, row.status, token)}</div>
-      </li>
-    `;
+      </details>
+    </li>`;
   });
 
   const rule = h`<p class="field-hint"><small>Drafts are unlimited. You may have at
@@ -447,7 +472,7 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
     ? h`${rule}<p>No submissions yet. <a href="/submit">Submit one</a>.</p>`
     : h`
         ${rule}
-        <ul class="my-sub-list">${items}</ul>
+        <ul class="entry-list">${items}</ul>
         <p><a href="/submit">Submit another</a></p>
       `;
 

@@ -77,24 +77,32 @@ export function layout(opts: LayoutOptions): string {
   let userNav: SafeHtml;
   if (opts.user) {
     const adminLinks = opts.user.isAdmin
-      ? h`<a href="/admin/queue">queue</a> ·
-          <a href="/admin/all">all</a> ·
-          <a href="/admin/users">users</a> ·
-          <a href="/admin/staff">staff</a> ·`
+      ? h`<a href="/admin/queue">Queue</a>
+          <a href="/admin/all">All</a>
+          <a href="/admin/users">Users</a>
+          <a href="/admin/staff">Staff</a>`
       : raw("");
+    // Account + admin links live in a hover/focus dropdown under the
+    // "signed in as" trigger. Log out is a prominent standalone button.
     userNav = h`<span class="user-nav">
-        signed in as <strong>${opts.user.username}</strong> ·
-        ${adminLinks}
-        <a href="/my/submissions">my drafts</a> ·
+        <span class="account-menu">
+          <button type="button" class="account-trigger" aria-haspopup="true">
+            Signed in as: <strong>${opts.user.username}</strong> <span class="account-caret">▾</span>
+          </button>
+          <span class="account-dropdown">
+            <a href="/my/submissions">My drafts</a>
+            ${adminLinks}
+          </span>
+        </span>
         <form class="inline-form" method="post" action="/logout">
           <input type="hidden" name="_csrf" value="${csrfToken}">
-          <button class="linkbutton" type="submit">log out</button>
+          <button class="btn-prominent" type="submit">Log out</button>
         </form>
       </span>`;
   } else {
     userNav = h`<span class="user-nav">
-        <a href="/login">log in</a> ·
-        <a href="/signup">sign up</a>
+        <a class="btn-prominent" href="/login">Log in</a>
+        <a class="btn-prominent" href="/signup">Sign up</a>
       </span>`;
   }
 

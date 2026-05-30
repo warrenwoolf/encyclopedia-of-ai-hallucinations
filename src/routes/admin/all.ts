@@ -18,6 +18,7 @@ const VALID_STATUSES = new Set(["pending", "published", "rejected", "withdrawn"]
 interface Row {
   id: number;
   public_id: string;
+  eah_number: number | null;
   title: string | null;
   category: string;
   status: string;
@@ -71,7 +72,7 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
   const total = totalRow?.c ?? 0;
 
   const rows = await query<Row>(
-    `SELECT s.id, s.public_id, s.title, s.category, s.status, s.submitted_at, s.reviewed_at,
+    `SELECT s.id, s.public_id, s.eah_number, s.title, s.category, s.status, s.submitted_at, s.reviewed_at,
             u.username AS reviewed_by_username
        FROM submissions s
        LEFT JOIN users u ON u.id = s.reviewed_by
@@ -103,6 +104,7 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
           <thead>
             <tr>
               <th>id</th>
+              <th>eah id</th>
               <th>public id</th>
               <th>title</th>
               <th>category</th>
@@ -116,11 +118,13 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
           <tbody>
             ${rows.map((r) => h`
               <tr>
-                <td>${r.id}</td>
+                <td>${r.eah_number !== null
+                  ? h`<a href="/admin/queue/${r.id}"><code>${formatEahId(r.eah_number)}</code></a>`
+                  : h`<span class="muted">—</span>`}</td>
                 <td><code>${r.public_id}</code></td>
                 <td>${r.title ?? h`<em>(no title)</em>`}</td>
                 <td>${categoryLabel(r.category)}</td>
-                <td>[${r.status}]</td>
+                <td><span class="status-badge status-${r.status}">${r.status}</span></td>
                 <td>${fmtDate(r.submitted_at)}</td>
                 <td>${fmtDate(r.reviewed_at)}</td>
                 <td>${r.reviewed_by_username ?? "—"}</td>

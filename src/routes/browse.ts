@@ -40,7 +40,7 @@ interface Row {
  * is height-clamped with a pure-HTML <details> "show all" toggle — no JS, no
  * content duplication (the same <pre> just un-clamps when expanded).
  */
-function longField(text: string): SafeHtml {
+export function longField(text: string): SafeHtml {
   const isLong = text.length > 600 || text.split("\n").length > 12;
   if (!isLong) return h`<pre class="note">${text}</pre>`;
   return h`<details class="longtext">
@@ -325,6 +325,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
               </summary>
               <div class="entry-card-body">
                 <dl class="entry-info">
+                  ${infoRow("Entry ID", h`<a href="${linkTarget}"><code>${eahId || r.public_id}</code></a>`)}
                   ${infoRow("Author", author)}
                   ${infoRow("Model", h`${r.ai_model}`)}
                   ${infoRow("Category", h`<a href="/browse?category=${r.category}">${categoryLabel(r.category)}</a>`)}
@@ -333,7 +334,6 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
                   ${tags.length > 0
                     ? infoRow("Tags", h`${tags.map((t, i) => h`${i > 0 ? raw(", ") : raw("")}<a href="/browse?tag=${t}">${t}</a>`)}`)
                     : raw("")}
-                  ${infoRow("Entry ID", h`<a href="${linkTarget}"><code>${eahId || r.public_id}</code></a>`)}
                 </dl>
                 <div class="entry-field">
                   <div class="entry-field-label">Prompt</div>

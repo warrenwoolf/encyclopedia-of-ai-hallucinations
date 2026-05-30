@@ -234,6 +234,7 @@ export const entry: RouteHandler = async (req, ctx) => {
 
   return pageResponse(req, {
     title: `${eahId} · ${row.title ?? row.ai_model} · EAH`,
+    bodyClass: "text-page",
     body,
     user: ctx.user,
   });

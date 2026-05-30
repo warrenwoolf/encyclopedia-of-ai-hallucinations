@@ -109,6 +109,7 @@ export const privacy: RouteHandler = (req, ctx) => {
   return pageResponse(req, {
     title: "Privacy · EAH",
     heading: "Privacy",
+    bodyClass: "text-page",
     body,
     user: ctx.user,
   });

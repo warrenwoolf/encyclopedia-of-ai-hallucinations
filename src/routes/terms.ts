@@ -38,6 +38,7 @@ export const terms: RouteHandler = (req, ctx) => {
     return pageResponse(req, {
         title: "Terms of Use · EAH",
         heading: "Terms of Use",
+        bodyClass: "text-page",
         body,
         user: ctx.user,
     });

@@ -87,6 +87,7 @@ export const guide: RouteHandler = (req, ctx) => {
     return pageResponse(req, {
         title: "Submission Guide · EAH",
         heading: "Submission Guide & FAQ",
+        bodyClass: "text-page",
         body,
         user: ctx.user,
     });
