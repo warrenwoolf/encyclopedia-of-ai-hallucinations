@@ -1,12 +1,16 @@
 /* Encyclopedia of AI Hallucinations — style.css
- * OEIS-spare aesthetic: no animations, no transitions, no hover scale,
- * no border-radius > 2px, no inline JS, no client framework.
- * Organized per spec §8a–§8m.
+ * OEIS-influenced but modernizing. Hard rules that still hold: no animations,
+ * no transitions, no hover-scale, no inline/client JS, no CSS framework.
+ * Relaxed: the old "spare" absolutism — the site is now full-bleed with a
+ * two-column browse layout, rounded colored cards, a prominent-button top bar,
+ * and fluid clamp() title/credit sizing (body itself is a flat 17px).
+ * Modern static CSS is welcome; motion and client JS are not. See CLAUDE.md
+ * "House style". Organized per spec §8a–§8m.
  */
 
 /* === 8a CSS variables — light (default) === */
 :root {
-  --bg: #ffffff;
+  --bg: #e7e7e7;
   --bg-alt: #f8f8f8;
   --bg-banner: #e8e8e8;
   --border: #cccccc;
@@ -32,8 +36,8 @@
   --font-body: Georgia, 'Times New Roman', serif;
   --font-mono: 'Courier New', Courier, monospace;
   --font-ui: system-ui, -apple-system, sans-serif;
-  --content-width: 900px;
-  --entry-head-bg: #1e3a5f;
+  --content-width: 100%;
+  --entry-head-bg: #0a3367;
   --entry-head-fg: #ffffff;
 }
 
@@ -83,7 +87,7 @@
 
 /* Force light when explicitly requested */
 :root[data-theme="light"] {
-  --bg: #ffffff;
+  --bg: #e7e7e7;
   --bg-alt: #f8f8f8;
   --bg-banner: #e8e8e8;
   --border: #cccccc;
@@ -120,33 +124,31 @@ html, body {
 
 body {
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 17px;
   line-height: 1.6;
 }
 
 @media (max-width: 600px) {
-  body { font-size: 16px; }
-  /* The full title at 2.4em overflows narrow viewports — the longest word
-     ("Hallucinations") can't shrink below its min-content width inside the
-     row flex, forcing horizontal scroll. Scale title/credit/logo down so it
-     fits ~320px wide. */
-  .site-title-text { font-size: 1.4em; }
-  .site-credit { font-size: 1em; }
+  body { font-size: 17px; }
   .site-logo { width: 3em; height: 3em; }
+  /* The desktop -0.7em pull-up assumes the large-title line-box whitespace; at
+     the small fluid title size that negative margin jams the credit against the
+     title, so give it a clear positive gap instead. Co-qualified with the parent
+     to outrank the later (source-order) base `.site-credit` rule — see the
+     equal-specificity gotcha in CLAUDE.md. */
+  .site-header-top .site-credit { margin-top: 0.8em; }
   /* Let the logo block + title center and wrap as a unit instead of being
      pinned left with the title jammed against the right edge. overflow-wrap
      is a last-resort guard so an unexpectedly long token can never force
-     horizontal scroll. */
+     horizontal scroll. (Title/credit sizing is handled by the fluid clamps on
+     .site-title-text / .site-credit — no per-breakpoint font-size here.) */
   .site-title { flex-wrap: wrap; justify-content: center; }
   .site-title-text { overflow-wrap: anywhere; }
 }
 
-/* Phones narrower than ~400px: stack the logo above the title (centered) and
-   shrink the title another step so "Hallucinations" has comfortable margin. */
+/* Phones narrower than ~400px: stack the logo above the title (centered). */
 @media (max-width: 400px) {
   .site-title { flex-direction: column; gap: 2px; }
-  .site-title-text { font-size: 1.2em; }
-  .site-credit { font-size: 0.9em; margin-top: -0.3em; }
   .site-logo { width: 2.6em; height: 2.6em; }
 }
 
@@ -185,6 +187,12 @@ hr {
 .small { font-size: 0.9em; }
 
 /* === 8c Layout — header / nav / main / footer === */
+/* Site default is full-bleed (--content-width: 100%). Text-heavy reading pages
+   (about, privacy, single entry) opt their *main content* back into a centered,
+   readable column so serif prose doesn't run the full width of a wide monitor.
+   Scoped to main only — the top bar / nav / footer stay full-bleed everywhere. */
+body.text-page main { --content-width: 760px; }
+
 .site-wrapper {
   max-width: var(--content-width);
   margin: 0 auto;
@@ -235,9 +243,12 @@ header .site-header-top {
   font-family: var(--font-ui);
 }
 
-/* Full title text beside the logo block */
+/* Full title text beside the logo block.
+   Fluid rem-based size: independent of the em cascade and the body base-size
+   bump, so it scales smoothly from tiny phones (~20px) up to a desktop cap
+   (~46px) without per-breakpoint font overrides. */
 .site-title-text {
-  font-size: 2.4em;
+  font-size: clamp(1.25rem, 3.2vw + 0.8rem, 2.9rem);
   font-weight: bold;
   color: var(--text);
   text-decoration: none;
@@ -262,7 +273,7 @@ header .site-header-top {
 .site-title:link, .site-title:visited { color: var(--text); text-decoration: none; }
 
 .site-credit {
-  font-size: 1.4em;
+  font-size: clamp(0.9rem, 0.9vw + 0.6rem, 1.35rem);
   color: var(--text-muted);
   /* Lift the credit up into the whitespace below the centered title so it sits
      closer to the title, without disturbing the title/logo position. */
@@ -285,23 +296,22 @@ nav .nav-sep { color: var(--text-muted); margin-right: 4px; }
 .user-nav {
   display: inline-flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.4em;
-  color: var(--text-muted);
+  align-items: center;
+  gap: 10px;
   font-size: 0.9em;
-  border-left: 1px solid var(--border);
-  padding-left: 0.8em;
-  margin-left: 0.6em;
 }
-.user-nav a:link, .user-nav a:visited { color: var(--text-muted); }
-.user-nav a:hover { color: var(--link-hover); text-decoration: underline; }
 
-/* Slim modern top bar: nav links on the left, theme toggle + user area on the
-   right. Sits above the centered logo/title band. */
+/* Slim modern top bar: primary links on the left, theme toggle + user area on
+   the right, all vertically centered. Sits above the logo/title band. */
 .topbar {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
-  padding: 6px 12px;
+  /* Asymmetric top/bottom padding (0 / 8). The row is align-items:center so it's
+     already geometrically centered, but system-ui (Ubuntu on the maintainers'
+     Linux, and similar faces elsewhere) reserves so much space above the cap
+     height that the glyphs sit visibly low. Dropping the top padding entirely
+     lifts the row to optically center it and makes the bar ~4px shorter. */
+  padding: 0 12px 8px;
 }
 .site-nav {
   display: flex;
@@ -316,13 +326,22 @@ nav .nav-sep { color: var(--text-muted); margin-right: 4px; }
 }
 .site-nav .nav-links {
   display: flex;
-  flex-wrap: wrap;
+  /* Keep the primary links together as one unbreakable row — they never split
+     across lines; they wrap as a unit relative to the rest of the bar. */
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 14px;
+  gap: 18px;
+  /* Safety: if the row ever outgrows a tiny viewport, scroll it internally
+     rather than giving the whole page a horizontal scrollbar. */
+  max-width: 100%;
+  overflow-x: auto;
 }
+/* Primary nav links read as plain black labels (not blue hyperlinks): the
+   prominent blue is reserved for the account action buttons. */
 .site-nav .nav-links a {
-  color: var(--link);
+  color: var(--text);
   text-decoration: none;
+  text-transform: capitalize;
   margin: 0;
 }
 .site-nav .nav-links a:hover { text-decoration: underline; }
@@ -331,11 +350,83 @@ nav .nav-sep { color: var(--text-muted); margin-right: 4px; }
   align-items: center;
   gap: 12px;
 }
-/* In the top bar the user-nav border-left would double up with the gap; drop it. */
-.site-nav .user-nav {
-  border-left: none;
-  padding-left: 0;
-  margin-left: 0;
+
+/* Prominent filled action buttons (log in / sign up / log out): same blue as
+   the entry-card headers. Used as both <a> and <button>. */
+.btn-prominent,
+.btn-prominent:link,
+.btn-prominent:visited {
+  display: inline-block;
+  background: var(--entry-head-bg);
+  color: var(--entry-head-fg);
+  font-family: var(--font-ui);
+  font-size: 1em;
+  font-weight: bold;
+  line-height: 1;
+  padding: 9px 18px;
+  border: none;
+  border-radius: 4px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn-prominent:hover { opacity: 0.9; text-decoration: none; color: var(--entry-head-fg); }
+
+/* Account / admin links live in a hover (and keyboard :focus-within) dropdown
+   under the "signed in as" trigger. */
+.account-menu { position: relative; display: inline-block; }
+.account-trigger {
+  background: none;
+  border: none;
+  font-family: var(--font-ui);
+  font-size: 1em;
+  color: var(--text);
+  cursor: pointer;
+  padding: 6px 4px;
+  white-space: nowrap;
+}
+.account-trigger strong { font-weight: bold; }
+.account-caret { font-size: 0.8em; color: var(--text-muted); }
+.account-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1000;
+  min-width: 160px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 0;
+}
+.account-menu:hover .account-dropdown,
+.account-menu:focus-within .account-dropdown { display: block; }
+.account-dropdown a {
+  display: block;
+  padding: 6px 14px;
+  color: var(--text);
+  text-decoration: none;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+.account-dropdown a:hover { background: var(--bg); text-decoration: underline; }
+
+/* Mobile: stack the bar so each group gets its own line and the theme toggle is
+   off on its own line. The account menu drops its links inline (no hover on
+   touch) so they stay reachable. */
+@media (max-width: 700px) {
+  .site-nav { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .site-nav .nav-right { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .user-nav { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .account-menu { width: 100%; }
+  .account-dropdown {
+    display: block;
+    position: static;
+    border: none;
+    background: transparent;
+    padding: 4px 0 0 12px;
+    min-width: 0;
+  }
+  .account-caret { display: none; }
 }
 
 main {
@@ -710,8 +801,11 @@ small.field-hint,
 .entry-header { margin-bottom: 16px; }
 
 /* Colored title bar on the single-entry page — same look as the listing cards,
-   but it's a static <header>, not a collapse toggle. */
-.entry-page-head {
+   but it's a static <header>, not a collapse toggle. The element also carries
+   .entry-card-head (for the shared colored-bar look), whose `cursor: pointer`
+   would otherwise win on source order alone — so we co-qualify both classes to
+   raise specificity and keep the pointer hover off a bar that does nothing. */
+.entry-card-head.entry-page-head {
   cursor: default;
   margin-bottom: 16px;
 }
@@ -916,10 +1010,12 @@ pre.note {
 .chat-body { white-space: pre-wrap; word-wrap: break-word; }
 
 /* === 8j Search / browse === */
-/* Browse + home use the two-column layout, which wants a wider column. */
-body.browse-page { --content-width: min(1180px, 96vw); }
+/* Browse + home use the two-column layout; it spans the full viewport like the
+   rest of the site (the 240px filter sidebar + 1fr entry list just gets wider). */
+body.browse-page { --content-width: 100%; }
 
-/* Two-column browse: filter sidebar on the left, entry list on the right. */
+/* Browse layout: filter sidebar on the left, entry list filling the rest of the
+   viewport out to the right edge. */
 .browse-layout {
   display: grid;
   grid-template-columns: 240px 1fr;
@@ -927,7 +1023,16 @@ body.browse-page { --content-width: min(1180px, 96vw); }
   align-items: start;
   margin-top: 12px;
 }
-.browse-sidebar { font-size: 0.9em; min-width: 0; }
+/* Sticky so the filters follow you down a long listing. */
+.browse-sidebar {
+  font-size: 0.9em;
+  min-width: 0;
+  position: sticky;
+  top: 12px;
+  align-self: start;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
 .browse-main { min-width: 0; }
 
 /* Search box: query + Search stacked full-width in the narrow sidebar, model
@@ -943,6 +1048,13 @@ body.browse-page { --content-width: min(1180px, 96vw); }
   max-width: none;
 }
 .search-row button { flex: 1 1 100%; }
+/* Soft corners on the sidebar search controls (query box, Search button, model
+   picker) — matches the rounded entry cards. */
+.search-row input[type=search],
+.search-row button,
+.search-model select {
+  border-radius: 6px;
+}
 .search-model {
   margin-top: 8px;
   font-size: 0.9em;
@@ -1040,6 +1152,9 @@ body.browse-page { --content-width: min(1180px, 96vw); }
   border: 1px solid var(--border);
   margin: 0 0 16px 0;
   background: var(--bg);
+  border-radius: 6px 6px 0 0;
+  /* clip the colored head's square corners to the card's rounded top */
+  overflow: hidden;
 }
 .entry-card > details { margin: 0; }
 
@@ -1130,9 +1245,11 @@ details.longtext .less { display: none; }
 details.longtext[open] .more { display: none; }
 details.longtext[open] .less { display: inline; }
 
-/* Single-column on narrow viewports: filters stack above the listing. */
+/* Single-column on narrow viewports: filters stack above the listing. Drop the
+   sticky behavior here — a full-width sticky sidebar would cover the listing. */
 @media (max-width: 760px) {
   .browse-layout { grid-template-columns: 1fr; gap: 16px; }
+  .browse-sidebar { position: static; max-height: none; overflow: visible; }
 }
 
 /* === 8k Autosave banner === */
@@ -1152,34 +1269,20 @@ details.longtext[open] .less { display: inline; }
 }
 
 /* === 8l My submissions dashboard === */
-.my-submissions-section { margin-bottom: 20px; }
-.my-submissions-section h2 { font-size: 1em; }
-
-/* Submission list: each item is an info row + an action row stacked, so long
-   titles can't push the buttons off-screen. */
-.my-sub-list { list-style: none; padding: 0; margin: 1em 0; }
-.my-sub-item {
-  padding: 0.5em 0;
-  /* Darker + thicker than the default row rule so the boundary between
-     submissions reads clearly in the drafts list. */
-  border-bottom: 2px solid var(--border);
+/* The dashboard reuses the browse entry-card styling (.entry-list / .entry-card)
+   so drafts read identically to the public listing. Only two extras are needed:
+   a status chip in the colored header, and a little breathing room above the
+   per-card action bar. */
+.entry-card-status {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid currentColor;
+  padding: 0.1em 0.5em;
 }
-.my-sub-info {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6em;
-}
-.my-sub-date { color: var(--text-muted); font-size: 0.85em; font-family: var(--font-ui); }
-/* Title takes the remaining width and truncates with an ellipsis rather than
-   wrapping or stretching the row. */
-.my-sub-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.my-sub-actions { margin-top: 0.15em; }
+.my-sub-actions { margin-top: 12px; }
 
 /* The shared action bar (also used on overview/edit/history/discussion). */
 .action-bar {
