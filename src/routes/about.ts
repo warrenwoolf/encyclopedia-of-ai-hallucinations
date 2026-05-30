@@ -32,11 +32,11 @@ export const about: RouteHandler = (req, ctx) => {
 
     <h2>Who we are</h2>
     <dl>
-      <dt><strong>Rudra Jadhav</strong> — Co-founder</dt>
+      <dt><strong>Rudra Jadhav</strong> — Founder</dt>
       <dd>Leads product vision and research direction. OTIS alumnus, Non-Trivial
           research program graduate.
           <a href="https://linkedin.com/in/rudra-jadhav-math">LinkedIn</a></dd>
-      <dt><strong>Warren Woolf</strong> — Co-founder</dt>
+      <dt><strong>Warren Woolf</strong> — Founder</dt>
       <dd>Leads technical development and infrastructure. Incoming CS student
           at Stanford University.
           <a href="https://www.linkedin.com/in/warren-woolf-049828367/">LinkedIn</a></dd>
