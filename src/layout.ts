@@ -128,6 +128,7 @@ export function layout(opts: LayoutOptions): string {
     ${googleOAuthEnabled() ? raw('<script src="https://accounts.google.com/gsi/client" async defer></script><script src="/static/google.js" defer></script>') : raw('')}
     <script src="/static/theme.js"></script>
     <script src="/static/browse.js" defer></script>
+    <script src="/static/turns.js" defer></script>
   </head>
   <body${bodyClassAttr}>
     ${banner}

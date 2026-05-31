@@ -14,6 +14,9 @@ import { config } from "../config.ts";
 import { formatEahId, parseEahId } from "../eah-id.ts";
 import { tokenForRequest } from "../csrf.ts";
 import { COMPLAINT_TYPES } from "./complaint.ts";
+import { normalizeMode, effectiveTurns, renderConversation } from "../turns.ts";
+import { loadTurns } from "../turns-db.ts";
+import { longField } from "./browse.ts";
 import { type RouteHandler } from "./types.ts";
 
 interface SubmissionRow {
@@ -38,6 +41,7 @@ interface SubmissionRow {
   verified_hits: number | null;
   verified_total: number | null;
   status: string;
+  transcript_mode: string;
 }
 
 function ymd(d: Date | string): string {
@@ -74,7 +78,7 @@ export const entry: RouteHandler = async (req, ctx) => {
       `SELECT id, public_id, eah_number, title, prompt, output, ai_model, summary, notes,
               shared_chat_url, category, entry_status, hallucination_date,
               author_name, owner_user_id, anon_public,
-              submitted_at, verified_hits, verified_total, status
+              submitted_at, verified_hits, verified_total, status, transcript_mode
          FROM submissions
          WHERE eah_number = ?`,
       [eahNum],
@@ -84,7 +88,7 @@ export const entry: RouteHandler = async (req, ctx) => {
       `SELECT id, public_id, eah_number, title, prompt, output, ai_model, summary, notes,
               shared_chat_url, category, entry_status, hallucination_date,
               author_name, owner_user_id, anon_public,
-              submitted_at, verified_hits, verified_total, status
+              submitted_at, verified_hits, verified_total, status, transcript_mode
          FROM submissions
          WHERE public_id = ?`,
       [idParam],
@@ -151,6 +155,19 @@ export const entry: RouteHandler = async (req, ctx) => {
         <p><a href="${row.shared_chat_url}" rel="nofollow noopener noreferrer">${row.shared_chat_url}</a></p>
       </section>`
     : raw("");
+
+  // Load the conversation. Legacy/'single' rows have no turn rows, so
+  // effectiveTurns() synthesizes a [prompt, output] pair for uniform rendering.
+  const storedTurns = await loadTurns(row.id);
+  const convoTurns = effectiveTurns(
+    normalizeMode(row.transcript_mode),
+    storedTurns,
+    row.prompt,
+    row.output,
+  );
+  // Full conversation, never collapsed at the wrapper level (each long turn
+  // still clamps individually via longField).
+  const conversation = renderConversation(convoTurns, longField, 0);
 
   const eahId = formatEahId(row.eah_number);
 
@@ -238,13 +255,8 @@ export const entry: RouteHandler = async (req, ctx) => {
     </dl>
 
     <section>
-      <h2>Prompt</h2>
-      <pre class="prompt">${row.prompt}</pre>
-    </section>
-
-    <section>
-      <h2>Model output</h2>
-      <pre class="output">${row.output}</pre>
+      <h2>${convoTurns.length > 2 ? raw("Conversation") : raw("Prompt &amp; response")}</h2>
+      ${conversation}
     </section>
 
     ${sharedChatBlock}

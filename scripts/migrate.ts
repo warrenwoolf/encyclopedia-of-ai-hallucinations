@@ -39,6 +39,24 @@ const TABLES: TableSpec[] = [
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   },
   {
+    // Multi-turn conversation rows. A submission with transcript_mode in
+    // ('turns','block') stores its conversation here, one row per turn, ordered
+    // by turn_index (0-based). 'single' (legacy) submissions have NO rows here
+    // and keep using submissions.prompt / submissions.output. MEDIUMTEXT so a
+    // single long turn isn't truncated. Must appear AFTER submissions so the FK
+    // resolves.
+    name: "submission_turns",
+    sql: `CREATE TABLE IF NOT EXISTS submission_turns (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      submission_id   INT NOT NULL,
+      turn_index      INT NOT NULL,
+      role            ENUM('user','assistant') NOT NULL,
+      content         MEDIUMTEXT NOT NULL,
+      INDEX idx_sub_turn (submission_id, turn_index),
+      FOREIGN KEY (submission_id) REFERENCES submissions(id) ON DELETE CASCADE
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+  },
+  {
     // Hallucination categories. Seeded with DEFAULT_CATEGORIES (see
     // seedCategories below) and extendable at runtime by staff via
     // /admin/categories. `key` is the stable slug stored on submissions.category;
@@ -297,6 +315,17 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; sql: string }> = 
     table: "submissions",
     column: "anon_public",
     sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS anon_public TINYINT(1) NOT NULL DEFAULT 0",
+  },
+  {
+    // Conversation shape. 'single' (default) = legacy one-shot prompt/output
+    // stored in submissions.prompt / output, no submission_turns rows. 'turns'
+    // / 'block' = a multi-turn conversation whose turns live in submission_turns
+    // (prompt/output still mirror the first user/assistant turn for search +
+    // the NOT NULL constraint). Existing rows default to 'single' and render
+    // unchanged with no data migration. See src/turns.ts.
+    table: "submissions",
+    column: "transcript_mode",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS transcript_mode ENUM('single','turns','block') NOT NULL DEFAULT 'single'",
   },
   {
     // Index for "next eah_number" lookups when the freed-numbers pool is empty.

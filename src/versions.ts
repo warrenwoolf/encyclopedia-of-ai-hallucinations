@@ -31,6 +31,9 @@ export const TRACKED_FIELDS = [
   "hallucination_date",
   "entry_status",
   "tags",
+  // Serialized multi-turn transcript (src/turns.ts serializeTranscript). Null
+  // for single-turn rows, which are tracked via prompt/output instead.
+  "transcript",
 ] as const;
 
 export type TrackedField = (typeof TRACKED_FIELDS)[number];

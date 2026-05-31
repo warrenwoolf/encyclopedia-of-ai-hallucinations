@@ -1449,6 +1449,50 @@ details.longtext .less { display: none; }
 details.longtext[open] .more { display: none; }
 details.longtext[open] .less { display: inline; }
 
+/* === Multi-turn conversation rendering === */
+/* A vertical stack of labeled turn boxes. Each turn reuses .entry-field-box for
+   its content; the label leans on whether it's a user (prompt) or assistant
+   (response) turn via a thin colored left rule. No animation. */
+.conversation { display: flex; flex-direction: column; gap: 10px; }
+.conversation .turn { margin: 0; }
+.turn-label {
+  font-family: var(--font-ui);
+  font-size: 0.78em;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.turn.turn-user .entry-field-box { border-left: 3px solid var(--border-light); }
+.turn.turn-assistant .entry-field-box { border-left: 3px solid var(--entry-head-bg); }
+
+/* Collapse the tail of a long conversation behind a pure-CSS toggle (matches
+   the longtext "show all" pattern). The hidden turns sit inside <details>. */
+details.conversation-more { display: flex; flex-direction: column; gap: 10px; }
+details.conversation-more > summary {
+  cursor: pointer;
+  margin: 2px 0;
+  font-size: 0.85em;
+  font-family: var(--font-ui);
+  color: var(--link);
+  list-style: none;
+}
+details.conversation-more .less { display: none; }
+details.conversation-more[open] .more { display: none; }
+details.conversation-more[open] .less { display: inline; }
+
+/* === Submit/edit transcript fieldset === */
+.transcript-fields { border: 1px solid var(--border-light); border-radius: 6px; padding: 12px 14px; margin: 12px 0; }
+.transcript-fields legend { font-family: var(--font-ui); font-weight: bold; padding: 0 6px; }
+.transcript-mode { display: flex; flex-wrap: wrap; gap: 16px; margin: 6px 0 12px; }
+.transcript-turns { display: flex; flex-direction: column; gap: 12px; }
+.turn-edit { border: 1px solid var(--border-light); border-radius: 6px; padding: 10px 12px; }
+.turn-edit-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.turn-edit textarea { width: 100%; }
+.transcript-turns-actions { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
+.transcript-block textarea { width: 100%; }
+
 /* Single-column on narrow viewports: filters stack above the listing. */
 @media (max-width: 760px) {
   .browse-layout { grid-template-columns: 1fr; gap: 16px; }

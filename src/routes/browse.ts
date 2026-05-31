@@ -15,6 +15,7 @@ import { pageResponse } from "../layout.ts";
 import { query, queryOne } from "../db.ts";
 import { CATEGORIES, categoryLabel, isValidCategory, resolveCategory } from "../categories.ts";
 import { formatEahId, parseEahId } from "../eah-id.ts";
+import { normalizeMode, effectiveTurns, renderConversation, type Turn } from "../turns.ts";
 import { type RouteContext, type RouteHandler } from "./types.ts";
 
 interface Row {
@@ -30,6 +31,7 @@ interface Row {
   verified_total: number | null;
   prompt: string;
   output: string;
+  transcript_mode: string;
   anon_public: number;
   author_name: string | null;
   owner_username: string | null;
@@ -47,6 +49,32 @@ export function longField(text: string): SafeHtml {
     <summary><span class="more">show all</span><span class="less">show less</span></summary>
     <pre class="note">${text}</pre>
   </details>`;
+}
+
+/**
+ * Render a card's conversation preview. For single-turn (legacy) rows this is
+ * the familiar two-box Prompt / Response layout. For multi-turn rows it renders
+ * labeled turn boxes, collapsing everything past the first two behind a
+ * pure-CSS "show full conversation" <details> so the listing stays cheap.
+ */
+export function renderCardConversation(
+  r: { prompt: string; output: string; transcript_mode: string },
+  storedTurns: Turn[],
+): SafeHtml {
+  const turns = effectiveTurns(normalizeMode(r.transcript_mode), storedTurns, r.prompt, r.output);
+  if (turns.length <= 2) {
+    // Legacy / simple shape: keep the exact Prompt + Response boxes.
+    return h`
+      <div class="entry-field">
+        <div class="entry-field-label">Prompt</div>
+        <div class="entry-field-box">${longField(r.prompt)}</div>
+      </div>
+      <div class="entry-field">
+        <div class="entry-field-label">Response</div>
+        <div class="entry-field-box">${longField(r.output)}</div>
+      </div>`;
+  }
+  return renderConversation(turns, longField, 2);
 }
 
 const PAGE_SIZE = 25;
@@ -268,7 +296,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
 
   const rows = await query<Row>(
     `SELECT DISTINCT s.id, s.public_id, s.eah_number, s.title, s.ai_model, s.category, s.entry_status,
-            s.submitted_at, s.verified_hits, s.verified_total, s.prompt, s.output,
+            s.submitted_at, s.verified_hits, s.verified_total, s.prompt, s.output, s.transcript_mode,
             s.anon_public, s.author_name, u.username AS owner_username
        ${from}
        WHERE ${whereSql}
@@ -293,6 +321,26 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
       const arr = tagsByRow.get(tr.submission_id) ?? [];
       arr.push(tr.name);
       tagsByRow.set(tr.submission_id, arr);
+    }
+  }
+
+  // Batch-load turns only for rows that actually have a multi-turn transcript
+  // (mode != 'single'), keeping the common case a single tag-only query. Ordered
+  // by (submission_id, turn_index) so we can group them in order.
+  const turnsByRow = new Map<number, Turn[]>();
+  const multiTurnIds = rows.filter((r) => normalizeMode(r.transcript_mode) !== "single").map((r) => r.id);
+  if (multiTurnIds.length > 0) {
+    const ph = multiTurnIds.map(() => "?").join(",");
+    const turnRows = await query<{ submission_id: number; role: "user" | "assistant"; content: string }>(
+      `SELECT submission_id, role, content FROM submission_turns
+        WHERE submission_id IN (${ph})
+        ORDER BY submission_id ASC, turn_index ASC, id ASC`,
+      multiTurnIds,
+    );
+    for (const tr of turnRows) {
+      const arr = turnsByRow.get(tr.submission_id) ?? [];
+      arr.push({ role: tr.role, content: tr.content });
+      turnsByRow.set(tr.submission_id, arr);
     }
   }
 
@@ -425,14 +473,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
                     ? infoRow("Tags", h`${tags.map((t, i) => h`${i > 0 ? raw(", ") : raw("")}<a href="/browse?tag=${t}">${t}</a>`)}`)
                     : raw("")}
                 </dl>
-                <div class="entry-field">
-                  <div class="entry-field-label">Prompt</div>
-                  <div class="entry-field-box">${longField(r.prompt)}</div>
-                </div>
-                <div class="entry-field">
-                  <div class="entry-field-label">Response</div>
-                  <div class="entry-field-box">${longField(r.output)}</div>
-                </div>
+                ${renderCardConversation(r, turnsByRow.get(r.id) ?? [])}
               </div>
             </details>
           </li>`;

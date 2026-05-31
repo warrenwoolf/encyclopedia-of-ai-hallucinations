@@ -196,6 +196,7 @@ const STATIC_FILES: Record<string, { path: string; contentType: string }> = {
   "style.css": { path: "./src/static/style.css", contentType: "text/css; charset=utf-8" },
   "theme.js": { path: "./src/static/theme.js", contentType: "application/javascript; charset=utf-8" },
   "browse.js": { path: "./src/static/browse.js", contentType: "application/javascript; charset=utf-8" },
+  "turns.js": { path: "./src/static/turns.js", contentType: "application/javascript; charset=utf-8" },
   "google.js": { path: "./src/static/google.js", contentType: "application/javascript; charset=utf-8" },
   "robots.txt": { path: "./src/static/robots.txt", contentType: "text/plain; charset=utf-8" },
 };

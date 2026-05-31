@@ -95,6 +95,7 @@ describe("recordVersionDiffs", () => {
       "hallucination_date",
       "entry_status",
       "tags",
+      "transcript",
     ]);
   });
 });

@@ -14,6 +14,12 @@ import { config } from "../config.ts";
 import { isSuspended } from "../auth.ts";
 import { notifyNewSubmission } from "../discord.ts";
 import { allocateEahNumber, formatEahId } from "../eah-id.ts";
+import {
+  type TranscriptMode, type Turn,
+  renderTranscriptFields, readTranscriptForm, applyTurnAction,
+  deriveLegacyPair,
+} from "../turns.ts";
+import { replaceTurns } from "../turns-db.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteHandler } from "./types.ts";
 
 const LIMITS = {
@@ -39,8 +45,12 @@ const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 interface FormValues {
   title: string;
-  prompt: string;
-  output: string;
+  // Transcript: `mode` chooses single/turns/block; `turns` seeds the structured
+  // boxes; `block` seeds the pasted textarea. Legacy single prompt/output is
+  // represented as a one- or two-turn list in `turns` with mode 'turns'.
+  mode: TranscriptMode;
+  turns: Turn[];
+  block: string;
   ai_model: string;
   category: string;
   tags: string;
@@ -54,7 +64,14 @@ interface FormValues {
 
 function emptyForm(): FormValues {
   return {
-    title: "", prompt: "", output: "", ai_model: "", category: "", tags: "",
+    title: "",
+    mode: "turns",
+    turns: [
+      { role: "user", content: "" },
+      { role: "assistant", content: "" },
+    ],
+    block: "",
+    ai_model: "", category: "", tags: "",
     summary: "", notes: "", shared_chat_url: "",
     hallucination_date: "", allow_author_edits: false, anon_public: false,
   };
@@ -103,17 +120,7 @@ function renderForm(opts: {
         ${categoryOptions}
       </select>
 
-      <label for="prompt">Prompt</label>
-      <textarea id="prompt" name="prompt" rows="6" maxlength="${LIMITS.prompt}" required
-                data-char-count="prompt-count"
-                placeholder="the exact prompt you sent the model">${values.prompt}</textarea>
-      <small id="prompt-count" class="char-count">0 / ${LIMITS.prompt} chars</small>
-
-      <label for="output">Model output</label>
-      <textarea id="output" name="output" rows="10" maxlength="${LIMITS.output}" required
-                data-char-count="output-count"
-                placeholder="the model's full response">${values.output}</textarea>
-      <small id="output-count" class="char-count">0 / ${LIMITS.output} chars</small>
+      ${renderTranscriptFields({ mode: values.mode, turns: values.turns, block: values.block })}
 
       <label for="summary">Summary <small>(optional, what's wrong about it)</small></label>
       <textarea id="summary" name="summary" rows="3" maxlength="${LIMITS.summary}"
@@ -326,10 +333,32 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   }
 
   const scrub = (k: string) => sanitizeText(form.get(k) ?? "").trim();
+  const scrubText = (s: string) => sanitizeText(s);
+  // Raw turn fields, so we can re-render the form on a no-JS add/remove action
+  // without losing what the user typed. parseForm runs the body through
+  // URLSearchParams, so repeated turn_role/turn_content come back via getAll().
+  const rawMode: TranscriptMode =
+    form.get("transcript_mode") === "block" ? "block" : "turns";
+  const rawTurns: Turn[] = (() => {
+    const roles = form.getAll("turn_role");
+    const contents = form.getAll("turn_content");
+    const out: Turn[] = [];
+    const n = Math.max(roles.length, contents.length);
+    for (let i = 0; i < n; i++) {
+      out.push({
+        role: (roles[i] ?? "user").toLowerCase() === "assistant" ? "assistant" : "user",
+        content: scrubText(contents[i] ?? ""),
+      });
+    }
+    return out;
+  })();
+  const rawBlock = scrubText(form.get("transcript_block") ?? "");
+
   const values: FormValues = {
     title: scrub("title"),
-    prompt: scrub("prompt"),
-    output: scrub("output"),
+    mode: rawMode,
+    turns: rawTurns.length > 0 ? rawTurns : emptyForm().turns,
+    block: rawBlock,
     ai_model: scrub("ai_model"),
     category: scrub("category"),
     tags: scrub("tags"),
@@ -341,18 +370,24 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     anon_public: form.get("anon_public") === "1",
   };
 
+  // No-JS fallback: the "Add turn" / "Remove turn" buttons post action=add_turn
+  // / remove_turn:N. Re-render the form with the adjusted turn list (no save).
+  const action = form.get("action") ?? "";
+  const turnAction = applyTurnAction(action, values.turns);
+  if (turnAction) {
+    return showForm(req, ctx, { values: { ...values, turns: turnAction }, status: 200 });
+  }
+
   // Required + length checks.
   if (!values.title) return showForm(req, ctx, { values, error: "Title is required.", status: 400 });
   if (values.title.length > LIMITS.title)
     return showForm(req, ctx, { values, error: `Title is too long (max ${LIMITS.title} chars).`, status: 400 });
 
-  if (!values.prompt) return showForm(req, ctx, { values, error: "Prompt is required.", status: 400 });
-  if (values.prompt.length > LIMITS.prompt)
-    return showForm(req, ctx, { values, error: `Prompt is too long (max ${LIMITS.prompt} chars).`, status: 400 });
-
-  if (!values.output) return showForm(req, ctx, { values, error: "Model output is required.", status: 400 });
-  if (values.output.length > LIMITS.output)
-    return showForm(req, ctx, { values, error: `Output is too long (max ${LIMITS.output} chars).`, status: 400 });
+  // Parse + validate the conversation (turns or pasted block). The cleaned turn
+  // list also yields the legacy prompt/output mirror we still store for search.
+  const transcript = readTranscriptForm(form, scrubText);
+  if (!transcript.ok) return showForm(req, ctx, { values, error: transcript.error, status: 400 });
+  const { prompt: legacyPrompt, output: legacyOutput } = deriveLegacyPair(transcript.turns);
 
   if (!values.ai_model) return showForm(req, ctx, { values, error: "AI model is required.", status: 400 });
   if (values.ai_model.length > LIMITS.ai_model)
@@ -433,6 +468,18 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   const submissionStatus = wantPropose ? "pending" : "draft";
   const ownerUserId = ctx.user.userId;
 
+  // Collapse the trivial case to 'single': a single user turn, or one user +
+  // one assistant turn, needs no submission_turns rows — prompt/output suffice
+  // and it renders exactly like a legacy entry. Anything richer is stored with
+  // turn rows under the chosen mode.
+  const isTrivial =
+    transcript.turns.length <= 1 ||
+    (transcript.turns.length === 2 &&
+      transcript.turns[0]!.role === "user" &&
+      transcript.turns[1]!.role === "assistant");
+  const storedMode: TranscriptMode = isTrivial ? "single" : transcript.mode;
+  const storedTurns: Turn[] = storedMode === "single" ? [] : transcript.turns;
+
   let eahNumber: number;
   let newSubmissionId: number;
   // Insert in a single transaction so partial inserts don't leak orphan tag rows.
@@ -449,15 +496,18 @@ export const submitPost: RouteHandler = async (req, ctx) => {
         `INSERT INTO submissions
           (public_id, eah_number, title, tracking_hash, prompt, output, ai_model, summary, notes,
            shared_chat_url, category, author_name, submitted_at, status, ip_hash,
-           submitter_email, hallucination_date, allow_author_edits, owner_user_id, anon_public)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)`,
+           submitter_email, hallucination_date, allow_author_edits, owner_user_id, anon_public,
+           transcript_mode)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           publicId,
           n,
           values.title,
           dummyTrackingHash,
-          values.prompt,
-          values.output,
+          // Mirror the first user/assistant turn into the legacy columns so the
+          // NOT NULL constraint holds and the browse `q` LIKE search still works.
+          legacyPrompt,
+          legacyOutput,
           values.ai_model,
           values.summary.length > 0 ? values.summary : null,
           values.notes.length > 0 ? values.notes : null,
@@ -473,10 +523,14 @@ export const submitPost: RouteHandler = async (req, ctx) => {
           values.allow_author_edits ? 1 : 0,
           ownerUserId,
           values.anon_public ? 1 : 0,
+          storedMode,
         ],
       );
       const submissionId = ins.insertId;
       if (!submissionId) throw new Error("insert returned no id");
+
+      // Multi-turn rows (none for 'single').
+      await replaceTurns(tx, submissionId, storedTurns);
 
       for (const tag of tags) {
         await tx.execute("INSERT IGNORE INTO tags (name) VALUES (?)", [tag]);

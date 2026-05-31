@@ -7,7 +7,7 @@ Co-founders: **Rudra Jadhav** and **Warren Woolf** (`warrenwoolf` on GitHub).
 ## Stack and conventions
 
 - **Bun + TypeScript.** No build step. `bun run dev` (hot reload) or `bun src/server.ts`. Type-check with `bunx tsc --noEmit`.
-- **Server-rendered HTML.** No client framework. Two static JS files: `src/static/theme.js` (dark-mode toggle) and `src/static/browse.js` (browse filter progressive enhancement). Don't add more client JS without a real reason. **Static files are served from an explicit allowlist** (`STATIC_FILES` in `src/server.ts`) — adding a `/static/*` file requires updating that list AND the `deploy.sh` Cloudflare purge list.
+- **Server-rendered HTML.** No client framework. Three static JS files: `src/static/theme.js` (dark-mode toggle), `src/static/browse.js` (browse filter progressive enhancement), and `src/static/turns.js` (multi-turn submit/edit form — mode toggle + add/remove turn; see "Multi-turn transcripts" below). Don't add more client JS without a real reason. **Static files are served from an explicit allowlist** (`STATIC_FILES` in `src/server.ts`) — adding a `/static/*` file requires updating that list AND the `deploy.sh` Cloudflare purge list.
 - **MariaDB** via the `mariadb` driver. Everything goes through `src/db.ts` (`query`, `queryOne`, `execute`, `transaction`). Always use `?` parameters; never interpolate into SQL.
 - **HTML rendering via `h\`...\``** in `src/html.ts`. ALL HTML output goes through `h\`\`` or `raw()`. `raw()` is for constants you fully control — never on user input.
 - **CSRF:** HMAC-signed double-submit cookie + hidden field. Every form must include `<input type="hidden" name="_csrf" value="${csrfToken}">` and every mutating handler must call `verifyCsrf(req, form.get("_csrf"))`.
@@ -69,9 +69,19 @@ Three levels: normal user, **staff** (`is_admin=1`), **owner** (`is_owner=1`). `
 
 `scripts/migrate.ts` is the **only schema source of truth** — idempotent and additive. To add a column: add to `COLUMN_ADDITIONS` using `ALTER TABLE … ADD COLUMN IF NOT EXISTS …`. Never drop columns in this script; use a separate manual script for destructive changes.
 
-Key `submissions` columns: `eah_number`, `public_id` (legacy slug), `owner_user_id`, `prompt`, `output`, `ai_model`, `category` (empty string = uncategorized), `status` (`draft`/`pending`/`published`/`rejected`/`withdrawn`), `entry_status` (`active`/`patched`), `anon_public`, `allow_author_edits`, `ip_hash`, `rejection_reason`, `reviewer_notes`.
+Key `submissions` columns: `eah_number`, `public_id` (legacy slug), `owner_user_id`, `prompt`, `output`, `ai_model`, `category` (empty string = uncategorized), `status` (`draft`/`pending`/`published`/`rejected`/`withdrawn`), `entry_status` (`active`/`patched`), `transcript_mode` (`single`/`turns`/`block`), `anon_public`, `allow_author_edits`, `ip_hash`, `rejection_reason`, `reviewer_notes`.
 
-Other tables: `user_sessions`, `email_verifications`, `tags`, `submission_tags`, `submission_messages`, `submission_versions`, `freed_eah_numbers`, `complaints`.
+Other tables: `user_sessions`, `email_verifications`, `tags`, `submission_tags`, `submission_messages`, `submission_versions`, `submission_turns`, `freed_eah_numbers`, `complaints`.
+
+## Multi-turn transcripts
+
+A submission can hold an **optional multi-turn conversation** (up to `MAX_TURNS = 100`, mainly for short 2–4 turn chats) instead of the legacy single `prompt`/`output` pair. Pure logic lives in `src/turns.ts` (unit-tested in `test/turns.test.ts`); DB read/write helpers in `src/turns-db.ts`.
+
+- **Data model (additive only):** `submissions.transcript_mode` ENUM(`single`/`turns`/`block`) DEFAULT `single`; legacy `prompt`/`output` columns are **kept**. `submission_turns` (FK→submissions ON DELETE CASCADE, `turn_index` 0-based, `role` `user`/`assistant`, `content` MEDIUMTEXT). `single` rows (incl. all legacy) have no turn rows. `turns`/`block` rows store turns AND **mirror** the first user/assistant turn into `prompt`/`output` (`deriveLegacyPair`) so the NOT NULL constraint and browse `q` LIKE search keep working. The trivial shape (lone turn, or exactly `[user, assistant]`) collapses back to `single` via `isSimplePair()` — the common case never creates turn rows.
+- **Two input modes** (`renderTranscriptFields`, radio toggle): **separate turns** (`turn_role[]` + `turn_content[]`, paired by index) or **pasted block** (`transcript_block`, split on `### User`/`### Assistant` delimiter lines, also `<<USER>>`/`<<ASSISTANT>>`, via `splitBlock()`). `readTranscriptForm()` parses either out of the urlencoded body (repeated fields via `.getAll()`); content is `sanitizeText()`-scrubbed; `validateTurns()` enforces ≥1 non-empty turn, per-turn ≤ `MAX_TURN_CONTENT` (32000), ≤ `MAX_TURNS`.
+- **Client JS (`src/static/turns.js`)** is progressive enhancement only (toggles turns-vs-block region, clones/removes turn boxes). With JS off, "Add/Remove turn" are plain `name="action"` submit buttons (`add_turn`/`remove_turn:N`) the POST handlers detect via `applyTurnAction` and re-render server-side, no save. Registered in `STATIC_FILES` + `deploy.sh` purge list.
+- **Rendering is shared** so `.entry-card` stays consistent (grep `entry-card`/`conversation`). `effectiveTurns()` synthesizes a `[prompt, output]` pair for `single` rows so all renderers are uniform. `renderConversation(turns, longField, collapseThreshold)`: simple pair labels **"Prompt"/"Response"**, richer ones **"User"/"Assistant"**. Entry page + overview show the full conversation; browse/home/dashboard cards (`renderCardConversation`, exported from `browse.ts`) collapse past the first two turns behind a pure-CSS `<details>`. Cards batch-load turns in one `WHERE submission_id IN (...)` query, only for `transcript_mode != 'single'` rows.
+- **Version-diff audit:** `versions.ts` has a `transcript` tracked field, set via `serializeTranscript(mode, turns)` (null for `single`). Staff direct-add (`/admin/entries/*`) is single-turn only by design.
 
 ## Email and Discord
 

@@ -10,6 +10,13 @@ SITE_URL="${SITE_URL:-https://enaih.org}"
 CF_ACCOUNT_ID_FILE="${CF_ACCOUNT_ID_FILE:-$HOME/Credentials/cloudflare-account-id.txt}"
 CF_TOKEN_FILE="${CF_TOKEN_FILE:-$HOME/Credentials/cloudflare-ww-purge-token.txt}"
 
+# NOTE: Cloudflare caches /static/* aggressively (see the cache note in CLAUDE.md).
+# After deploying a static-asset change, purge these URLs at the edge (dashboard
+# → Caching → Purge, or the API). Keep this list in sync with STATIC_FILES in
+# src/server.ts:
+#   /static/style.css  /static/theme.js  /static/browse.js  /static/turns.js
+#   /static/google.js  /static/robots.txt  /static/logo.svg
+
 rsync -avz --delete \
   --exclude .git --exclude node_modules --exclude .env \
   ./ randy:~/eah/
@@ -47,6 +54,7 @@ if [[ -r "$CF_ACCOUNT_ID_FILE" && -r "$CF_TOKEN_FILE" ]]; then
         \"${SITE_URL}/static/style.css\",
         \"${SITE_URL}/static/theme.js\",
         \"${SITE_URL}/static/browse.js\",
+        \"${SITE_URL}/static/turns.js\",
         \"${SITE_URL}/static/google.js\",
         \"${SITE_URL}/static/logo.svg\",
         \"${SITE_URL}/static/robots.txt\"

@@ -25,8 +25,14 @@ import { CATEGORIES, categoryLabel, isValidCategory } from "../categories.ts";
 import { formatEahId, parseEahId, freeEahNumber } from "../eah-id.ts";
 import { recordVersionDiffs, type TrackedValues } from "../versions.ts";
 import { notifyNewSubmission } from "../discord.ts";
+import {
+  type TranscriptMode, type Turn,
+  normalizeMode, effectiveTurns, renderConversation, renderTranscriptFields,
+  readTranscriptForm, applyTurnAction, deriveLegacyPair, serializeTranscript,
+} from "../turns.ts";
+import { loadTurns, replaceTurns } from "../turns-db.ts";
 import { statusBadge, statusLabel, actionBar } from "./my-shared.ts";
-import { longField } from "./browse.ts";
+import { longField, renderCardConversation } from "./browse.ts";
 import { renderNote, type MessageRow } from "./my-discussion.ts";
 import { MAX_PENDING_PER_USER } from "./submit.ts";
 import { parseForm, sanitizeText, type RouteHandler } from "./types.ts";
@@ -82,12 +88,15 @@ interface SubmissionRow {
   submitted_at: Date;
   anon_public: number;
   allow_author_edits: number;
+  transcript_mode: string;
 }
 
 interface EditFormValues {
   title: string;
-  prompt: string;
-  output: string;
+  // Transcript (mirrors submit.ts): mode + structured turns + pasted block.
+  mode: TranscriptMode;
+  turns: Turn[];
+  block: string;
   ai_model: string;
   category: string;
   tags: string;
@@ -119,7 +128,8 @@ async function fetchOwned(eahIdStr: string, userId: number): Promise<SubmissionR
   const row = await queryOne<SubmissionRow>(
     `SELECT id, eah_number, owner_user_id, status, title, prompt, output, ai_model,
             category, summary, notes, shared_chat_url, author_name, hallucination_date,
-            entry_status, public_id, submitted_at, anon_public, allow_author_edits
+            entry_status, public_id, submitted_at, anon_public, allow_author_edits,
+            transcript_mode
        FROM submissions
       WHERE eah_number = ? AND owner_user_id = ?`,
     [n, userId],
@@ -160,11 +170,29 @@ function parseDate(s: string): { ok: true; value: string | null } | { ok: false;
 
 function readEditForm(form: URLSearchParams): EditFormValues {
   const scrub = (k: string) => sanitizeText(form.get(k) ?? "").trim();
+  const scrubText = (s: string) => sanitizeText(s);
   const esRaw = scrub("entry_status");
+
+  const mode: TranscriptMode = form.get("transcript_mode") === "block" ? "block" : "turns";
+  const roles = form.getAll("turn_role");
+  const contents = form.getAll("turn_content");
+  const turns: Turn[] = [];
+  const n = Math.max(roles.length, contents.length);
+  for (let i = 0; i < n; i++) {
+    turns.push({
+      role: (roles[i] ?? "user").toLowerCase() === "assistant" ? "assistant" : "user",
+      content: scrubText(contents[i] ?? ""),
+    });
+  }
+
   return {
     title: scrub("title"),
-    prompt: scrub("prompt"),
-    output: scrub("output"),
+    mode,
+    turns: turns.length > 0 ? turns : [
+      { role: "user", content: "" },
+      { role: "assistant", content: "" },
+    ],
+    block: scrubText(form.get("transcript_block") ?? ""),
     ai_model: scrub("ai_model"),
     category: scrub("category"),
     tags: scrub("tags"),
@@ -180,13 +208,17 @@ function readEditForm(form: URLSearchParams): EditFormValues {
 
 function validateEditForm(
   values: EditFormValues,
-): { ok: true; tags: string[]; date: string | null } | { ok: false; error: string } {
+  form: URLSearchParams,
+):
+  | { ok: true; tags: string[]; date: string | null; mode: TranscriptMode; turns: Turn[] }
+  | { ok: false; error: string } {
   if (!values.title) return { ok: false, error: "Title is required." };
   if (values.title.length > LIMITS.title) return { ok: false, error: `Title too long (max ${LIMITS.title}).` };
-  if (!values.prompt) return { ok: false, error: "Prompt is required." };
-  if (values.prompt.length > LIMITS.prompt) return { ok: false, error: `Prompt too long (max ${LIMITS.prompt}).` };
-  if (!values.output) return { ok: false, error: "Model output is required." };
-  if (values.output.length > LIMITS.output) return { ok: false, error: `Output too long (max ${LIMITS.output}).` };
+
+  // Validate the conversation (turns or pasted block).
+  const transcript = readTranscriptForm(form, (s) => sanitizeText(s));
+  if (!transcript.ok) return { ok: false, error: transcript.error };
+
   if (!values.ai_model) return { ok: false, error: "AI model is required." };
   if (values.ai_model.length > LIMITS.ai_model) return { ok: false, error: `Model name too long (max ${LIMITS.ai_model}).` };
   // Optional; staff categorize before publish. Validate only if one was picked.
@@ -213,7 +245,7 @@ function validateEditForm(
   const dateResult = parseDate(values.hallucination_date);
   if (!dateResult.ok) return { ok: false, error: dateResult.error };
 
-  return { ok: true, tags: tagResult.tags, date: dateResult.value };
+  return { ok: true, tags: tagResult.tags, date: dateResult.value, mode: transcript.mode, turns: transcript.turns };
 }
 
 function renderEditForm(opts: {
@@ -253,15 +285,7 @@ function renderEditForm(opts: {
         ${categoryOptions}
       </select>
 
-      <label for="prompt">Prompt</label>
-      <textarea id="prompt" name="prompt" rows="6" maxlength="${LIMITS.prompt}"
-                required data-char-count="prompt-count">${values.prompt}</textarea>
-      <small id="prompt-count" class="char-count">0 / ${LIMITS.prompt} chars</small>
-
-      <label for="output">Model output</label>
-      <textarea id="output" name="output" rows="10" maxlength="${LIMITS.output}"
-                required data-char-count="output-count">${values.output}</textarea>
-      <small id="output-count" class="char-count">0 / ${LIMITS.output} chars</small>
+      ${renderTranscriptFields({ mode: values.mode, turns: values.turns, block: values.block })}
 
       <label for="summary">Summary <small>(optional)</small></label>
       <textarea id="summary" name="summary" rows="3" maxlength="${LIMITS.summary}"
@@ -320,8 +344,11 @@ function renderEditForm(opts: {
   `;
 }
 
-/** Read-only metadata block for the overview page. */
-function renderReadOnlyInfo(row: SubmissionRow, tags: string[]): SafeHtml {
+/** Read-only metadata block for the overview page. `turns` is the stored
+ *  multi-turn transcript (empty for legacy/'single' rows — synthesized from
+ *  prompt/output). */
+function renderReadOnlyInfo(row: SubmissionRow, tags: string[], turns: Turn[]): SafeHtml {
+  const convoTurns = effectiveTurns(normalizeMode(row.transcript_mode), turns, row.prompt, row.output);
   return h`
     <dl class="entry-meta">
       <dt>Title</dt><dd>${row.title ?? "(none)"}</dd>
@@ -331,10 +358,8 @@ function renderReadOnlyInfo(row: SubmissionRow, tags: string[]): SafeHtml {
       ${row.hallucination_date ? h`<dt>Date</dt><dd>${row.hallucination_date}</dd>` : raw("")}
       ${tags.length > 0 ? h`<dt>Tags</dt><dd>${tags.join(", ")}</dd>` : raw("")}
     </dl>
-    <h2>Prompt</h2>
-    <div class="entry-field-box">${longField(row.prompt)}</div>
-    <h2>Output</h2>
-    <div class="entry-field-box">${longField(row.output)}</div>
+    <h2>${convoTurns.length > 2 ? raw("Conversation") : raw("Prompt &amp; response")}</h2>
+    ${renderConversation(convoTurns, longField, 0)}
     ${row.summary ? h`<h2>Summary</h2><p>${row.summary}</p>` : raw("")}
     ${row.notes ? h`<h2>Notes</h2><p>${row.notes}</p>` : raw("")}
   `;
@@ -471,11 +496,12 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
     category: string;
     prompt: string;
     output: string;
+    transcript_mode: string;
     submitted_at: Date;
   }>(
     // Withdrawn submissions free their A-number, so they have no working
     // /my/submissions/:eahId links — exclude them from the list entirely.
-    `SELECT id, eah_number, title, status, ai_model, category, prompt, output, submitted_at
+    `SELECT id, eah_number, title, status, ai_model, category, prompt, output, transcript_mode, submitted_at
        FROM submissions
       WHERE ${listWhere.join(" AND ")}
       ORDER BY submitted_at DESC`,
@@ -511,6 +537,24 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
       </div>
     </form>
   </div>`;
+
+  // Batch-load turns for multi-turn rows (same cheap pattern as browse).
+  const turnsByRow = new Map<number, Turn[]>();
+  const multiTurnIds = rows.filter((r) => normalizeMode(r.transcript_mode) !== "single").map((r) => r.id);
+  if (multiTurnIds.length > 0) {
+    const ph = multiTurnIds.map(() => "?").join(",");
+    const turnRows = await query<{ submission_id: number; role: "user" | "assistant"; content: string }>(
+      `SELECT submission_id, role, content FROM submission_turns
+        WHERE submission_id IN (${ph})
+        ORDER BY submission_id ASC, turn_index ASC, id ASC`,
+      multiTurnIds,
+    );
+    for (const tr of turnRows) {
+      const arr = turnsByRow.get(tr.submission_id) ?? [];
+      arr.push({ role: tr.role, content: tr.content });
+      turnsByRow.set(tr.submission_id, arr);
+    }
+  }
 
   const { token } = tokenForRequest(req);
 
@@ -552,14 +596,7 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
             ${infoRow("Category", h`${categoryLabel(row.category)}`)}
             ${infoRow("Submitted", h`${submittedDate}`)}
           </dl>
-          <div class="entry-field">
-            <div class="entry-field-label">Prompt</div>
-            <div class="entry-field-box">${longField(row.prompt)}</div>
-          </div>
-          <div class="entry-field">
-            <div class="entry-field-label">Response</div>
-            <div class="entry-field-box">${longField(row.output)}</div>
-          </div>
+          ${renderCardConversation(row, turnsByRow.get(row.id) ?? [])}
           <div class="my-sub-actions">${actionBar(eahId, row.status, token)}</div>
         </div>
       </details>
@@ -631,10 +668,25 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
     [row.id],
   );
 
+  // Seed the conversation editor from stored turns (legacy/'single' rows
+  // synthesize a [prompt, output] pair). Mode 'block' falls back to the
+  // structured editor for editing — we re-derive a clean transcript on save.
+  const storedMode = normalizeMode(row.transcript_mode);
+  const storedTurns = await loadTurns(row.id);
+  const seedTurns = effectiveTurns(storedMode, storedTurns, row.prompt, row.output);
+  const editMode: TranscriptMode = storedMode === "block" ? "block" : "turns";
+
   const values: EditFormValues = {
     title: row.title ?? "",
-    prompt: row.prompt,
-    output: row.output,
+    mode: editMode,
+    turns: seedTurns.length > 0 ? seedTurns : [
+      { role: "user", content: row.prompt },
+      { role: "assistant", content: row.output },
+    ],
+    // For block mode, reconstruct an editable delimited block from the turns.
+    block: storedMode === "block"
+      ? seedTurns.map((t) => `### ${t.role === "assistant" ? "Assistant" : "User"}\n${t.content}`).join("\n\n")
+      : "",
     ai_model: row.ai_model,
     category: row.category,
     tags: tagRows.map((t) => t.name).join(", "),
@@ -709,7 +761,27 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
   }
 
   const values = readEditForm(form);
-  const v = validateEditForm(values);
+
+  // No-JS fallback: "Add turn" / "Remove turn" re-render the form (no save).
+  const action = form.get("action") ?? "";
+  const turnAction = applyTurnAction(action, values.turns);
+  if (turnAction) {
+    const { token, setCookie } = tokenForRequest(req);
+    const eahId = formatEahId(row.eah_number);
+    const formHtml = renderEditForm({
+      eahId, values: { ...values, turns: turnAction }, csrf: token, error: null, username: ctx.user.username,
+    });
+    const body = h`<p>${statusBadge(row.status)}</p>${formHtml}`;
+    return pageResponse(req, {
+      title: `Edit ${eahId} · EAH`,
+      heading: `Edit ${eahId}`,
+      body,
+      user: ctx.user,
+      subnav: actionBar(eahId, row.status, token),
+    }, { setCookie });
+  }
+
+  const v = validateEditForm(values, form);
 
   if (!v.ok) {
     const { token, setCookie } = tokenForRequest(req);
@@ -730,6 +802,20 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
 
   const eahId = formatEahId(row.eah_number);
   const userId = ctx.user.userId;
+
+  // Derive the stored shape + legacy prompt/output mirror from the validated
+  // conversation. A single user turn or a [user, assistant] pair collapses to
+  // 'single' (no turn rows). Anything richer keeps its mode + turn rows.
+  const isTrivial =
+    v.turns.length <= 1 ||
+    (v.turns.length === 2 && v.turns[0]!.role === "user" && v.turns[1]!.role === "assistant");
+  const storedMode: TranscriptMode = isTrivial ? "single" : v.mode;
+  const storedTurns: Turn[] = storedMode === "single" ? [] : v.turns;
+  const { prompt: legacyPrompt, output: legacyOutput } = deriveLegacyPair(v.turns);
+
+  // Current transcript (for version diffing): serialize what's stored now.
+  const currentStoredMode = normalizeMode(row.transcript_mode);
+  const currentStoredTurns = currentStoredMode === "single" ? [] : await loadTurns(row.id);
 
   // Load current tags as a sorted comma-joined string so we can diff them.
   const currentTagRows = await query<{ name: string }>(
@@ -754,12 +840,13 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
     hallucination_date: row.hallucination_date ?? null,
     entry_status: row.entry_status,
     tags: currentTagString || null,
+    transcript: serializeTranscript(currentStoredMode, currentStoredTurns),
   };
 
   const newValues: TrackedValues = {
     title: values.title || null,
-    prompt: values.prompt,
-    output: values.output,
+    prompt: legacyPrompt,
+    output: legacyOutput,
     ai_model: values.ai_model,
     summary: values.summary || null,
     notes: values.notes || null,
@@ -768,6 +855,7 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
     hallucination_date: v.date,
     entry_status: values.entry_status,
     tags: newTagString || null,
+    transcript: serializeTranscript(storedMode, storedTurns),
   };
 
   try {
@@ -779,12 +867,13 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
         `UPDATE submissions
             SET title = ?, prompt = ?, output = ?, ai_model = ?, summary = ?, notes = ?,
                 shared_chat_url = ?, category = ?,
-                hallucination_date = ?, entry_status = ?, anon_public = ?, allow_author_edits = ?
+                hallucination_date = ?, entry_status = ?, anon_public = ?, allow_author_edits = ?,
+                transcript_mode = ?
           WHERE id = ?`,
         [
           values.title || null,
-          values.prompt,
-          values.output,
+          legacyPrompt,
+          legacyOutput,
           values.ai_model,
           values.summary || null,
           values.notes || null,
@@ -794,9 +883,13 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
           values.entry_status,
           values.anon_public ? 1 : 0,
           values.allow_author_edits ? 1 : 0,
+          storedMode,
           row.id,
         ],
       );
+
+      // Replace the multi-turn rows (none for 'single').
+      await replaceTurns(tx, row.id, storedTurns);
 
       // Replace tag set.
       await tx.execute("DELETE FROM submission_tags WHERE submission_id = ?", [row.id]);
@@ -1177,8 +1270,10 @@ export const myView: RouteHandler = async (req, ctx) => {
         <p><a href="/my/submissions/${eahId}/discussion">Open discussion to reply →</a></p>`
     : h`<p class="muted">No messages yet. <a href="/my/submissions/${eahId}/discussion">Start a discussion →</a></p>`;
 
+  const convoTurns = normalizeMode(row.transcript_mode) === "single" ? [] : await loadTurns(row.id);
+
   const body = h`
-    ${renderReadOnlyInfo(row, tagRows.map((t) => t.name))}
+    ${renderReadOnlyInfo(row, tagRows.map((t) => t.name), convoTurns)}
     <h2>Discussion</h2>
     ${thread}
     <h2>Edit history</h2>
