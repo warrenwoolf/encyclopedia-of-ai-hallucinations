@@ -72,6 +72,12 @@ export const config = {
      * the email-signup option. Set to 0 to disable the gate entirely.
      */
     monthlyCap: parseInt(optional("EMAIL_MONTHLY_CAP", "280"), 10),
+    /**
+     * Where staff-facing notices (e.g. entry complaints) are emailed. Defaults
+     * to the privacy inbox — a real, monitored address — but can be pointed at
+     * a dedicated contact/abuse mailbox via CONTACT_EMAIL.
+     */
+    contact: optional("CONTACT_EMAIL", optional("PRIVACY_EMAIL", "privacy@eah.warrenwoolf.com")),
   },
 
   /**

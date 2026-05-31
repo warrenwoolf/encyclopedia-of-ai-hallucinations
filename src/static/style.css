@@ -1607,3 +1607,24 @@ pre.tracking-code {
   margin: 0.5em 0 0;
   padding-left: 1.5em;
 }
+
+/* Reader-complaint UI on the single-entry page (src/routes/entry.ts). The form
+   is a plain collapsible <details>; only a couple of neutral boxes are styled. */
+.complaint-thanks {
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--text);
+  padding: 8px;
+  margin: 12px 0;
+}
+.entry-complaint {
+  margin: 16px 0 0;
+}
+.entry-complaint > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.entry-complaint textarea {
+  width: 100%;
+  box-sizing: border-box;
+}

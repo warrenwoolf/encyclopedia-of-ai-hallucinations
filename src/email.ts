@@ -281,6 +281,44 @@ export async function sendDecision(opts: {
 }
 
 /**
+ * Sent to the staff contact inbox when a visitor reports a problem with a
+ * public entry. Unlike the other senders this goes to *us*, not a submitter,
+ * so it skips the submitter-oriented unsubscribe footer in `htmlWrap`.
+ */
+export async function sendComplaint(opts: {
+  eahId: string;
+  complaintLabel: string;
+  body: string;
+  reporter: string; // "user:<username>" or "anonymous"
+}): Promise<void> {
+  const { eahId, complaintLabel, body, reporter } = opts;
+  const to = config.email.contact;
+  const link = entryUrl(eahId);
+  const subject = `EAH complaint: ${eahId} — ${complaintLabel}`;
+
+  const text =
+    `A visitor reported a problem with a published entry.\n\n` +
+    `Entry: ${eahId}\n` +
+    `Link: ${link}\n` +
+    `Type: ${complaintLabel}\n` +
+    `From: ${reporter}\n\n` +
+    `Note:\n${body}\n`;
+
+  const html =
+    `<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#222;max-width:48em">` +
+    `<p>A visitor reported a problem with a published entry.</p>` +
+    `<p><strong>Entry:</strong> <code>${escape(eahId)}</code><br>` +
+    `<strong>Type:</strong> ${escape(complaintLabel)}<br>` +
+    `<strong>From:</strong> ${escape(reporter)}</p>` +
+    `<p><a href="${escape(link)}">View the entry</a></p>` +
+    `<p><strong>Note:</strong></p>` +
+    `<blockquote style="border-left:3px solid #ccc;padding-left:0.8em;color:#444;white-space:pre-wrap">${escape(body)}</blockquote>` +
+    `</body></html>`;
+
+  await send({ to, subject, text, html });
+}
+
+/**
  * Sent during email-based signup. Body contains the 6-digit code. Anyone with
  * the code can take over the half-finished account before it's verified, so
  * the cap on attempts (5) + TTL (15 min) live in auth.ts and are enforced

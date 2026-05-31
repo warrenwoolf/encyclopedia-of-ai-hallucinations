@@ -12,7 +12,7 @@ Co-founders: **Rudra Jadhav** and **Warren Woolf** (`warrenwoolf` on GitHub). Th
 - **HTML rendering is XSS-safe via `h\`...\``** in `src/html.ts`. ALL HTML output goes through `h\`\`` or `raw()`. `raw()` is for constants you fully control — never on user input. Do not concatenate user strings into HTML, ever.
 - **CSRF:** HMAC-signed double-submit cookie + hidden field. Every form must include `<input type="hidden" name="_csrf" value="${csrfToken}">` and the handler must call `verifyCsrf(req, form.get("_csrf"))` before doing anything mutating.
 - **`parseForm()` only understands `application/x-www-form-urlencoded`** — it runs the raw body through `new URLSearchParams(text)`. It does NOT parse `multipart/form-data`. So any client-side POST (e.g. `fetch` in `google.js`) must send a urlencoded body (`URLSearchParams`, not `FormData`), or every field — including `_csrf` — comes back empty and the request 403s on the CSRF check. That 403 branch logs nothing, so the failure is silent: the symptom is a POST that bounces back with no server log. This bit the GIS login flow (button rendered, sign-in always redirected to `/login`).
-- **Rate-limiting:** in-memory token bucket per IP in `src/ratelimit.ts`. Buckets: `submit`, `login`, `signup`, `verify`, `oauth`, `withdraw`, `lookup`. Add a new bucket entry if you add a new POST that hits external services or writes to the DB on behalf of anonymous users.
+- **Rate-limiting:** in-memory token bucket per IP in `src/ratelimit.ts`. Buckets: `submit`, `login`, `signup`, `verify`, `oauth`, `withdraw`, `api`, `complaint`. Add a new bucket entry if you add a new POST that hits external services or writes to the DB on behalf of anonymous users.
 - **Sessions:** all users (admins are users with `is_admin=1`). Cookie holds a random token; DB stores only its sha256. Logic in `src/auth.ts`.
 
 ## Security model — do not weaken
@@ -98,7 +98,7 @@ Key columns on `submissions`:
 - `reviewed_by`, `reviewed_at`, `reviewer_notes` (private), `rejection_reason` (shown to submitter), `staff_review_message` (shown to submitter, included in decision email).
 - `ip_hash` (BINARY(32)).
 
-Key columns on `users`: `is_admin` (staff), `is_owner` (owner), `suspended_until` + `suspended_reason` (timeout). Other tables: `user_sessions` (account auth), `email_verifications` (signup codes), `tags` + `submission_tags` join, `submission_messages` (chat; `sender_user_id` FKs `users(id)`), `submission_versions` (edit-diff audit log), `freed_eah_numbers` (A-number pool).
+Key columns on `users`: `is_admin` (staff), `is_owner` (owner), `suspended_until` + `suspended_reason` (timeout). Other tables: `user_sessions` (account auth), `email_verifications` (signup codes), `tags` + `submission_tags` join, `submission_messages` (chat; `sender_user_id` FKs `users(id)`), `submission_versions` (edit-diff audit log), `freed_eah_numbers` (A-number pool), `complaints` (reader complaints — see the complaint system below).
 
 ## Email (Resend)
 
@@ -111,14 +111,26 @@ Trigger points (all fire-and-forget):
 - `sendReviewerMessage` — when staff post a chat message.
 - `sendDecision` — on approve or reject.
 - `sendLookupDigest` — when someone uses `/lookup`.
+- `sendComplaint` — when a reader reports a problem with an entry (goes to the **staff contact inbox** `config.email.contact`, not a submitter, so it skips the submitter-oriented unsubscribe footer in `htmlWrap`).
+
+## Reader complaints
+
+Any visitor on a public entry page (`/e/:id`) can report a problem with that entry — logged in or not. The flow mirrors how submissions notify staff: it logs a row, emails staff, and posts to staff Discord.
+
+- **Form:** a collapsible `<details>` ("Report a problem with this entry") rendered at the **very end** of the entry body (after the cite block + prev/next nav) in `src/routes/entry.ts`. A `<select>` of complaint categories + a required, 2000-char-capped `<textarea>`. CSRF hidden field included; the token comes from `tokenForRequest(req)` (memoized, so `pageResponse` reuses it).
+- **Complaint categories are a small hardcoded enum** (`COMPLAINT_TYPES` in `src/routes/complaint.ts`) — `factual` / `miscategorized` / `duplicate` / `inappropriate` / `broken` / `other`. **These are NOT the hallucination categories** — they describe what's wrong with the *entry*. Stored as VARCHAR(40) so the set can grow without a migration.
+- **Route:** `POST /e/:id/complaint` (`postComplaint` in `src/routes/complaint.ts`). Rate-limited via the `complaint` bucket (per-IP, since anonymous users can hit it). Validates the type against the enum, requires a non-empty note ≤2000 chars, runs the note through `sanitizeText()`. On success: inserts into `complaints` (with `ip_hash = sha256(SESSION_SECRET||ip)`, `reporter_user_id` = the logged-in user or NULL), fires `sendComplaint` + `notifyComplaint` fire-and-forget, then 303-redirects to `/e/:id?complaint=ok`. The entry page reads that query param and shows a small "thanks" notice.
+- **`complaints` table:** `id`, `submission_id` (FK→submissions ON DELETE CASCADE), `reporter_user_id` (FK→users ON DELETE SET NULL), `complaint_type`, `body`, `status` ENUM('open','resolved','dismissed') default 'open', `created_at`, `ip_hash` BINARY(32). Indexed on `(submission_id)` and `(status)`.
+- **Staff view:** `GET /admin/complaints` (`src/routes/admin/complaints.ts`, gated on `ctx.admin`) — read-only list of `status='open'` complaints. Resolving/dismissing isn't wired up yet (a `// TODO`); it would be an owner-only POST mutating `complaints.status`.
 
 ## Discord notifications
 
-`src/discord.ts` posts plain messages to two Discord channels via the REST API (no SDK, no gateway). Mirrors `email.ts`'s contract: **every function returns `Promise<void>` and NEVER throws**; if `DISCORD_BOT_TOKEN` is unset it logs once and no-ops, and either channel id can be blank to disable just that side. Every message sends `allowed_mentions: { parse: [] }` so a submitter can't smuggle an `@everyone` through a title/model string.
+`src/discord.ts` posts plain messages to two Discord channels via the REST API (no SDK, no gateway). Mirrors `email.ts`'s contract: **every function returns `Promise<void>` and NEVER throws**; if `DISCORD_BOT_TOKEN` is unset it logs once and no-ops, and either channel id can be blank to disable just that side. Every message sends `allowed_mentions: { parse: [] }` so user-supplied text (a title, model string, or complaint body) can't smuggle an `@everyone` through. Content is clipped to Discord's 2000-char cap. Config lives in `config.discord` (`botToken` via `DISCORD_BOT_TOKEN`/`_FILE`, `staffChannelId`, `publicChannelId`).
 
 Trigger points (fire-and-forget):
 - `notifyNewSubmission` → **staff** channel (`DISCORD_STAFF_CHANNEL_ID`) when a submission enters the review queue: `submit.ts` (Submit-for-review path) and `my.ts` `myPropose` (draft→pending). Links to `/admin/queue/:id`.
 - `notifyPublished` → **public** channel (`DISCORD_PUBLIC_CHANNEL_ID`) on approve+publish, fired from `review.ts` `postReview` only when the status actually flipped to `published` this request. Links to `/e/:eahId`.
+- `notifyComplaint` → **staff** channel when a reader reports a problem with an entry (see Reader complaints above).
 
 **Presence (online status).** `src/discord.ts` is REST-only and never opens a gateway connection, so on its own the bot shows **offline** even while posting. `src/discord-gateway.ts` opens a single gateway WebSocket purely to advertise an `online` presence for as long as the server runs (`startDiscordPresence()`, called once from `server.ts` startup). It requests **no intents** (`intents: 0`) and subscribes to no events — the `presence` block in IDENTIFY is all that matters. It heartbeats per the HELLO interval, treats a missed ACK as a zombie and reconnects, and reconnects with capped exponential backoff on any close. No RESUME (a presence-only bot re-IDENTIFYs cheaply). No-ops when `DISCORD_BOT_TOKEN` is unset; never throws into the caller.
 
@@ -132,6 +144,7 @@ Trigger points (fire-and-forget):
 | GET    | `/contact`                          | `routes/contact.ts` (single contact inbox: `contact@enaih.org`, forwarded via Cloudflare Email Routing) |
 | GET    | `/browse`                           | `routes/browse.ts` (filters: category, tag, model, status, q; sort: new/old/verified/id). Listing is an indented list (incl. prompt/output) via shared `renderBrowseBody`; `q` that names a category (`resolveCategory`) becomes a category filter. Sidebar category/status links show **faceted counts**: `renderBrowseBody` builds a `base` WHERE (every filter except category+entry_status) and runs two extra `GROUP BY` count queries — category counts honor the active status (and vice-versa), so a count reflects "what clicking would yield" given the *other* active filters. **Categories are multi-select** (`?category=a&category=b`, OR'd via `s.category IN (...)`) rendered as checkboxes inside one sidebar `<form>`; status/sort stay single-select links (their current values ride along as hidden inputs). `browse.js` applies any change without a full reload (swaps `#browse-root`); the form still works without JS. |
 | GET    | `/e/:public_id`                     | `routes/entry.ts` (accepts A-number OR legacy slug; legacy 301→canonical) |
+| POST   | `/e/:public_id/complaint`           | `routes/complaint.ts` (reader complaint; public + anon; → `/e/:id?complaint=ok`) |
 | GET    | `/submit`                           | `routes/submit.ts` |
 | POST   | `/submit`                           | `routes/submit.ts` |
 | GET    | `/my/submissions`                   | `routes/my.ts` (submitter dashboard; list, A-number → overview) |
@@ -163,6 +176,7 @@ Trigger points (fire-and-forget):
 | POST   | `/admin/queue/:id`                  | `routes/admin/review.ts` (approve/reject) |
 | POST   | `/admin/queue/:id/message`          | `routes/admin/review.ts` (staff chat msg) |
 | GET    | `/admin/all`                        | `routes/admin/all.ts` (read-only triage list; **no bulk actions** — every decision must carry a reviewer message, so acting on a row means clicking through to `/admin/queue/:id`) |
+| GET    | `/admin/complaints`                 | `routes/admin/complaints.ts` (read-only list of open reader complaints; gated on `ctx.admin`) |
 | GET    | `/admin/all/:id/delete`             | `routes/admin/all.ts` (owner-only delete confirm) |
 | POST   | `/admin/all/:id/delete`             | `routes/admin/all.ts` (owner-only permanent delete; retires A-number) |
 | GET    | `/admin/users`                      | `routes/admin/users.ts` (staff: read-only; owner: actions) |

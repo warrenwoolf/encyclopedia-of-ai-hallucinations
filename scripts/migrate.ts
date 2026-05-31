@@ -175,6 +175,31 @@ const TABLES: TableSpec[] = [
       FOREIGN KEY (changed_by)    REFERENCES users(id) ON DELETE SET NULL
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   },
+  {
+    // Visitor-reported complaints about a published entry (POST /e/:id/complaint).
+    // Anyone — logged in or not — can file one; reporter_user_id is the account
+    // id when present, NULL for anonymous reporters. complaint_type is a small
+    // hardcoded enum (see COMPLAINT_TYPES in src/routes/complaint.ts), stored as
+    // a VARCHAR so the set can grow without a schema migration. ip_hash mirrors
+    // submissions.ip_hash (sha256(SESSION_SECRET || ip)) — no raw IPs.
+    //
+    // Must appear AFTER submissions and users in TABLES so FK resolution works.
+    name: "complaints",
+    sql: `CREATE TABLE IF NOT EXISTS complaints (
+      id               INT AUTO_INCREMENT PRIMARY KEY,
+      submission_id    INT NOT NULL,
+      reporter_user_id INT NULL,
+      complaint_type   VARCHAR(40) NOT NULL,
+      body             TEXT NOT NULL,
+      status           ENUM('open','resolved','dismissed') NOT NULL DEFAULT 'open',
+      created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+      ip_hash          BINARY(32) NULL,
+      INDEX idx_submission (submission_id),
+      INDEX idx_status (status),
+      FOREIGN KEY (submission_id)    REFERENCES submissions(id) ON DELETE CASCADE,
+      FOREIGN KEY (reporter_user_id) REFERENCES users(id)       ON DELETE SET NULL
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+  },
 ];
 
 /**

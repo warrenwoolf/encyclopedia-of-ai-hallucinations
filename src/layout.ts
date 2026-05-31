@@ -79,6 +79,7 @@ export function layout(opts: LayoutOptions): string {
     const adminLinks = opts.user.isAdmin
       ? h`<a href="/admin/queue">Queue</a>
           <a href="/admin/all">All</a>
+          <a href="/admin/complaints">Complaints</a>
           <a href="/admin/users">Users</a>
           <a href="/admin/staff">Staff</a>`
       : raw("");

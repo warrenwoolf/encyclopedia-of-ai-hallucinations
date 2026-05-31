@@ -32,6 +32,9 @@ const LIMITS: Record<string, LimitConfig> = {
   // Google OAuth start. Mostly a paranoia check — the actual flow is
   // signed, but capping the number of started flows prevents abuse.
   oauth: { capacity: 30, refillPerHour: 30 },
+  // Entry complaints. Anonymous visitors can hit this, and each one writes a
+  // DB row + fires an email + a Discord post, so keep it tight per IP.
+  complaint: { capacity: 10, refillPerHour: 10 },
 };
 
 const buckets = new Map<string, Bucket>();

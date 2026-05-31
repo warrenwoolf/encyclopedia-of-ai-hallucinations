@@ -12,6 +12,8 @@ import { queryOne, query } from "../db.ts";
 import { categoryLabel } from "../categories.ts";
 import { config } from "../config.ts";
 import { formatEahId, parseEahId } from "../eah-id.ts";
+import { tokenForRequest } from "../csrf.ts";
+import { COMPLAINT_TYPES } from "./complaint.ts";
 import { type RouteHandler } from "./types.ts";
 
 interface SubmissionRow {
@@ -186,8 +188,42 @@ export const entry: RouteHandler = async (req, ctx) => {
     </header>
   `;
 
+  // CSRF token for the "report a problem" form below. pageResponse memoizes
+  // per-request, so it will reuse this exact token (and its Set-Cookie).
+  const { token: csrfToken } = tokenForRequest(req);
+
+  // After a successful complaint POST we redirect here with ?complaint=ok and
+  // show a small confirmation. (Any other value is ignored.)
+  const complaintThanks = ctx.url.searchParams.get("complaint") === "ok"
+    ? h`<div class="complaint-thanks" role="status">
+        Thanks — your report was sent to the staff. We review every report.
+      </div>`
+    : raw("");
+
+  const complaintForm = h`
+    <details class="entry-complaint">
+      <summary>Report a problem with this entry</summary>
+      <form method="post" action="/e/${eahId}/complaint">
+        <input type="hidden" name="_csrf" value="${csrfToken}">
+        <p>
+          <label for="complaint_type">What's wrong?</label><br>
+          <select id="complaint_type" name="complaint_type" required>
+            ${COMPLAINT_TYPES.map((t) => h`<option value="${t.key}">${t.label}</option>`)}
+          </select>
+        </p>
+        <p>
+          <label for="complaint_body">Details</label><br>
+          <textarea id="complaint_body" name="body" rows="4" maxlength="2000" required
+            placeholder="Briefly describe the problem."></textarea>
+        </p>
+        <p><button type="submit">Send report</button></p>
+      </form>
+    </details>
+  `;
+
   const body = h`
     ${pageHeader}
+    ${complaintThanks}
     ${patchedBanner}
 
     <dl class="entry-meta">
@@ -230,6 +266,8 @@ export const entry: RouteHandler = async (req, ctx) => {
         ? h`<a href="/e/${formatEahId(nextRow.eah_number)}">${formatEahId(nextRow.eah_number)} &rarr;</a>`
         : h`<span class="disabled">(last) &rarr;</span>`}
     </nav>
+
+    ${complaintForm}
   `;
 
   return pageResponse(req, {

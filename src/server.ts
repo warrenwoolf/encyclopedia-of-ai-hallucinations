@@ -17,6 +17,8 @@ import type { RouteContext, RouteHandler } from "./routes/types.ts";
 
 import { home } from "./routes/home.ts";
 import { entry } from "./routes/entry.ts";
+import { postComplaint } from "./routes/complaint.ts";
+import { getComplaints } from "./routes/admin/complaints.ts";
 import { browse } from "./routes/browse.ts";
 import { submitGet, submitPost } from "./routes/submit.ts";
 import { about } from "./routes/about.ts";
@@ -76,6 +78,7 @@ const ROUTES: RouteDef[] = [
   route("GET", "/contact", contact),
   route("GET", "/browse", browse),
   route("GET", "/e/:public_id", entry),
+  route("POST", "/e/:public_id/complaint", postComplaint),
   route("GET", "/submit", submitGet),
   route("POST", "/submit", submitPost),
   // Accounts (users + admins use the same login surface)
@@ -120,6 +123,8 @@ const ROUTES: RouteDef[] = [
   route("POST", "/admin/queue/:id", postReview),
   route("POST", "/admin/queue/:id/message", postReviewMessage),
   route("GET", "/admin/all", getAll),
+  // Read-only list of open entry complaints (staff + owner).
+  route("GET", "/admin/complaints", getComplaints),
   // Staff-managed category list (add new categories at runtime).
   route("GET", "/admin/categories", getCategories),
   route("POST", "/admin/categories", postCategory),
