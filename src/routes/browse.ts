@@ -298,12 +298,26 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
 
   const hasFilters = Boolean(categories.length || tagValid || model || q || status);
 
+  // `category` is an array here, so buildQs emits one ?category= per selection.
+  const sharedQs = { category: categories, tag: tagValid, model, q, status, sort };
+
+  // Active-filter chips under the results header are *removal* controls: each is
+  // a link to the same view with that one filter dropped (a category chip drops
+  // just that category; the rest drop their param). browse.js intercepts these
+  // so removal is instant; the trailing ✕ + .chip-remove styling signal it.
+  const removeChip = (label: string, removeQs: string) =>
+    h`<a class="chip chip-remove" href="/browse${raw(removeQs)}" title="Remove this filter">${label}<span class="chip-x" aria-hidden="true">×</span></a>`;
   const filterChips: ReturnType<typeof h>[] = [];
-  for (const c of categories) filterChips.push(h`<span class="chip">category: ${categoryLabel(c)}</span>`);
-  if (tagValid) filterChips.push(h`<span class="chip">tag: ${tagValid}</span>`);
-  if (model) filterChips.push(h`<span class="chip">model: ${model}</span>`);
-  if (status) filterChips.push(h`<span class="chip">status: ${status}</span>`);
-  if (q) filterChips.push(h`<span class="chip">search: ${q}</span>`);
+  for (const c of categories) {
+    filterChips.push(removeChip(
+      `category: ${categoryLabel(c)}`,
+      buildQs({ ...sharedQs, category: categories.filter((x) => x !== c) }),
+    ));
+  }
+  if (tagValid) filterChips.push(removeChip(`tag: ${tagValid}`, buildQs({ ...sharedQs, tag: "" })));
+  if (model) filterChips.push(removeChip(`model: ${model}`, buildQs({ ...sharedQs, model: "" })));
+  if (status) filterChips.push(removeChip(`status: ${status}`, buildQs({ ...sharedQs, status: "" })));
+  if (q) filterChips.push(removeChip(`search: ${q}`, buildQs({ ...sharedQs, q: "" })));
 
   const filtersBlock = hasFilters
     ? h`<div class="filters">
@@ -311,9 +325,6 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
         <a href="/browse" class="clear-filters">clear filters</a>
       </div>`
     : raw("");
-
-  // `category` is an array here, so buildQs emits one ?category= per selection.
-  const sharedQs = { category: categories, tag: tagValid, model, q, status, sort };
 
   // Category list: multi-select checkboxes inside the filter form. Ticking one
   // adds it (results OR together); the JS in browse.js applies the change
@@ -347,7 +358,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     const name = active
       ? h`<strong class="cat-name">${label}</strong>`
       : h`<a class="cat-name" href="/browse${raw(buildQs({ ...sharedQs, status: s }))}">${label}</a>`;
-    return h`<div class="filter-row ${active ? "active" : ""}">${name}<span class="cat-count">${count}</span></div>`;
+    return h`<div class="filter-row ${active ? "active" : ""}">${name}<span class="cat-count">(${count})</span></div>`;
   };
 
   // Pagination — spec §5l format: "← prev · showing 26–50 of 1163 entries · next →"
@@ -447,6 +458,12 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
             <input type="search" name="q" value="${q}" placeholder="search title, prompt, output…" maxlength="200">
             <button type="submit" class="search-go" aria-label="Search">${raw(SEARCH_ICON)}</button>
           </div>
+          <div class="search-model">
+            <label for="model-filter">Custom Model:</label>
+            <select id="model-filter" name="model">
+              ${modelOptions}
+            </select>
+          </div>
           ${tagValid ? h`<input type="hidden" name="tag" value="${tagValid}">` : h``}
           ${status ? h`<input type="hidden" name="status" value="${status}">` : h``}
           ${sort !== "new" ? h`<input type="hidden" name="sort" value="${sort}">` : h``}
@@ -470,12 +487,6 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
               ${sortLink("verified", "Most verified")}
               ${sortLink("id", "By A-number")}
             </div>
-          </div>
-          <div class="search-model">
-            <label for="model-filter">Custom Model:</label>
-            <select id="model-filter" name="model">
-              ${modelOptions}
-            </select>
           </div>
         </form>
       </aside>

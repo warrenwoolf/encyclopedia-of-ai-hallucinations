@@ -24,6 +24,7 @@ import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { CATEGORIES, categoryLabel, isValidCategory } from "../categories.ts";
 import { formatEahId, parseEahId, freeEahNumber } from "../eah-id.ts";
 import { recordVersionDiffs, type TrackedValues } from "../versions.ts";
+import { notifyNewSubmission } from "../discord.ts";
 import { statusBadge, statusLabel, actionBar } from "./my-shared.ts";
 import { longField } from "./browse.ts";
 import { renderNote, type MessageRow } from "./my-discussion.ts";
@@ -567,8 +568,9 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
 
   const rule = h`<p class="field-hint"><small>Drafts are unlimited. You may have at
     most ${MAX_PENDING_PER_USER} submissions <strong>awaiting review</strong> at once —
-    propose a draft to send it for review, and withdraw a proposed one back to a draft
-    if you need room.</small></p>`;
+    propose a draft to send it for review. If you run out of room, you can just wait
+    for one of your proposals to be accepted, or withdraw a proposed one back to a
+    draft to free up a slot.</small></p>`;
 
   const body = totalOwned === 0
     ? h`${rule}<p>No submissions yet. <a href="/submit">Submit one</a>.</p>`
@@ -910,6 +912,16 @@ export const myPropose: RouteHandler = async (req, ctx) => {
       user: ctx.user,
     }, { status: 500 });
   }
+
+  // Ping the staff Discord channel: this draft just entered the review queue.
+  void notifyNewSubmission({
+    submissionId: row.id,
+    eahId: formatEahId(row.eah_number),
+    title: row.title,
+    modelLabel: row.ai_model,
+    username,
+    anon: row.anon_public === 1,
+  });
 
   return new Response(null, { status: 303, headers: { Location: "/my/submissions" } });
 };

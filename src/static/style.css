@@ -266,8 +266,9 @@ header .site-header-top {
   font-size: 1.1em;
   font-weight: bold;
   letter-spacing: 0.1em;
-  /* compensate letter-spacing optical shift */
-  margin-left: 0.1em;
+  /* Nudge left (~5px) so the glyphs sit centered under the strawberry. The
+     trailing letter-spacing pushes the visual block right; this pulls it back. */
+  margin-left: -0.2em;
   font-family: var(--font-ui);
 }
 
@@ -1205,6 +1206,10 @@ body.browse-page { --content-width: 100%; --main-width: 100%; }
   justify-content: flex-start;
   gap: 7px;
   cursor: pointer;
+  /* The row is a <label>, which the global `label` rule makes bold. Reset to
+     normal here so an UNchecked category reads as plain weight; only the
+     checked ones bold (below). */
+  font-weight: normal;
 }
 .cat-check input[type="checkbox"] {
   flex: none;
@@ -1214,11 +1219,14 @@ body.browse-page { --content-width: 100%; --main-width: 100%; }
   accent-color: var(--entry-head-bg);
 }
 .cat-check .cat-name { flex: 1 1 auto; }
-/* "All categories" is a plain reset link (no checkbox), so it keeps the normal
-   space-between layout from .cat-link. Active states bold the label. */
+/* Bold + darken a category only when it's selected (its box is checked). The
+   `:has()` form reflects the live checkbox state instantly — before the AJAX
+   swap, and without JS at all — while `.active` (set server-side) is the
+   fallback for browsers without :has(). The "All categories" reset link bolds
+   when nothing is selected. */
 .cat-check.active .cat-name,
+.cat-check:has(input:checked) .cat-name,
 .cat-reset.active { font-weight: bold; color: var(--text); }
-.cat-check.active .cat-name { color: var(--text); }
 .cat-reset { cursor: pointer; }
 
 /* Dashboard (/my/submissions) filter bar: status links on the left, a compact
@@ -1245,7 +1253,9 @@ body.browse-page { --content-width: 100%; --main-width: 100%; }
 
 .filters  { font-size: 0.9em; margin: 8px 0; }
 .filters .chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35em;
   font-family: var(--font-ui);
   font-size: 0.85em;
   background: var(--bg-alt);
@@ -1253,6 +1263,15 @@ body.browse-page { --content-width: 100%; --main-width: 100%; }
   padding: 0.05em 0.5em;
   margin-right: 6px;
 }
+/* Active-filter chips are removal links: the ✕ and hover state signal that
+   clicking drops the filter. */
+a.chip-remove { color: var(--text); text-decoration: none; cursor: pointer; }
+a.chip-remove .chip-x { color: var(--text-muted); font-weight: bold; }
+a.chip-remove:hover {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+a.chip-remove:hover .chip-x { color: var(--error, #cc0000); }
 
 .filter-bar {
   display: flex;

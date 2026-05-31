@@ -9,3 +9,6 @@ HANDOFF.md
 OPS.md
 .claude
 TESTING_HANDOFF.md
+
+# smoke-test harness (scripts/smoke.sh)
+.env.smoke

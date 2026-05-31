@@ -92,6 +92,18 @@ export const config = {
     email: optional("ADMIN_BOOTSTRAP_EMAIL", ""),
     pass: optional("ADMIN_BOOTSTRAP_PASS", ""),
   },
+
+  /**
+   * Discord bot notifications. When the bot token is unset, the module no-ops.
+   * Two channels: new submissions entering the review queue go to the staff
+   * channel; newly published entries go to the public channel. Either channel
+   * id can be left blank to disable just that notification.
+   */
+  discord: {
+    botToken: optionalFile("DISCORD_BOT_TOKEN", ""),
+    staffChannelId: optional("DISCORD_STAFF_CHANNEL_ID", ""),
+    publicChannelId: optional("DISCORD_PUBLIC_CHANNEL_ID", ""),
+  },
 } as const;
 
 export const isProd = config.nodeEnv === "production";

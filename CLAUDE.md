@@ -112,6 +112,14 @@ Trigger points (all fire-and-forget):
 - `sendDecision` — on approve or reject.
 - `sendLookupDigest` — when someone uses `/lookup`.
 
+## Discord notifications
+
+`src/discord.ts` posts plain messages to two Discord channels via the REST API (no SDK, no gateway). Mirrors `email.ts`'s contract: **every function returns `Promise<void>` and NEVER throws**; if `DISCORD_BOT_TOKEN` is unset it logs once and no-ops, and either channel id can be blank to disable just that side. Every message sends `allowed_mentions: { parse: [] }` so a submitter can't smuggle an `@everyone` through a title/model string.
+
+Trigger points (fire-and-forget):
+- `notifyNewSubmission` → **staff** channel (`DISCORD_STAFF_CHANNEL_ID`) when a submission enters the review queue: `submit.ts` (Submit-for-review path) and `my.ts` `myPropose` (draft→pending). Links to `/admin/queue/:id`.
+- `notifyPublished` → **public** channel (`DISCORD_PUBLIC_CHANNEL_ID`) on approve+publish, fired from `review.ts` `postReview` only when the status actually flipped to `published` this request. Links to `/e/:eahId`.
+
 ## Routes (high level)
 
 | Method | Path                                | Handler |
@@ -194,6 +202,7 @@ Don't lift `robots.txt` on its own — an indexed site that still shows a "work 
 ## Testing
 
 - `bun test` runs the unit suite against a **mocked `src/db.ts`** (no MariaDB). `EAH_TEST_DB=1 bun test test/integration/` spins up a throwaway MariaDB in Docker (see `test/setup.ts`).
+- **`scripts/smoke.sh` is the manual smoke-test harness** — for poking the *real* running site (browse filters, dashboards, admin, the chip/checkbox UX) without a real DB or prod creds. `scripts/smoke.sh up` starts a throwaway MariaDB container, runs the real migrations, seeds users (`owner`/`staff`/`user`, password `smoke-pass-1234`) + sample submissions, boots the server on :8099, and **prints ready-to-use `eah_session` cookies** for each role so you can `curl --cookie …` authenticated routes immediately. `down` removes the container + the gitignored `.env.smoke`; `reset` is down+up; `sql '<q>'` runs a query; `cookies` re-mints them. Discord/Resend stay unset so those modules no-op. Use this to verify UI/route changes end-to-end before committing.
 - **`mock.module` bleeds across test files.** Bun resolves every test file's static imports before any `beforeAll` runs, and `mock.module` installs a *live binding* that updates already-imported references process-wide. So if file A mocks a widely-imported module (`src/config.ts`, `src/db.ts`), file B's `import { config }` sees the mock too — even across files. Two consequences worth remembering:
   - When you mock such a module, save the real one first and restore it in `afterAll` (the `handlers.test.ts` db-mock and `oauth-google.test.ts` config-mock both do this).
   - Don't write assertions in one file that depend on the *default value* of something another file mocks (e.g. `config.googleOAuth.clientId === ""`). Assert the **shape**, not the value, or the test is order-dependent and flaky. This bit during the JWKS migration: `oauth-google.test.ts` mocks `config` to give `clientId` a value, which broke a value-assertion in `config.test.ts`.

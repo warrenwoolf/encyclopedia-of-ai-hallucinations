@@ -12,8 +12,9 @@ import { layout } from "../../layout.ts";
 import { execute, transaction, queryOne } from "../../db.ts";
 import { verifyCsrf } from "../../csrf.ts";
 import { sendDecision, sendReviewerMessage } from "../../email.ts";
+import { notifyPublished } from "../../discord.ts";
 import { freeEahNumber, formatEahId } from "../../eah-id.ts";
-import { isValidCategory } from "../../categories.ts";
+import { isValidCategory, categoryLabel } from "../../categories.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "../types.ts";
 
 async function badRequest(message: string, status = 400, returnTo?: string): Promise<Response> {
@@ -118,12 +119,13 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     id: number;
     public_id: string;
     eah_number: number | null;
+    title: string | null;
     ai_model: string | null;
     category: string;
     submitter_email: string | null;
     owner_email: string | null;
   }>(
-    `SELECT s.id, s.public_id, s.eah_number, s.ai_model, s.category, s.submitter_email,
+    `SELECT s.id, s.public_id, s.eah_number, s.title, s.ai_model, s.category, s.submitter_email,
             u.email AS owner_email
        FROM submissions s
        LEFT JOIN users u ON u.id = s.owner_user_id
@@ -163,6 +165,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   // freed before the status flip and then the status flip failed, we'd hand
   // a still-pending submission's number to the next draft. Wrap in a single
   // transaction.
+  let didPublish = false;
   try {
     await transaction(async (tx) => {
       if (action === "approve") {
@@ -184,6 +187,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
           [effectiveCategory, ctx.admin!.userId, verifiedHits, verifiedTotal, reviewerNotes, staffReviewMessage, id],
         );
         if (res.affectedRows > 0) {
+          didPublish = true;
           await tx.execute(
             `INSERT INTO submission_messages (submission_id, sender_type, body)
              VALUES (?, 'system', ?)`,
@@ -221,6 +225,17 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   } catch (err) {
     console.error("review action failed", err);
     return await badRequest("Could not save the review. Try again.", 500);
+  }
+
+  // Fire-and-forget Discord notification to the public channel when an entry
+  // actually went live (status flipped pending → published in this request).
+  if (didPublish && exists.eah_number !== null) {
+    void notifyPublished({
+      eahId: formatEahId(exists.eah_number),
+      title: exists.title,
+      modelLabel: exists.ai_model ?? "(unknown)",
+      categoryLabel: categoryLabel(effectiveCategory),
+    });
   }
 
   // Fire-and-forget decision email. Prefer the owner account's email; fall

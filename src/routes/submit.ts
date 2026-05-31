@@ -12,6 +12,7 @@ import { check as rateCheck } from "../ratelimit.ts";
 import { CATEGORIES, isValidCategory } from "../categories.ts";
 import { config } from "../config.ts";
 import { isSuspended } from "../auth.ts";
+import { notifyNewSubmission } from "../discord.ts";
 import { allocateEahNumber, formatEahId } from "../eah-id.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteHandler } from "./types.ts";
 
@@ -433,9 +434,10 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   const ownerUserId = ctx.user.userId;
 
   let eahNumber: number;
+  let newSubmissionId: number;
   // Insert in a single transaction so partial inserts don't leak orphan tag rows.
   try {
-    eahNumber = await transaction(async (tx) => {
+    const result = await transaction(async (tx) => {
       // Allocate the A-number BEFORE the insert so we hold a row lock on
       // freed_eah_numbers (if used) for the whole transaction.
       const n = await allocateEahNumber(tx);
@@ -499,8 +501,10 @@ export const submitPost: RouteHandler = async (req, ctx) => {
         );
       }
 
-      return n;
+      return { n, submissionId };
     });
+    eahNumber = result.n;
+    newSubmissionId = Number(result.submissionId);
   } catch (err) {
     console.error("submission insert failed", err);
     return showForm(req, ctx, {
@@ -511,6 +515,18 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   }
 
   const eahId = formatEahId(eahNumber);
+
+  // If it went straight into the review queue, ping the staff Discord channel.
+  if (wantPropose) {
+    void notifyNewSubmission({
+      submissionId: newSubmissionId,
+      eahId,
+      title: values.title,
+      modelLabel: values.ai_model,
+      username: ctx.user.username,
+      anon: values.anon_public,
+    });
+  }
 
   // Proposed → straight to the dashboard (it's now in the review queue).
   // Draft → the edit page so the submitter can keep refining before proposing.
