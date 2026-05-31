@@ -408,6 +408,24 @@ async function seedCategories(): Promise<void> {
     "UPDATE categories SET label = ? WHERE `key` = 'spiraling' AND label = 'Spiraling / Looping'",
     ["Spiraling / Looping / Thrashing"],
   );
+  // Title-case relabels: the original defaults were sentence-case ("Factual
+  // error"); they read better as title-case ("Factual Error"). Same idempotent
+  // pattern — each UPDATE only fires on a row still carrying the exact old
+  // default label, so staff edits are never clobbered and re-runs are no-ops.
+  const titleCaseRelabels: Array<[key: string, oldLabel: string, newLabel: string]> = [
+    ["tokenization", "Tokenization / Letter-counting", "Tokenization / Letter-Counting"],
+    ["fabricated-citation", "Fabricated citation", "Fabricated Citation"],
+    ["fake-code-api", "Fake code / API", "Fake Code / API"],
+    ["factual-error", "Factual error", "Factual Error"],
+    ["temporal", "Temporal confusion", "Temporal Confusion"],
+    ["instruction-following", "Instruction-following failure", "Instruction-Following Failure"],
+  ];
+  for (const [key, oldLabel, newLabel] of titleCaseRelabels) {
+    await execute(
+      "UPDATE categories SET label = ? WHERE `key` = ? AND label = ?",
+      [newLabel, key, oldLabel],
+    );
+  }
   console.log(`ok  seed categories (${DEFAULT_CATEGORIES.length} defaults)`);
 }
 

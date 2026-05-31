@@ -586,6 +586,9 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
   return pageResponse(req, {
     title: "My submissions · ENAIH",
     heading: "My submissions",
+    // Wider-than-default reading column: the dashboard cards were too cramped in
+    // the 760px default. Roughly 2× wide, but still centered (not full-bleed).
+    bodyClass: "dashboard-wide",
     body,
     user: ctx.user,
   });

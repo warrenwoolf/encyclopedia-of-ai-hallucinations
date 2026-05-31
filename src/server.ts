@@ -12,6 +12,7 @@ import { gc as ratelimitGc } from "./ratelimit.ts";
 import { getSessionFromRequest, purgeExpiredSessions } from "./auth.ts";
 import { primeQuotaCache } from "./email.ts";
 import { loadCategories } from "./categories.ts";
+import { startDiscordPresence } from "./discord-gateway.ts";
 import type { RouteContext, RouteHandler } from "./routes/types.ts";
 
 import { home } from "./routes/home.ts";
@@ -358,6 +359,11 @@ void primeQuotaCache().catch(e => console.warn("[startup] primeQuotaCache failed
 // Load the category set from the DB into the in-memory cache. Until this
 // resolves, src/categories.ts serves the built-in defaults.
 void loadCategories().catch(e => console.warn("[startup] loadCategories failed:", e));
+
+// Open a Discord gateway connection so the bot shows as "online" while the site
+// is running (the REST notifier in discord.ts alone leaves it offline). No-ops
+// when DISCORD_BOT_TOKEN is unset; never throws.
+startDiscordPresence();
 
 // Periodic GC for in-memory rate-limit buckets and expired sessions.
 setInterval(() => {

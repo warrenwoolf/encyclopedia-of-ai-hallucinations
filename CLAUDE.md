@@ -120,6 +120,8 @@ Trigger points (fire-and-forget):
 - `notifyNewSubmission` → **staff** channel (`DISCORD_STAFF_CHANNEL_ID`) when a submission enters the review queue: `submit.ts` (Submit-for-review path) and `my.ts` `myPropose` (draft→pending). Links to `/admin/queue/:id`.
 - `notifyPublished` → **public** channel (`DISCORD_PUBLIC_CHANNEL_ID`) on approve+publish, fired from `review.ts` `postReview` only when the status actually flipped to `published` this request. Links to `/e/:eahId`.
 
+**Presence (online status).** `src/discord.ts` is REST-only and never opens a gateway connection, so on its own the bot shows **offline** even while posting. `src/discord-gateway.ts` opens a single gateway WebSocket purely to advertise an `online` presence for as long as the server runs (`startDiscordPresence()`, called once from `server.ts` startup). It requests **no intents** (`intents: 0`) and subscribes to no events — the `presence` block in IDENTIFY is all that matters. It heartbeats per the HELLO interval, treats a missed ACK as a zombie and reconnects, and reconnects with capped exponential backoff on any close. No RESUME (a presence-only bot re-IDENTIFYs cheaply). No-ops when `DISCORD_BOT_TOKEN` is unset; never throws into the caller.
+
 ## Routes (high level)
 
 | Method | Path                                | Handler |

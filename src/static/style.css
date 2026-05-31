@@ -1509,6 +1509,12 @@ details.longtext[open] .less { display: inline; }
    header/nav/main/footer uniformly so nothing looks misaligned. */
 body.admin-wide { --content-width: min(1400px, 96vw); --main-width: min(1400px, 96vw); }
 
+/* The /my/submissions dashboard: a wider-than-default reading column (~2× the
+   760px default) so the entry-cards aren't cramped, but still a centered column
+   — not full-bleed like browse. Only --main-width is widened; the full-bleed
+   bands keep the default --content-width: 100%. */
+body.dashboard-wide { --main-width: min(1500px, 94vw); }
+
 .jump-to-form {
   display: flex;
   align-items: center;

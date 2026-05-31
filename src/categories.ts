@@ -31,13 +31,13 @@ export interface Category {
 export const DEFAULT_CATEGORIES: readonly Category[] = [
   {
     key: "tokenization",
-    label: "Tokenization / Letter-counting",
+    label: "Tokenization / Letter-Counting",
     description:
       "Errors caused by the model not seeing individual characters — counting letters, spelling, character-level edits.",
   },
   {
     key: "fabricated-citation",
-    label: "Fabricated citation",
+    label: "Fabricated Citation",
     description: "Invented papers, books, URLs, court cases, or quotes that do not exist.",
   },
   {
@@ -48,7 +48,7 @@ export const DEFAULT_CATEGORIES: readonly Category[] = [
   },
   {
     key: "fake-code-api",
-    label: "Fake code / API",
+    label: "Fake Code / API",
     description: "Invented functions, library APIs, CLI flags, or import paths that do not exist.",
   },
   {
@@ -58,17 +58,17 @@ export const DEFAULT_CATEGORIES: readonly Category[] = [
   },
   {
     key: "factual-error",
-    label: "Factual error",
+    label: "Factual Error",
     description: "Confident wrong claims about people, places, events, or science.",
   },
   {
     key: "temporal",
-    label: "Temporal confusion",
+    label: "Temporal Confusion",
     description: "Confusion about dates, recency, or what the model can know given its training cutoff.",
   },
   {
     key: "instruction-following",
-    label: "Instruction-following failure",
+    label: "Instruction-Following Failure",
     description: "The model claims to have done something it didn't, or ignores explicit constraints.",
   },
   {
