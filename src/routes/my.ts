@@ -46,6 +46,19 @@ const LIMITS = {
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
+// Statuses shown on the dashboard, in display order (withdrawn is excluded
+// everywhere — it frees the A-number, leaving no overview page to link to).
+const DASHBOARD_STATUSES = ["draft", "pending", "published", "rejected"];
+
+// Inline magnifier for the dashboard search box (same glyph as browse).
+const MY_SEARCH_ICON =
+  `<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><line x1="12.8" y1="12.8" x2="18" y2="18"/></svg>`;
+
+/** Escape LIKE wildcards so user search input is matched literally. */
+function escapeLike(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
 // ─── types ───────────────────────────────────────────────────────────────────
 
 interface SubmissionRow {
@@ -398,6 +411,56 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
     return new Response(null, { status: 303, headers: { Location: "/login" } });
   }
 
+  const sp = ctx.url.searchParams;
+
+  // Status filter (one of the dashboard-visible statuses; withdrawn is always
+  // excluded). An unrecognized value falls back to "all".
+  const statusRaw = (sp.get("status") ?? "").trim();
+  const statusFilter = DASHBOARD_STATUSES.includes(statusRaw) ? statusRaw : "";
+
+  // Free-text search across the user's own submissions.
+  const q = (sp.get("q") ?? "").trim().slice(0, 200);
+
+  // Shared WHERE (everything except the status filter) + params, reused for the
+  // faceted per-status counts so each count reflects the active search.
+  const baseWhere: string[] = ["owner_user_id = ?", "status != 'withdrawn'"];
+  const baseParams: unknown[] = [ctx.user.userId];
+  if (q) {
+    const like = `%${escapeLike(q)}%`;
+    baseWhere.push(
+      "(title LIKE ? ESCAPE '\\\\' OR prompt LIKE ? ESCAPE '\\\\' OR output LIKE ? ESCAPE '\\\\' OR ai_model LIKE ? ESCAPE '\\\\')",
+    );
+    baseParams.push(like, like, like, like);
+  }
+
+  // Per-status counts for the filter bar (honor search, ignore active status).
+  const countRows = await query<{ status: string; n: number | bigint }>(
+    `SELECT status, COUNT(*) AS n FROM submissions WHERE ${baseWhere.join(" AND ")} GROUP BY status`,
+    baseParams,
+  );
+  const statusCounts = new Map<string, number>();
+  let allCount = 0;
+  for (const r of countRows) {
+    const n = Number(r.n);
+    statusCounts.set(r.status, n);
+    allCount += n;
+  }
+
+  // Whether the user has ANY submissions at all (ignoring the active search /
+  // status filter) — drives "no submissions yet" vs "no submissions match".
+  const ownedRow = await queryOne<{ n: number | bigint }>(
+    "SELECT COUNT(*) AS n FROM submissions WHERE owner_user_id = ? AND status != 'withdrawn'",
+    [ctx.user.userId],
+  );
+  const totalOwned = Number(ownedRow?.n ?? 0);
+
+  const listWhere = [...baseWhere];
+  const listParams = [...baseParams];
+  if (statusFilter) {
+    listWhere.push("status = ?");
+    listParams.push(statusFilter);
+  }
+
   const rows = await query<{
     id: number;
     eah_number: number;
@@ -413,10 +476,40 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
     // /my/submissions/:eahId links — exclude them from the list entirely.
     `SELECT id, eah_number, title, status, ai_model, category, prompt, output, submitted_at
        FROM submissions
-      WHERE owner_user_id = ? AND status != 'withdrawn'
+      WHERE ${listWhere.join(" AND ")}
       ORDER BY submitted_at DESC`,
-    [ctx.user.userId],
+    listParams,
   );
+
+  // Filter bar: status links (carry the active search) + a search box (carries
+  // the active status). Reuses the browse search-row look at a smaller scale.
+  const statusQs = (s: string): string => {
+    const u = new URLSearchParams();
+    if (s) u.set("status", s);
+    if (q) u.set("q", q);
+    const qs = u.toString();
+    return qs ? `?${qs}` : "";
+  };
+  const statusFilterLink = (s: string, label: string, n: number) => {
+    const active = s === statusFilter;
+    const inner = h`${label} <span class="cat-count">(${n})</span>`;
+    return active
+      ? h`<strong class="filter-pill active">${inner}</strong>`
+      : h`<a class="filter-pill" href="/my/submissions${raw(statusQs(s))}">${inner}</a>`;
+  };
+  const filterBar = h`<div class="my-filter-bar">
+    <div class="filter-bar">
+      ${statusFilterLink("", "All", allCount)}
+      ${DASHBOARD_STATUSES.map((s) => statusFilterLink(s, statusLabel(s), statusCounts.get(s) ?? 0))}
+    </div>
+    <form action="/my/submissions" method="get" class="my-search-form">
+      ${statusFilter ? h`<input type="hidden" name="status" value="${statusFilter}">` : h``}
+      <div class="search-row">
+        <input type="search" name="q" value="${q}" placeholder="search your submissions…" maxlength="200">
+        <button type="submit" class="search-go" aria-label="Search">${raw(MY_SEARCH_ICON)}</button>
+      </div>
+    </form>
+  </div>`;
 
   const { token } = tokenForRequest(req);
 
@@ -477,11 +570,14 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
     propose a draft to send it for review, and withdraw a proposed one back to a draft
     if you need room.</small></p>`;
 
-  const body = rows.length === 0
+  const body = totalOwned === 0
     ? h`${rule}<p>No submissions yet. <a href="/submit">Submit one</a>.</p>`
     : h`
         ${rule}
-        <ul class="entry-list">${items}</ul>
+        ${filterBar}
+        ${rows.length === 0
+          ? h`<p class="empty"><em>No submissions match.</em> <a href="/my/submissions">Clear filters</a>.</p>`
+          : h`<ul class="entry-list">${items}</ul>`}
         <p><a href="/submit">Submit another</a></p>
       `;
 
