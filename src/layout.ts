@@ -126,6 +126,7 @@ export function layout(opts: LayoutOptions): string {
     <link rel="alternate" type="application/rss+xml" title="Encyclopedia of AI Hallucinations" href="/rss">
     ${googleOAuthEnabled() ? raw('<script src="https://accounts.google.com/gsi/client" async defer></script><script src="/static/google.js" defer></script>') : raw('')}
     <script src="/static/theme.js"></script>
+    <script src="/static/browse.js" defer></script>
   </head>
   <body${bodyClassAttr}>
     ${banner}
@@ -136,6 +137,7 @@ export function layout(opts: LayoutOptions): string {
           <a href="/submit">submit</a>
           <a href="/guide">guide</a>
           <a href="/about">about</a>
+          <a href="/contact">contact</a>
           <a href="/terms">terms</a>
         </div>
         <div class="nav-right">
@@ -164,7 +166,7 @@ export function layout(opts: LayoutOptions): string {
       ${opts.body}
     </main>
     <footer>
-      <p><a href="/about">about</a> · <a href="/guide">guide</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a> · <a href="/rss">rss</a></p>
+      <p><a href="/about">about</a> · <a href="/guide">guide</a> · <a href="/contact">contact</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a> · <a href="/rss">rss</a></p>
       <p class="muted">Founded in 2026 by Rudra Jadhav and Warren Woolf.</p>
     </footer>
   </body>

@@ -22,6 +22,7 @@ import { about } from "./routes/about.ts";
 import { guide } from "./routes/guide.ts";
 import { terms } from "./routes/terms.ts";
 import { privacy } from "./routes/privacy.ts";
+import { contact } from "./routes/contact.ts";
 import { getLogin, postLogin, postLogout } from "./routes/login.ts";
 import { getSignup, postSignup } from "./routes/signup.ts";
 import { getVerify, postVerify, postVerifyResend } from "./routes/verify.ts";
@@ -71,6 +72,7 @@ const ROUTES: RouteDef[] = [
   route("GET", "/guide", guide),
   route("GET", "/terms", terms),
   route("GET", "/privacy", privacy),
+  route("GET", "/contact", contact),
   route("GET", "/browse", browse),
   route("GET", "/e/:public_id", entry),
   route("GET", "/submit", submitGet),
@@ -187,6 +189,7 @@ function clientIp(req: Request, server: { requestIP?: (req: Request) => { addres
 const STATIC_FILES: Record<string, { path: string; contentType: string }> = {
   "style.css": { path: "./src/static/style.css", contentType: "text/css; charset=utf-8" },
   "theme.js": { path: "./src/static/theme.js", contentType: "application/javascript; charset=utf-8" },
+  "browse.js": { path: "./src/static/browse.js", contentType: "application/javascript; charset=utf-8" },
   "google.js": { path: "./src/static/google.js", contentType: "application/javascript; charset=utf-8" },
   "robots.txt": { path: "./src/static/robots.txt", contentType: "text/plain; charset=utf-8" },
 };

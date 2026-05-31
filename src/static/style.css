@@ -37,12 +37,22 @@
   --font-body: Georgia, 'Times New Roman', serif;
   --font-mono: 'Courier New', Courier, monospace;
   --font-ui: system-ui, -apple-system, sans-serif;
+  /* Full-bleed bands (top bar, header, footer): always span the viewport. */
   --content-width: 100%;
+  /* Centered reading column for `main`. The site default is a centered column
+     with side margins (like the about page); full-bleed pages (browse, home,
+     staff tables) opt back out by overriding --main-width to 100% / a wide cap.
+     Kept separate from --content-width so the bands stay full-bleed regardless. */
+  --main-width: 760px;
   /* Outer horizontal page gutter (top bar links, search bar, main, footer).
      Reduced on narrow viewports below — see the ≤700px breakpoint. */
   --page-pad: 50px;
   --entry-head-bg: #0a3367;
   --entry-head-fg: #ffffff;
+  /* ENAIH highlight in the title. Matches the card/button blue in light mode;
+     a lighter blue in dark mode so it stays legible on the dark header (see the
+     two dark blocks below — keep all three in var-parity). */
+  --acro: #0a3367;
 }
 
 /* Dark mode via OS preference — only when not explicitly forced light */
@@ -66,6 +76,7 @@
     --del-color: #cc8888;
     --entry-head-bg: #24405f;
     --entry-head-fg: #f0f0f0;
+    --acro: #5588cc;
   }
 }
 
@@ -89,6 +100,7 @@
   --del-color: #cc8888;
   --entry-head-bg: #24405f;
   --entry-head-fg: #f0f0f0;
+  --acro: #5588cc;
 }
 
 /* Force light when explicitly requested */
@@ -200,11 +212,12 @@ hr {
 .small { font-size: 0.9em; }
 
 /* === 8c Layout — header / nav / main / footer === */
-/* Site default is full-bleed (--content-width: 100%). Text-heavy reading pages
-   (about, privacy, single entry) opt their *main content* back into a centered,
-   readable column so serif prose doesn't run the full width of a wide monitor.
-   Scoped to main only — the top bar / nav / footer stay full-bleed everywhere. */
-body.text-page main { --content-width: 760px; }
+/* Site default centers `main` in a readable column (--main-width: 760px, set on
+   :root) while the top bar / header / footer stay full-bleed. Full-bleed content
+   pages (browse, home) and wide staff tables (admin-wide) opt out by overriding
+   --main-width below. `text-page` is now redundant with the default but kept as
+   an explicit marker on reading pages (about/privacy/entry/etc.). */
+body.text-page main { --main-width: 760px; }
 
 .site-wrapper {
   max-width: var(--content-width);
@@ -276,7 +289,7 @@ header .site-header-top {
    ENcyclopedia of AI Hallucinations. Accent color adapts per theme.
    The caption under the logo is left plain — it's wholly the acronym, so
    there's nothing to contrast against. */
-.acro { color: var(--accent); }
+.acro { color: var(--acro); }
 
 /* Kept for back-compat — layout.ts may still render .site-title wrapper */
 .site-title {
@@ -451,7 +464,7 @@ nav .nav-sep { color: var(--text-muted); margin-right: 4px; }
 }
 
 main {
-  max-width: var(--content-width);
+  max-width: var(--main-width);
   margin: 16px auto;
   padding: 0 var(--page-pad);
 }
@@ -1054,7 +1067,8 @@ pre.note {
 /* === 8j Search / browse === */
 /* Browse + home use the two-column layout; it spans the full viewport like the
    rest of the site (the 240px filter sidebar + 1fr entry list just gets wider). */
-body.browse-page { --content-width: 100%; }
+/* Browse + home run full-bleed: the entry list fills the viewport. */
+body.browse-page { --content-width: 100%; --main-width: 100%; }
 
 /* Browse layout: filter sidebar on the left, entry list filling the rest of the
    viewport out to the right edge. */
@@ -1183,6 +1197,51 @@ body.browse-page { --content-width: 100%; }
 }
 /* keep the underline-on-hover affordance on the label only, not the tally */
 .cat-link:hover .cat-count { text-decoration: none; }
+
+/* Multi-select category rows: a checkbox, the label, then the right-aligned
+   tally. The whole row is a <label>, so clicking anywhere toggles the box. */
+.filter-form { width: 100%; }
+.cat-check {
+  justify-content: flex-start;
+  gap: 7px;
+  cursor: pointer;
+}
+.cat-check input[type="checkbox"] {
+  flex: none;
+  margin: 0;
+  cursor: pointer;
+  /* Tint the checkmark to the brand blue (modern browsers honor accent-color). */
+  accent-color: var(--entry-head-bg);
+}
+.cat-check .cat-name { flex: 1 1 auto; }
+/* "All categories" is a plain reset link (no checkbox), so it keeps the normal
+   space-between layout from .cat-link. Active states bold the label. */
+.cat-check.active .cat-name,
+.cat-reset.active { font-weight: bold; color: var(--text); }
+.cat-check.active .cat-name { color: var(--text); }
+.cat-reset { cursor: pointer; }
+
+/* Dashboard (/my/submissions) filter bar: status links on the left, a compact
+   search box on the right. Reuses the browse .search-row / .search-go look. */
+.my-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 4px 0 16px;
+}
+.my-filter-bar .filter-bar { margin: 0; }
+.filter-pill {
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+  text-decoration: none;
+  color: var(--link);
+  white-space: nowrap;
+}
+.filter-pill:hover { text-decoration: underline; }
+.filter-pill.active { color: var(--text); }
+.my-search-form { width: min(280px, 100%); flex: 1 1 220px; max-width: 320px; }
 
 .filters  { font-size: 0.9em; margin: 8px 0; }
 .filters .chip {
@@ -1429,7 +1488,7 @@ details.longtext[open] .less { display: inline; }
 /* Table-heavy admin pages opt into a wider content column for density —
    staff want information over whitespace. Overriding the variable widens
    header/nav/main/footer uniformly so nothing looks misaligned. */
-body.admin-wide { --content-width: min(1400px, 96vw); }
+body.admin-wide { --content-width: min(1400px, 96vw); --main-width: min(1400px, 96vw); }
 
 .jump-to-form {
   display: flex;

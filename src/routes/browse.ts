@@ -83,11 +83,18 @@ function escapeLike(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
-function buildQs(params: Record<string, string | number | undefined>): string {
+function buildQs(
+  params: Record<string, string | number | string[] | undefined>,
+): string {
   const u = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined || v === "" || v === null) continue;
-    u.set(k, String(v));
+    if (Array.isArray(v)) {
+      // Repeated key (e.g. ?category=a&category=b) for multi-select filters.
+      for (const item of v) if (item !== "") u.append(k, String(item));
+    } else {
+      u.set(k, String(v));
+    }
   }
   const s = u.toString();
   return s.length > 0 ? `?${s}` : "";
@@ -101,8 +108,13 @@ function buildQs(params: Record<string, string | number | undefined>): string {
 export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   const sp = ctx.url.searchParams;
 
-  const rawCategory = (sp.get("category") ?? "").trim();
-  let category = rawCategory && isValidCategory(rawCategory) ? rawCategory : "";
+  // Categories are multi-select now: ?category=a&category=b. Validate each
+  // against the known set and dedupe (order preserved by the Set).
+  const categories = Array.from(
+    new Set(
+      sp.getAll("category").map((c) => c.trim()).filter((c) => c && isValidCategory(c)),
+    ),
+  );
 
   const tag = (sp.get("tag") ?? "").trim().toLowerCase().slice(0, 40);
   const tagValid = /^[a-z0-9-]+$/.test(tag) ? tag : "";
@@ -110,16 +122,17 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   const model = (sp.get("model") ?? "").trim().slice(0, 120);
   let q = (sp.get("q") ?? "").trim().slice(0, 200);
 
-  // The search box doubles as a category filter: if there's no explicit
-  // category and the query names one, treat it as a category filter instead of
-  // a text search (an alternative to clicking the category buttons).
-  if (!category && q) {
+  // The search box doubles as a category filter: if no category is explicitly
+  // selected and the query names one, treat it as a single-category filter
+  // instead of a text search (an alternative to ticking the category boxes).
+  if (categories.length === 0 && q) {
     const resolved = resolveCategory(q);
     if (resolved) {
-      category = resolved;
+      categories.push(resolved);
       q = "";
     }
   }
+  const categorySet = new Set(categories);
 
   // Fetch all distinct model names for the model filter dropdown.
   const allModels = await query<{ ai_model: string }>(
@@ -189,12 +202,18 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
 
   const from = `FROM submissions s LEFT JOIN users u ON u.id = s.owner_user_id ${join}`;
 
+  // Multiple selected categories are OR'd among themselves (and AND'd with the
+  // other filters) via `s.category IN (...)`.
+  const catInClause = categories.length
+    ? `s.category IN (${categories.map(() => "?").join(",")})`
+    : "";
+
   // Main listing where: base + the two facet filters when set.
   const where = [...base];
   const params: unknown[] = [...baseParams];
-  if (category) {
-    where.push("s.category = ?");
-    params.push(category);
+  if (catInClause) {
+    where.push(catInClause);
+    params.push(...categories);
   }
   if (status) {
     where.push("s.entry_status = ?");
@@ -224,9 +243,9 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   // Faceted status counts: base + category (entry_status varies), grouped.
   const stWhere = [...base];
   const stParams: unknown[] = [...baseParams];
-  if (category) {
-    stWhere.push("s.category = ?");
-    stParams.push(category);
+  if (catInClause) {
+    stWhere.push(catInClause);
+    stParams.push(...categories);
   }
   const stCountRows = await query<{ entry_status: string; n: number | bigint }>(
     `SELECT s.entry_status, COUNT(DISTINCT s.id) AS n ${from} WHERE ${stWhere.join(" AND ")} GROUP BY s.entry_status`,
@@ -277,10 +296,10 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     }
   }
 
-  const hasFilters = Boolean(category || tagValid || model || q || status);
+  const hasFilters = Boolean(categories.length || tagValid || model || q || status);
 
   const filterChips: ReturnType<typeof h>[] = [];
-  if (category) filterChips.push(h`<span class="chip">category: ${categoryLabel(category)}</span>`);
+  for (const c of categories) filterChips.push(h`<span class="chip">category: ${categoryLabel(c)}</span>`);
   if (tagValid) filterChips.push(h`<span class="chip">tag: ${tagValid}</span>`);
   if (model) filterChips.push(h`<span class="chip">model: ${model}</span>`);
   if (status) filterChips.push(h`<span class="chip">status: ${status}</span>`);
@@ -293,23 +312,28 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
       </div>`
     : raw("");
 
-  const sharedQs = { category, tag: tagValid, model, q, status, sort };
+  // `category` is an array here, so buildQs emits one ?category= per selection.
+  const sharedQs = { category: categories, tag: tagValid, model, q, status, sort };
 
-  // Category list in the sidebar (single-select; clicking the active one clears
-  // it). Backend filtering is single-category, so these stay plain links.
-  const categoryNav = h`<nav class="sidebar-cats count-list">
-    <a href="/browse${raw(buildQs({ ...sharedQs, category: "" }))}" class="cat-link ${category === "" ? "active" : ""}">
-      <span class="cat-name">all categories</span><span class="cat-count">(${allCatTotal})</span>
+  // Category list: multi-select checkboxes inside the filter form. Ticking one
+  // adds it (results OR together); the JS in browse.js applies the change
+  // without a full reload. "All categories" is a reset link (active when none
+  // are ticked) that clears the selection — and still works without JS. Each
+  // checkbox carries the field name `category`, so the form submits all ticked
+  // ones as repeated params.
+  const categoryNav = h`<div class="sidebar-cats count-list">
+    <a href="/browse${raw(buildQs({ ...sharedQs, category: [] }))}" class="cat-link cat-reset ${categories.length === 0 ? "active" : ""}">
+      <span class="cat-name">All categories</span><span class="cat-count">(${allCatTotal})</span>
     </a>
     ${CATEGORIES.map((c) => {
-      const active = c.key === category;
-      const qs = buildQs({ ...sharedQs, category: active ? "" : c.key });
+      const checked = categorySet.has(c.key);
       const n = catCounts.get(c.key) ?? 0;
-      return h`<a href="/browse${raw(qs)}" class="cat-link ${active ? "active" : ""}">
+      return h`<label class="cat-link cat-check ${checked ? "active" : ""}">
+        <input type="checkbox" name="category" value="${c.key}" ${checked ? raw("checked") : raw("")}>
         <span class="cat-name">${c.label}</span><span class="cat-count">(${n})</span>
-      </a>`;
+      </label>`;
     })}
-  </nav>`;
+  </div>`;
 
   const sortLink = (key: SortKey, label: string) => {
     const active = key === sort;
@@ -408,52 +432,52 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   const modelOptions = h`<option value="">all models</option>
     ${allModels.map((m) => h`<option value="${m.ai_model}" ${m.ai_model === model ? raw("selected") : raw("")}>${m.ai_model}</option>`)}`;
 
-  // Search form lives at the top of the sidebar: query box + Search button,
-  // model filter below. Hidden inputs preserve the other active filters so a
-  // search refines rather than resets them.
-  const searchForm = h`<form action="/browse" method="get" class="search-form">
-    <div class="search-row">
-      <input type="search" name="q" value="${q}" placeholder="search title, prompt, output…" maxlength="200">
-      <button type="submit" class="search-go" aria-label="Search">${raw(SEARCH_ICON)}</button>
-    </div>
-    ${category ? h`<input type="hidden" name="category" value="${category}">` : h``}
-    ${tagValid ? h`<input type="hidden" name="tag" value="${tagValid}">` : h``}
-    ${status ? h`<input type="hidden" name="status" value="${status}">` : h``}
-    ${sort !== "new" ? h`<input type="hidden" name="sort" value="${sort}">` : h``}
-    <div class="search-model">
-      <label for="model-filter">Custom Model:</label>
-      <select id="model-filter" name="model">
-        ${modelOptions}
-      </select>
-    </div>
-  </form>`;
-
+  // The whole sidebar is ONE GET form so a no-JS submit (the magnifier button)
+  // carries every filter at once. browse.js (progressive enhancement) intercepts
+  // changes to apply them without a full page reload and swaps #browse-root.
+  // Category is multi-select (checkboxes inside `categoryNav`); status/sort are
+  // links that change one value while preserving the rest, so their current
+  // values ride along as hidden inputs when the form itself is submitted.
   return h`
-    <div class="browse-layout">
+    <div class="browse-layout" id="browse-root">
       <aside class="browse-sidebar">
-        <h2 class="sidebar-title">Refine Your Search</h2>
-        ${searchForm}
-        <div class="sidebar-section">
-          <h3 class="sidebar-h">Categories</h3>
-          ${categoryNav}
-        </div>
-        <div class="sidebar-section">
-          <h3 class="sidebar-h">Status</h3>
-          <div class="sidebar-links count-list">
-            ${statusRow("", "all", allStatusTotal)}
-            ${statusRow("active", "active", statusCounts.get("active") ?? 0)}
-            ${statusRow("patched", "patched", statusCounts.get("patched") ?? 0)}
+        <form action="/browse" method="get" class="filter-form" data-browse-filters>
+          <h2 class="sidebar-title">Refine Your Search</h2>
+          <div class="search-row">
+            <input type="search" name="q" value="${q}" placeholder="search title, prompt, output…" maxlength="200">
+            <button type="submit" class="search-go" aria-label="Search">${raw(SEARCH_ICON)}</button>
           </div>
-        </div>
-        <div class="sidebar-section">
-          <h3 class="sidebar-h">Sort</h3>
-          <div class="sidebar-links">
-            ${sortLink("new", "newest")}
-            ${sortLink("old", "oldest")}
-            ${sortLink("verified", "most verified")}
-            ${sortLink("id", "by A-number")}
+          ${tagValid ? h`<input type="hidden" name="tag" value="${tagValid}">` : h``}
+          ${status ? h`<input type="hidden" name="status" value="${status}">` : h``}
+          ${sort !== "new" ? h`<input type="hidden" name="sort" value="${sort}">` : h``}
+          <div class="sidebar-section">
+            <h3 class="sidebar-h">Categories</h3>
+            ${categoryNav}
           </div>
-        </div>
+          <div class="sidebar-section">
+            <h3 class="sidebar-h">Status</h3>
+            <div class="sidebar-links count-list">
+              ${statusRow("", "All", allStatusTotal)}
+              ${statusRow("active", "Active", statusCounts.get("active") ?? 0)}
+              ${statusRow("patched", "Patched", statusCounts.get("patched") ?? 0)}
+            </div>
+          </div>
+          <div class="sidebar-section">
+            <h3 class="sidebar-h">Sort</h3>
+            <div class="sidebar-links">
+              ${sortLink("new", "Newest")}
+              ${sortLink("old", "Oldest")}
+              ${sortLink("verified", "Most verified")}
+              ${sortLink("id", "By A-number")}
+            </div>
+          </div>
+          <div class="search-model">
+            <label for="model-filter">Custom Model:</label>
+            <select id="model-filter" name="model">
+              ${modelOptions}
+            </select>
+          </div>
+        </form>
       </aside>
       <div class="browse-main">
         <div class="browse-main-head">

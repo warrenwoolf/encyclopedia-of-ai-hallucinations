@@ -46,6 +46,7 @@ if [[ -r "$CF_ACCOUNT_ID_FILE" && -r "$CF_TOKEN_FILE" ]]; then
       --data "{\"files\":[
         \"${SITE_URL}/static/style.css\",
         \"${SITE_URL}/static/theme.js\",
+        \"${SITE_URL}/static/browse.js\",
         \"${SITE_URL}/static/google.js\",
         \"${SITE_URL}/static/logo.svg\",
         \"${SITE_URL}/static/robots.txt\"
