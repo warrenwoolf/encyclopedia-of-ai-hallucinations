@@ -42,7 +42,7 @@ export const DEFAULT_CATEGORIES: readonly Category[] = [
   },
   {
     key: "spiraling",
-    label: "Spiraling / Looping",
+    label: "Spiraling / Looping / Thrashing",
     description:
       "Outputs that degenerate into repetition, nonsense, or runaway tangents (e.g. the seahorse emoji thing).",
   },

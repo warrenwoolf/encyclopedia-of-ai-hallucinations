@@ -400,6 +400,14 @@ async function seedCategories(): Promise<void> {
       [c.key, c.label, c.description],
     );
   }
+  // Targeted relabel: "Spiraling / Looping" → "Spiraling / Looping / Thrashing"
+  // ("Thrashing" is the more standard term). Idempotent and only touches a row
+  // still carrying the exact old default label, so it never clobbers a staff
+  // edit or re-applies once renamed.
+  await execute(
+    "UPDATE categories SET label = ? WHERE `key` = 'spiraling' AND label = 'Spiraling / Looping'",
+    ["Spiraling / Looping / Thrashing"],
+  );
   console.log(`ok  seed categories (${DEFAULT_CATEGORIES.length} defaults)`);
 }
 
