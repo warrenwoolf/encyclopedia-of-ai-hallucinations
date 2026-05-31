@@ -166,7 +166,7 @@ function renderTable(
         <tr>
           <th>id</th>
           <th>username</th>
-          <th>email</th>
+          ${canManage ? h`<th>email</th>` : raw("")}
           <th>verified</th>
           <th>role</th>
           <th>created</th>
@@ -180,7 +180,7 @@ function renderTable(
           <tr>
             <td>${u.id}</td>
             <td>${u.username}</td>
-            <td>${u.email}</td>
+            ${canManage ? h`<td>${u.email}</td>` : raw("")}
             <td>${u.email_verified === 1 ? raw("✓") : raw("—")}</td>
             <td>${roleLabel(u)}</td>
             <td>${fmtDate(u.created_at)}</td>
