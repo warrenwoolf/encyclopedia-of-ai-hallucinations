@@ -34,6 +34,10 @@
   --status-published: #006600;
   --status-rejected: #cc0000;
   --status-withdrawn: #888888;
+  --status-unreviewed: #cc6600;
+  --status-reviewed: #336699;
+  --status-reproduced: #006600;
+  --status-failed: #aa3333;
   --font-body: Georgia, 'Times New Roman', serif;
   --font-mono: 'Courier New', Courier, monospace;
   --font-ui: system-ui, -apple-system, sans-serif;
@@ -129,6 +133,10 @@
   --status-published: #006600;
   --status-rejected: #cc0000;
   --status-withdrawn: #888888;
+  --status-unreviewed: #cc6600;
+  --status-reviewed: #336699;
+  --status-reproduced: #006600;
+  --status-failed: #aa3333;
 }
 
 /* === 8b Base reset + typography === */
@@ -834,6 +842,10 @@ small.field-hint,
 .status-published { color: var(--status-published); }
 .status-rejected  { color: var(--status-rejected); }
 .status-withdrawn { color: var(--status-withdrawn); font-style: italic; }
+.status-unreviewed { color: var(--status-unreviewed); }
+.status-reviewed   { color: var(--status-reviewed); }
+.status-reproduced { color: var(--status-reproduced); font-weight: bold; }
+.status-failed     { color: var(--status-failed); }
 
 /* Entry-level (active/patched) status labels */
 .entry-status-active  { color: var(--success); font-size: 0.85em; }
@@ -954,6 +966,16 @@ pre.citation {
   border: 1px solid var(--warning);
   padding: 8px;
   margin: 12px 0;
+}
+
+/* Trust-tier banner (unreviewed / reviewed-not-reproduced / failed) */
+.tier-banner {
+  background: #fff8e6;
+  border: 1px solid var(--warning);
+  border-left-width: 4px;
+  padding: 8px;
+  margin: 12px 0;
+  font-size: 0.95em;
 }
 
 /* Prev / next navigation row at bottom of entry */

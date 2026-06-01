@@ -56,6 +56,9 @@ export async function insertSubmission(
   opts: {
     eahNumber?: number | null;
     status?: string;
+    reproStatus?: string;
+    transcriptMode?: string;
+    sourceUrl?: string | null;
     publicId?: string;
     title?: string | null;
     ownerUserId?: number | null;
@@ -63,13 +66,17 @@ export async function insertSubmission(
 ): Promise<number> {
   const { insertId } = await execute(
     `INSERT INTO submissions
-       (public_id, eah_number, tracking_hash, prompt, output, ai_model, category, status, title, owner_user_id)
-     VALUES (?, ?, ?, 'test prompt', 'test output', 'test-model', 'other', ?, ?, ?)`,
+       (public_id, eah_number, tracking_hash, prompt, output, ai_model, category, status,
+        repro_status, transcript_mode, source_url, title, owner_user_id)
+     VALUES (?, ?, ?, 'test prompt', 'test output', 'test-model', 'other', ?, ?, ?, ?, ?, ?)`,
     [
       opts.publicId ?? randomPublicId(),
       opts.eahNumber ?? null,
       randomBytes(32),
-      opts.status ?? "pending",
+      opts.status ?? "unreviewed",
+      opts.reproStatus ?? "pending",
+      opts.transcriptMode ?? "single",
+      opts.sourceUrl ?? null,
       opts.title ?? null,
       opts.ownerUserId ?? null,
     ],

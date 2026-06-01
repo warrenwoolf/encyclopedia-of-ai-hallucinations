@@ -13,7 +13,7 @@ import { CATEGORIES, isValidCategory } from "../categories.ts";
 import { config } from "../config.ts";
 import { isSuspended } from "../auth.ts";
 import { notifyNewSubmission } from "../discord.ts";
-import { allocateEahNumber, formatEahId } from "../eah-id.ts";
+import { formatEahId } from "../eah-id.ts";
 import {
   type TranscriptMode, type Turn,
   renderTranscriptFields, readTranscriptForm, applyTurnAction,
@@ -30,8 +30,12 @@ const LIMITS = {
   summary: 2000,
   notes: 4000,
   shared_chat_url: 2048,
+  source_url: 2048,
   tags: 600, // bounding the raw tags input
 };
+
+/** Submission shape: a pasted transcript, or a link to a third-party post. */
+type SubmissionKind = "transcript" | "link";
 
 /**
  * Drafts are unlimited. The cap is on submissions *awaiting review* (status
@@ -45,6 +49,10 @@ const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 interface FormValues {
   title: string;
+  // 'transcript' = pasted conversation (the mode/turns/block fields below).
+  // 'link' = a link to a third-party social-media post; the transcript fields
+  // are ignored and `source_url` + `summary` carry the entry.
+  kind: SubmissionKind;
   // Transcript: `mode` chooses single/turns/block; `turns` seeds the structured
   // boxes; `block` seeds the pasted textarea. Legacy single prompt/output is
   // represented as a one- or two-turn list in `turns` with mode 'turns'.
@@ -59,6 +67,7 @@ interface FormValues {
   summary: string;
   notes: string;
   shared_chat_url: string;
+  source_url: string;
   hallucination_date: string;
   allow_author_edits: boolean;
   anon_public: boolean;
@@ -67,6 +76,7 @@ interface FormValues {
 function emptyForm(): FormValues {
   return {
     title: "",
+    kind: "transcript",
     mode: "turns",
     turns: [
       { role: "user", content: "" },
@@ -75,7 +85,7 @@ function emptyForm(): FormValues {
     block: "",
     userDelim: "", assistantDelim: "",
     ai_model: "", category: "", tags: "",
-    summary: "", notes: "", shared_chat_url: "",
+    summary: "", notes: "", shared_chat_url: "", source_url: "",
     hallucination_date: "", allow_author_edits: false, anon_public: false,
   };
 }
@@ -122,6 +132,29 @@ function renderForm(opts: {
         <option value="">-- let staff choose --</option>
         ${categoryOptions}
       </select>
+
+      <fieldset class="submission-kind">
+        <legend>What are you submitting?</legend>
+        <label class="checkbox-label">
+          <input type="radio" name="submission_kind" value="transcript"
+                 ${values.kind !== "link" ? raw("checked") : raw("")}>
+          A transcript I'm pasting (a prompt + response, or a whole conversation)
+        </label>
+        <label class="checkbox-label">
+          <input type="radio" name="submission_kind" value="link"
+                 ${values.kind === "link" ? raw("checked") : raw("")}>
+          A link to a social-media post (Reddit, X, etc.) showing the failure
+        </label>
+        <p class="field-hint"><small>For a <strong>link</strong> submission, fill in
+          <em>Source URL</em> and <em>Summary</em> below and leave the conversation
+          boxes blank. Because links rot, the Summary must quote or describe the
+          failure so the entry stands on its own. Link submissions can be reviewed
+          but are <strong>not eligible for staff reproduction</strong>.</small></p>
+      </fieldset>
+
+      <label for="source_url">Source URL <small>(required for a link submission)</small></label>
+      <input id="source_url" name="source_url" type="url" maxlength="${LIMITS.source_url}"
+             value="${values.source_url}" placeholder="https://www.reddit.com/r/...">
 
       ${renderTranscriptFields({ mode: values.mode, turns: values.turns, block: values.block, userDelim: values.userDelim, assistantDelim: values.assistantDelim })}
 
@@ -359,6 +392,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
 
   const values: FormValues = {
     title: scrub("title"),
+    kind: form.get("submission_kind") === "link" ? "link" : "transcript",
     mode: rawMode,
     turns: rawTurns.length > 0 ? rawTurns : emptyForm().turns,
     block: rawBlock,
@@ -370,6 +404,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     summary: scrub("summary"),
     notes: scrub("notes"),
     shared_chat_url: scrub("shared_chat_url"),
+    source_url: scrub("source_url"),
     hallucination_date: scrub("hallucination_date"),
     allow_author_edits: form.get("allow_author_edits") === "1",
     anon_public: form.get("anon_public") === "1",
@@ -388,11 +423,47 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   if (values.title.length > LIMITS.title)
     return showForm(req, ctx, { values, error: `Title is too long (max ${LIMITS.title} chars).`, status: 400 });
 
-  // Parse + validate the conversation (turns or pasted block). The cleaned turn
-  // list also yields the legacy prompt/output mirror we still store for search.
-  const transcript = readTranscriptForm(form, scrubText);
-  if (!transcript.ok) return showForm(req, ctx, { values, error: transcript.error, status: 400 });
-  const { prompt: legacyPrompt, output: legacyOutput } = deriveLegacyPair(transcript.turns);
+  // Branch on submission kind. A 'link' submission has no transcript: it carries
+  // a source URL plus a self-contained Summary (link-rot insurance) and stores
+  // empty prompt/output. A 'transcript' submission parses the conversation and
+  // mirrors a legacy prompt/output pair for the browse `q` LIKE search.
+  let legacyPrompt = "";
+  let legacyOutput = "";
+  let storedMode: TranscriptMode;
+  let storedTurns: Turn[] = [];
+  let sourceUrlValue: string | null = null;
+
+  if (values.kind === "link") {
+    if (!values.source_url)
+      return showForm(req, ctx, { values, error: "A link submission needs a Source URL.", status: 400 });
+    let parsed: URL | null = null;
+    try { parsed = new URL(values.source_url); } catch { /* invalid */ }
+    if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:") || values.source_url.length > LIMITS.source_url)
+      return showForm(req, ctx, { values, error: "Source URL must be a valid http(s) URL.", status: 400 });
+    if (!values.summary)
+      return showForm(req, ctx, {
+        values,
+        error: "For a link submission, paste the quoted text or a description into Summary so the entry survives link rot.",
+        status: 400,
+      });
+    storedMode = "link";
+    sourceUrlValue = values.source_url;
+  } else {
+    const transcript = readTranscriptForm(form, scrubText);
+    if (!transcript.ok) return showForm(req, ctx, { values, error: transcript.error, status: 400 });
+    const pair = deriveLegacyPair(transcript.turns);
+    legacyPrompt = pair.prompt;
+    legacyOutput = pair.output;
+    // Collapse the trivial case to 'single' (a lone turn, or one user + one
+    // assistant turn): no submission_turns rows needed, prompt/output suffice.
+    const isTrivial =
+      transcript.turns.length <= 1 ||
+      (transcript.turns.length === 2 &&
+        transcript.turns[0]!.role === "user" &&
+        transcript.turns[1]!.role === "assistant");
+    storedMode = isTrivial ? "single" : transcript.mode;
+    storedTurns = storedMode === "single" ? [] : transcript.turns;
+  }
 
   if (!values.ai_model) return showForm(req, ctx, { values, error: "AI model is required.", status: 400 });
   if (values.ai_model.length > LIMITS.ai_model)
@@ -431,9 +502,9 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   if (!tagResult.ok) return showForm(req, ctx, { values, error: tagResult.error, status: 400 });
   const tags = tagResult.tags;
 
-  // Two submit buttons: "Submit for review" proposes immediately (status
-  // 'pending'); "Save as draft" keeps it private ('draft'). Anything else
-  // defaults to draft.
+  // Two submit buttons: "Submit for review" publishes immediately as
+  // 'unreviewed' (public, hidden from default lists); "Save as draft" keeps it
+  // private ('draft'). Anything else defaults to draft.
   const wantPropose = form.get("action") === "propose";
 
   // Drafts are unlimited. Only the "Submit for review" path is capped, on the
@@ -442,7 +513,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   if (wantPropose) {
     const pendingRow = await queryOne<{ n: number }>(
       `SELECT COUNT(*) AS n FROM submissions
-        WHERE owner_user_id = ? AND status = 'pending'`,
+        WHERE owner_user_id = ? AND status = 'unreviewed'`,
       [ctx.user.userId],
     );
     const pending = Number(pendingRow?.n ?? 0);
@@ -470,53 +541,40 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   // Submission is account-only now: every row is owned by the submitter, with
   // no submitter_email (notifications go through the account).
   const submitterEmail = null;
-  const submissionStatus = wantPropose ? "pending" : "draft";
+  // Non-draft submissions go public immediately as 'unreviewed' (hidden from
+  // default listings, viewable by link). A-numbers are NOT allocated here — they
+  // come only when a reviewed entry is marked 'reproduced' (see admin/review.ts).
+  const submissionStatus = wantPropose ? "unreviewed" : "draft";
   const ownerUserId = ctx.user.userId;
 
-  // Collapse the trivial case to 'single': a single user turn, or one user +
-  // one assistant turn, needs no submission_turns rows — prompt/output suffice
-  // and it renders exactly like a legacy entry. Anything richer is stored with
-  // turn rows under the chosen mode.
-  const isTrivial =
-    transcript.turns.length <= 1 ||
-    (transcript.turns.length === 2 &&
-      transcript.turns[0]!.role === "user" &&
-      transcript.turns[1]!.role === "assistant");
-  const storedMode: TranscriptMode = isTrivial ? "single" : transcript.mode;
-  const storedTurns: Turn[] = storedMode === "single" ? [] : transcript.turns;
-
-  let eahNumber: number;
   let newSubmissionId: number;
   // Insert in a single transaction so partial inserts don't leak orphan tag rows.
   try {
     const result = await transaction(async (tx) => {
-      // Allocate the A-number BEFORE the insert so we hold a row lock on
-      // freed_eah_numbers (if used) for the whole transaction.
-      const n = await allocateEahNumber(tx);
-
       // REVIEWER NOTE: Verify all mathematical claims, code, and factual content
       // before approving. AI-assisted submissions have historically included wrong
       // factorizations, hallucinated citations, and incorrect proofs.
       const ins = await tx.execute(
         `INSERT INTO submissions
-          (public_id, eah_number, title, tracking_hash, prompt, output, ai_model, summary, notes,
-           shared_chat_url, category, author_name, submitted_at, status, ip_hash,
+          (public_id, title, tracking_hash, prompt, output, ai_model, summary, notes,
+           shared_chat_url, source_url, category, author_name, submitted_at, status, ip_hash,
            submitter_email, hallucination_date, allow_author_edits, owner_user_id, anon_public,
            transcript_mode)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           publicId,
-          n,
           values.title,
           dummyTrackingHash,
           // Mirror the first user/assistant turn into the legacy columns so the
           // NOT NULL constraint holds and the browse `q` LIKE search still works.
+          // (Link submissions store empty strings here.)
           legacyPrompt,
           legacyOutput,
           values.ai_model,
           values.summary.length > 0 ? values.summary : null,
           values.notes.length > 0 ? values.notes : null,
           values.shared_chat_url.length > 0 ? values.shared_chat_url : null,
+          sourceUrlValue,
           values.category,
           // No free-text display name anymore: public attribution is the
           // account username (or "anonymous" if anon_public is set).
@@ -534,7 +592,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
       const submissionId = ins.insertId;
       if (!submissionId) throw new Error("insert returned no id");
 
-      // Multi-turn rows (none for 'single').
+      // Multi-turn rows (none for 'single' or 'link').
       await replaceTurns(tx, submissionId, storedTurns);
 
       for (const tag of tags) {
@@ -560,9 +618,8 @@ export const submitPost: RouteHandler = async (req, ctx) => {
         );
       }
 
-      return { n, submissionId };
+      return { submissionId };
     });
-    eahNumber = result.n;
     newSubmissionId = Number(result.submissionId);
   } catch (err) {
     console.error("submission insert failed", err);
@@ -573,13 +630,13 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     });
   }
 
-  const eahId = formatEahId(eahNumber);
-
   // If it went straight into the review queue, ping the staff Discord channel.
+  // No A-number yet (allocated only at reproduction), so we link by public_id.
   if (wantPropose) {
     void notifyNewSubmission({
       submissionId: newSubmissionId,
-      eahId,
+      eahId: "",
+      publicId,
       title: values.title,
       modelLabel: values.ai_model,
       username: ctx.user.username,
@@ -587,12 +644,12 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     });
   }
 
-  // Proposed → straight to the dashboard (it's now in the review queue).
-  // Draft → the edit page so the submitter can keep refining before proposing.
+  // Proposed → straight to the dashboard (it's now public + in the review queue).
+  // Draft → the edit page (addressed by slug) so the submitter can keep refining.
   return new Response(null, {
     status: 303,
     headers: {
-      Location: wantPropose ? "/my/submissions" : `/my/submissions/${eahId}/edit`,
+      Location: wantPropose ? "/my/submissions" : `/my/submissions/${publicId}/edit`,
     },
   });
 };

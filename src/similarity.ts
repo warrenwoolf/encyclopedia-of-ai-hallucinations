@@ -51,7 +51,7 @@ export async function findSimilar(
   }>(
     `SELECT id, eah_number, title, prompt, output
      FROM submissions
-     WHERE status IN ('published', 'pending')
+     WHERE status IN ('reviewed', 'unreviewed')
        AND id != ?
      LIMIT 2000`,
     [excludeId],

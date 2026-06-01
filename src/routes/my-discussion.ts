@@ -17,7 +17,7 @@ import { pageResponse } from "../layout.ts";
 import { query, queryOne, execute } from "../db.ts";
 import { verifyCsrf } from "../csrf.ts";
 import { check as rateCheck } from "../ratelimit.ts";
-import { formatEahId, parseEahId } from "../eah-id.ts";
+import { formatEahId } from "../eah-id.ts";
 import { actionBar } from "./my-shared.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteHandler } from "./types.ts";
 
@@ -27,20 +27,22 @@ const MAX_MESSAGE_CHARS = 4000;
 
 interface OwnedRow {
   id: number;
-  eah_number: number;
+  eah_number: number | null;
+  public_id: string;
   owner_user_id: number;
   status: string;
   title: string | null;
 }
 
-async function fetchOwned(eahIdStr: string, userId: number): Promise<OwnedRow | null> {
-  const n = parseEahId(eahIdStr);
-  if (n === null) return null;
+/** Resolve an owned submission by its public_id slug (owner routes address by
+ *  slug — A-numbers only exist once an entry is reproduced). */
+async function fetchOwned(slug: string, userId: number): Promise<OwnedRow | null> {
+  if (!slug) return null;
   const row = await queryOne<OwnedRow>(
-    `SELECT id, eah_number, owner_user_id, status, title
+    `SELECT id, eah_number, public_id, owner_user_id, status, title
        FROM submissions
-      WHERE eah_number = ? AND owner_user_id = ?`,
-    [n, userId],
+      WHERE public_id = ? AND owner_user_id = ?`,
+    [slug, userId],
   );
   return row ?? null;
 }
@@ -116,6 +118,8 @@ export const myDiscussionGet: RouteHandler = async (req, ctx) => {
   }
 
   const eahId = formatEahId(row.eah_number);
+  const slug = row.public_id;
+  const dispId = eahId || row.title || slug;
 
   const messages = await query<MessageRow>(
     `SELECT m.id, m.submission_id, m.sender_type, m.sender_user_id,
@@ -133,11 +137,11 @@ export const myDiscussionGet: RouteHandler = async (req, ctx) => {
     ? h`<div class="discuss-thread">${messages.map(renderNote)}</div>`
     : h`<p class="muted">No messages yet.</p>`;
 
-  const canReply = row.status === "draft" || row.status === "pending";
+  const canReply = row.status === "draft" || row.status === "unreviewed";
   const replyForm: SafeHtml = canReply
     ? h`
       <div class="discuss-reply">
-        <form method="post" action="/my/submissions/${eahId}/message">
+        <form method="post" action="/my/submissions/${slug}/message">
           <input type="hidden" name="_csrf" value="${token}">
           <label for="message">Reply</label>
           <textarea id="message" name="message" rows="5"
@@ -151,17 +155,17 @@ export const myDiscussionGet: RouteHandler = async (req, ctx) => {
     `
     : h`<p class="muted">Discussion is closed (status: ${row.status}).</p>`;
 
-  const subnav = actionBar(eahId, row.status, token);
+  const subnav = actionBar(slug, row.status, token, eahId);
 
   const body = h`
-    <p><strong>${eahId}</strong> — ${row.title ?? "(untitled)"}</p>
+    <p><strong>${dispId}</strong> — ${row.title ?? "(untitled)"}</p>
     ${threadHtml}
     ${replyForm}
   `;
 
   return pageResponse(req, {
-    title: `Discussion ${eahId} · ENAIH`,
-    heading: `Discussion — ${eahId}`,
+    title: `Discussion ${dispId} · ENAIH`,
+    heading: `Discussion — ${dispId}`,
     body,
     user: ctx.user,
     subnav,
@@ -205,11 +209,11 @@ export const myDiscussionPost: RouteHandler = async (req, ctx) => {
   }
 
   const row = await fetchOwned(eahIdStr, ctx.user.userId);
-  const eahId = row ? formatEahId(row.eah_number) : eahIdStr;
 
-  if (!row || (row.status !== "draft" && row.status !== "pending")) {
+  if (!row || (row.status !== "draft" && row.status !== "unreviewed")) {
     return new Response(null, { status: 404 });
   }
+  const slug = row.public_id;
 
   const rawBody = sanitizeText(form.get("message") ?? "").trim();
 
@@ -217,7 +221,7 @@ export const myDiscussionPost: RouteHandler = async (req, ctx) => {
   if (rawBody.length === 0) {
     return new Response(null, {
       status: 303,
-      headers: { Location: `/my/submissions/${eahId}/discussion` },
+      headers: { Location: `/my/submissions/${slug}/discussion` },
     });
   }
 
@@ -238,6 +242,6 @@ export const myDiscussionPost: RouteHandler = async (req, ctx) => {
 
   return new Response(null, {
     status: 303,
-    headers: { Location: `/my/submissions/${eahId}/discussion` },
+    headers: { Location: `/my/submissions/${slug}/discussion` },
   });
 };

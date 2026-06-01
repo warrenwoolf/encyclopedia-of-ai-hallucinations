@@ -13,7 +13,7 @@ import { execute, transaction, queryOne } from "../../db.ts";
 import { verifyCsrf } from "../../csrf.ts";
 import { sendDecision, sendReviewerMessage } from "../../email.ts";
 import { notifyPublished } from "../../discord.ts";
-import { freeEahNumber, formatEahId } from "../../eah-id.ts";
+import { allocateEahNumber, freeEahNumber, formatEahId } from "../../eah-id.ts";
 import { isValidCategory, categoryLabel } from "../../categories.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "../types.ts";
 
@@ -82,8 +82,13 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
 
   if (!verifyCsrf(req, form.get("_csrf"))) return await csrfErrorResponse();
 
+  // Tiered review actions:
+  //   confirm   — unreviewed → reviewed (entry becomes a default-listed entry)
+  //   reproduce — reviewed → reproduced (allocates the canonical A-number)
+  //   fail      — reviewed → repro_status='failed' (reviewed but not reproducible)
+  //   reject    — hard-delete the submission (used at the unreviewed stage)
   const action = form.get("action");
-  if (action !== "approve" && action !== "reject") {
+  if (action !== "confirm" && action !== "reproduce" && action !== "fail" && action !== "reject") {
     return await badRequest("Unknown review action.");
   }
 
@@ -122,10 +127,14 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     title: string | null;
     ai_model: string | null;
     category: string;
+    status: string;
+    repro_status: string;
+    transcript_mode: string;
     submitter_email: string | null;
     owner_email: string | null;
   }>(
-    `SELECT s.id, s.public_id, s.eah_number, s.title, s.ai_model, s.category, s.submitter_email,
+    `SELECT s.id, s.public_id, s.eah_number, s.title, s.ai_model, s.category,
+            s.status, s.repro_status, s.transcript_mode, s.submitter_email,
             u.email AS owner_email
        FROM submissions s
        LEFT JOIN users u ON u.id = s.owner_user_id
@@ -133,6 +142,15 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     [id],
   );
   if (!exists) return await badRequest("Submission not found.", 404);
+
+  // Link submissions cap at 'reviewed' — they can't be reproduced.
+  if (action === "reproduce" && exists.transcript_mode === "link") {
+    return await badRequest(
+      "Link / social-media submissions can't be reproduced — they cap at 'reviewed'.",
+      400,
+      `/admin/queue/${id}`,
+    );
+  }
 
   // Category can be (re)assigned right here in the review form — staff no longer
   // need the edit form (or the submitter's edit consent) just to categorize.
@@ -151,30 +169,31 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     }
   }
 
-  // Category is optional for submitters but required before an entry goes live.
-  // Staff pick one in the review form's category dropdown above.
-  if (action === "approve" && !effectiveCategory) {
+  // Category is optional for submitters but required before an entry is confirmed
+  // into the default-listed 'reviewed' tier. Staff pick one in the review form.
+  if (action === "confirm" && !effectiveCategory) {
     return await badRequest(
-      "This submission has no category. Choose one from the category dropdown in the review form before approving.",
+      "This submission has no category. Choose one from the category dropdown in the review form before confirming.",
       400,
       `/admin/queue/${id}`,
     );
   }
 
-  // The approve/reject + (optional) free-number step must be atomic: if we
-  // freed before the status flip and then the status flip failed, we'd hand
-  // a still-pending submission's number to the next draft. Wrap in a single
-  // transaction.
-  let didPublish = false;
+  // Each transition (plus any number alloc/free) must be atomic. Track which
+  // one actually fired so the right notification goes out afterward.
+  let didReview = false;
+  let didReproduce = false;
+  let didFail = false;
+  let didReject = false;
+  let reproducedEahId = "";
   try {
     await transaction(async (tx) => {
-      if (action === "approve") {
-        // Only publish rows that are still pending. This prevents an already-
-        // decided submission (rejected/withdrawn) from being republished and
-        // losing its A-number (Bug E).
+      if (action === "confirm") {
+        // unreviewed → reviewed. Guarded on the source status so an already-
+        // decided row can't be silently re-confirmed.
         const res = await tx.execute(
           `UPDATE submissions
-              SET status = 'published',
+              SET status = 'reviewed',
                   category = ?,
                   reviewed_by = ?,
                   reviewed_at = NOW(),
@@ -183,43 +202,73 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
                   reviewer_notes = ?,
                   staff_review_message = ?,
                   rejection_reason = NULL
-            WHERE id = ? AND status = 'pending'`,
+            WHERE id = ? AND status = 'unreviewed'`,
           [effectiveCategory, ctx.admin!.userId, verifiedHits, verifiedTotal, reviewerNotes, staffReviewMessage, id],
         );
         if (res.affectedRows > 0) {
-          didPublish = true;
+          didReview = true;
           await tx.execute(
             `INSERT INTO submission_messages (submission_id, sender_type, body)
              VALUES (?, 'system', ?)`,
-            [id, `Submission approved and published${staffReviewMessage ? ` with a note from the reviewer (see below).` : `.`}`],
+            [id, `Reviewed by staff — confirmed as a genuine submission and now publicly listed${staffReviewMessage ? ` (see reviewer note below)` : ``}.`],
+          );
+        }
+      } else if (action === "reproduce") {
+        // reviewed → reproduced. Allocate the canonical A-number here. Re-read
+        // the row under a lock first so we never allocate against an ineligible
+        // row (wrong status, link mode, or one that already has a number).
+        const cur = await tx.queryOne<{ status: string; transcript_mode: string; eah_number: number | null }>(
+          "SELECT status, transcript_mode, eah_number FROM submissions WHERE id = ? FOR UPDATE",
+          [id],
+        );
+        if (cur && cur.status === "reviewed" && cur.transcript_mode !== "link" && cur.eah_number === null) {
+          const n = await allocateEahNumber(tx);
+          await tx.execute(
+            `UPDATE submissions
+                SET repro_status = 'reproduced',
+                    eah_number = ?,
+                    reviewed_by = ?,
+                    reviewed_at = NOW(),
+                    verified_hits = ?,
+                    verified_total = ?,
+                    reviewer_notes = ?
+              WHERE id = ?`,
+            [n, ctx.admin!.userId, verifiedHits, verifiedTotal, reviewerNotes, id],
+          );
+          didReproduce = true;
+          reproducedEahId = formatEahId(n);
+          await tx.execute(
+            `INSERT INTO submission_messages (submission_id, sender_type, body)
+             VALUES (?, 'system', ?)`,
+            [id, `Reproduced by staff and assigned canonical number ${reproducedEahId}.`],
+          );
+        }
+      } else if (action === "fail") {
+        const res = await tx.execute(
+          `UPDATE submissions
+              SET repro_status = 'failed',
+                  reviewed_by = ?,
+                  reviewed_at = NOW(),
+                  verified_hits = ?,
+                  verified_total = ?,
+                  reviewer_notes = ?
+            WHERE id = ? AND status = 'reviewed'`,
+          [ctx.admin!.userId, verifiedHits, verifiedTotal, reviewerNotes, id],
+        );
+        if (res.affectedRows > 0) {
+          didFail = true;
+          await tx.execute(
+            `INSERT INTO submission_messages (submission_id, sender_type, body)
+             VALUES (?, 'system', ?)`,
+            [id, `Staff attempted reproduction and could not reproduce this entry.`],
           );
         }
       } else {
-        const res = await tx.execute(
-          `UPDATE submissions
-              SET status = 'rejected',
-                  category = ?,
-                  reviewed_by = ?,
-                  reviewed_at = NOW(),
-                  rejection_reason = ?,
-                  reviewer_notes = ?,
-                  staff_review_message = ?,
-                  verified_hits = ?,
-                  verified_total = ?
-            WHERE id = ? AND status = 'pending'`,
-          [effectiveCategory, ctx.admin!.userId, rejectionReason, reviewerNotes, staffReviewMessage, verifiedHits, verifiedTotal, id],
-        );
-        if (res.affectedRows > 0) {
-          // OEIS rule: a rejected draft's A-number returns to the pool. Do
-          // this inside the same transaction so we never expose a "rejected
-          // with live A-number" state to readers.
-          await freeEahNumber(tx, id);
-          await tx.execute(
-            `INSERT INTO submission_messages (submission_id, sender_type, body)
-             VALUES (?, 'system', ?)`,
-            [id, `Submission rejected.`],
-          );
-        }
+        // reject — hard-delete. Free any A-number first (defensive: only a
+        // reproduced row would hold one). Child rows cascade via FK.
+        await freeEahNumber(tx, id);
+        await tx.execute("DELETE FROM submissions WHERE id = ?", [id]);
+        didReject = true;
       }
     });
   } catch (err) {
@@ -227,35 +276,61 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     return await badRequest("Could not save the review. Try again.", 500);
   }
 
-  // Fire-and-forget Discord notification to the public channel when an entry
-  // actually went live (status flipped pending → published in this request).
-  if (didPublish && exists.eah_number !== null) {
+  const notifyTo = exists.owner_email ?? exists.submitter_email;
+
+  // An entry becomes publicly listed at the 'reviewed' tier — announce it on the
+  // public Discord channel then (it has no A-number yet, so link by slug).
+  if (didReview) {
     void notifyPublished({
-      eahId: formatEahId(exists.eah_number),
+      eahId: "",
+      publicId: exists.public_id,
       title: exists.title,
       modelLabel: exists.ai_model ?? "(unknown)",
       categoryLabel: categoryLabel(effectiveCategory),
     });
+    if (notifyTo) {
+      void sendDecision({
+        to: notifyTo,
+        eahId: "",
+        publicId: exists.public_id,
+        modelLabel: exists.ai_model ?? "(unknown)",
+        decision: "approved",
+        staffReviewMessage,
+        rejectionReason: null,
+      });
+    }
   }
 
-  // Fire-and-forget decision email. Prefer the owner account's email; fall
-  // back to the legacy submitter_email for old anonymous rows.
-  // For approvals we use the (still-set) A-number; for rejections that number
-  // has been freed, so use an empty string.
-  const decisionTo = exists.owner_email ?? exists.submitter_email;
-  if (decisionTo) {
-    const eahIdForEmail =
-      action === "approve" && exists.eah_number !== null
-        ? formatEahId(exists.eah_number)
-        : "";
+  // Reproduction / failed-reproduction: notify the submitter by reviewer message.
+  if (didReproduce && notifyTo) {
+    void sendReviewerMessage({
+      to: notifyTo,
+      eahId: reproducedEahId,
+      modelLabel: exists.ai_model ?? "(unknown)",
+      reviewerName: ctx.admin.username,
+      bodyPreview: `Your entry was reproduced by staff and assigned the canonical number ${reproducedEahId}.`,
+    });
+  }
+  if (didFail && notifyTo) {
+    void sendReviewerMessage({
+      to: notifyTo,
+      eahId: formatEahId(exists.eah_number),
+      modelLabel: exists.ai_model ?? "(unknown)",
+      reviewerName: ctx.admin.username,
+      bodyPreview: `Staff reviewed your entry but could not reproduce it. It stays public as a reported, unreproduced sighting.`,
+    });
+  }
+
+  // Rejection email: the row is gone, so there's no A-number to reference.
+  if (didReject && notifyTo) {
     void sendDecision({
-      to: decisionTo,
-      eahId: eahIdForEmail,
+      to: notifyTo,
+      eahId: "",
       publicId: exists.public_id,
       modelLabel: exists.ai_model ?? "(unknown)",
-      decision: action === "approve" ? "approved" : "rejected",
+      decision: "rejected",
       staffReviewMessage,
-      rejectionReason: action === "approve" ? null : rejectionReason,
+      rejectionReason,
     });
   }
 

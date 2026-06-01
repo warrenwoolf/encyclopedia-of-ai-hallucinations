@@ -56,7 +56,7 @@ async function buildSitemap(): Promise<string> {
   const rows = await query<Row>(
     `SELECT eah_number, COALESCE(reviewed_at, submitted_at) AS lastmod
        FROM submissions
-      WHERE status = 'published'
+      WHERE repro_status = 'reproduced'
         AND eah_number IS NOT NULL
       ORDER BY eah_number ASC`,
   );

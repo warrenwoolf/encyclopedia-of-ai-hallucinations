@@ -32,11 +32,20 @@ import { parseForm, sanitizeText, type RouteHandler } from "./types.ts";
  * Discord notice.
  */
 export const COMPLAINT_TYPES: ReadonlyArray<{ key: string; label: string }> = [
+  // Entry-quality reports.
   { key: "factual", label: "Factual error in this entry" },
   { key: "miscategorized", label: "Wrong category" },
   { key: "duplicate", label: "Duplicate of another entry" },
-  { key: "inappropriate", label: "Inappropriate / abusive content" },
   { key: "broken", label: "Broken link or formatting" },
+  // Abuse / moderation reports — more salient now that unreviewed submissions
+  // are publicly visible before staff see them.
+  { key: "inappropriate", label: "Inappropriate / abusive content" },
+  { key: "fabricated", label: "Fabricated / faked — not a real AI output" },
+  { key: "spam", label: "Spam or advertising" },
+  { key: "harassment", label: "Harassment or hate" },
+  { key: "private_info", label: "Private personal information (doxxing / PII)" },
+  { key: "impersonation", label: "Impersonation" },
+  { key: "illegal", label: "Illegal content" },
   { key: "other", label: "Other" },
 ];
 
@@ -47,22 +56,24 @@ const MAX_BODY = 2000;
 interface MatchedRow {
   id: number;
   eah_number: number | null;
+  public_id: string;
   status: string;
 }
 
-/** Resolve a published submission by A-number or legacy public_id slug. */
+/** Resolve a publicly-visible submission (reviewed or unreviewed — both are
+ *  public and reportable) by A-number or public_id slug. */
 async function findPublished(idParam: string): Promise<MatchedRow | null> {
   const eahNum = parseEahId(idParam);
   const row = eahNum !== null
     ? await queryOne<MatchedRow>(
-        "SELECT id, eah_number, status FROM submissions WHERE eah_number = ?",
+        "SELECT id, eah_number, public_id, status FROM submissions WHERE eah_number = ?",
         [eahNum],
       )
     : await queryOne<MatchedRow>(
-        "SELECT id, eah_number, status FROM submissions WHERE public_id = ?",
+        "SELECT id, eah_number, public_id, status FROM submissions WHERE public_id = ?",
         [idParam],
       );
-  if (!row || row.status !== "published" || row.eah_number === null) return null;
+  if (!row || (row.status !== "reviewed" && row.status !== "unreviewed")) return null;
   return row;
 }
 
@@ -111,7 +122,7 @@ export const postComplaint: RouteHandler = async (req, ctx) => {
 
   const row = await findPublished(idParam);
   if (!row) {
-    const body = h`<p>No published entry with that ID.</p>`;
+    const body = h`<p>No public entry with that ID.</p>`;
     return pageResponse(
       req,
       { title: "Not found · EAH", heading: "Not found", body, user: ctx.user },
@@ -119,6 +130,8 @@ export const postComplaint: RouteHandler = async (req, ctx) => {
     );
   }
   const eahId = formatEahId(row.eah_number);
+  // A-number once reproduced, else the slug — both resolve at /e/:id.
+  const ref = eahId || row.public_id;
 
   const complaintType = (form.get("complaint_type") ?? "").trim();
   const noteRaw = sanitizeText(form.get("body") ?? "").trim();
@@ -129,7 +142,7 @@ export const postComplaint: RouteHandler = async (req, ctx) => {
     const body = h`
       <p>Your report couldn't be submitted. Please pick a category and write a
       short note (up to ${MAX_BODY} characters).</p>
-      <p><a href="${backLink(eahId)}">Back to ${eahId}</a></p>`;
+      <p><a href="${backLink(ref)}">Back to ${ref}</a></p>`;
     return pageResponse(
       req,
       { title: "Report not sent · EAH", heading: "Report not sent", body, user: ctx.user },
@@ -153,11 +166,11 @@ export const postComplaint: RouteHandler = async (req, ctx) => {
   // post must not block the redirect (both modules never throw, but the void
   // also drops the returned promise so we don't await it).
   const reporter = ctx.user ? `user:${ctx.user.username}` : "anonymous";
-  void sendComplaint({ eahId, complaintLabel: label, body: noteRaw, reporter });
-  void notifyComplaint({ eahId, complaintLabel: label, body: noteRaw, reporter });
+  void sendComplaint({ eahId: ref, complaintLabel: label, body: noteRaw, reporter });
+  void notifyComplaint({ eahId: ref, complaintLabel: label, body: noteRaw, reporter });
 
   return new Response(null, {
     status: 303,
-    headers: { Location: `${backLink(eahId)}?complaint=ok` },
+    headers: { Location: `${backLink(ref)}?complaint=ok` },
   });
 };

@@ -14,7 +14,7 @@ import { type RouteHandler } from "./types.ts";
 
 export const home: RouteHandler = async (req, ctx) => {
   const countRow = await queryOne<{ n: number }>(
-    "SELECT COUNT(*) AS n FROM submissions WHERE status = 'published'",
+    "SELECT COUNT(*) AS n FROM submissions WHERE status = 'reviewed'",
   );
   const total = Number(countRow?.n ?? 0);
 
@@ -23,7 +23,7 @@ export const home: RouteHandler = async (req, ctx) => {
       <p class="tagline"><em>A community-maintained database of real, reproducible AI hallucinations.</em></p>
 
       <p>There ${total === 1 ? raw("is") : raw("are")}
-         currently <strong>${total}</strong> published ${total === 1 ? raw("entry") : raw("entries")}.</p>
+         currently <strong>${total}</strong> reviewed ${total === 1 ? raw("entry") : raw("entries")}.</p>
 
       <p><a class="cta" href="/submit">Submit a hallucination</a></p>
     </div>

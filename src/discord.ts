@@ -75,6 +75,7 @@ async function postMessage(channelId: string, content: string): Promise<void> {
 export async function notifyNewSubmission(opts: {
   submissionId: number;
   eahId: string;
+  publicId?: string;
   title: string | null;
   modelLabel: string;
   username: string;
@@ -83,8 +84,10 @@ export async function notifyNewSubmission(opts: {
   const link = `${config.publicBaseUrl}/admin/queue/${opts.submissionId}`;
   const author = opts.anon ? "anonymous" : opts.username;
   const title = opts.title && opts.title.length > 0 ? opts.title : "(untitled)";
+  // No A-number until reproduced, so fall back to the public_id slug as a ref.
+  const ref = opts.eahId || (opts.publicId ? `#${opts.publicId}` : "(unreviewed)");
   const content =
-    `🆕 **New submission for review** — ${opts.eahId}\n` +
+    `🆕 **New submission for review** — ${ref}\n` +
     `**${title}**\n` +
     `Model: ${opts.modelLabel} · submitted by ${author}\n` +
     `Review it: ${link}`;
@@ -97,14 +100,19 @@ export async function notifyNewSubmission(opts: {
  */
 export async function notifyPublished(opts: {
   eahId: string;
+  publicId?: string;
   title: string | null;
   modelLabel: string;
   categoryLabel: string;
 }): Promise<void> {
-  const link = `${config.publicBaseUrl}/e/${opts.eahId}`;
+  // An entry becomes public at the 'reviewed' tier (before it has an A-number),
+  // so link by the slug when there's no number yet. The header notes the tier.
+  const ref = opts.eahId || (opts.publicId ? `#${opts.publicId}` : "");
+  const slugForLink = opts.eahId || opts.publicId || "";
+  const link = `${config.publicBaseUrl}/e/${slugForLink}`;
   const title = opts.title && opts.title.length > 0 ? opts.title : "(untitled)";
   const content =
-    `✅ **New entry published** — ${opts.eahId}\n` +
+    `✅ **New entry published** — ${ref}\n` +
     `**${title}**\n` +
     `Model: ${opts.modelLabel} · ${opts.categoryLabel}\n` +
     `${link}`;

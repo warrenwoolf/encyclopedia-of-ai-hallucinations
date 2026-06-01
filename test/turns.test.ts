@@ -185,8 +185,13 @@ describe("effectiveTurns / serializeTranscript / normalizeMode", () => {
     expect(serializeTranscript("single", [{ role: "user", content: "x" }])).toBeNull();
   });
 
-  test("normalizeMode defaults unknown to single", () => {
+  test("serializeTranscript returns null for link (tracked via source_url)", () => {
+    expect(serializeTranscript("link", [])).toBeNull();
+  });
+
+  test("normalizeMode defaults unknown to single, passes through link", () => {
     expect(normalizeMode("bogus")).toBe("single");
     expect(normalizeMode("block")).toBe("block");
+    expect(normalizeMode("link")).toBe("link");
   });
 });

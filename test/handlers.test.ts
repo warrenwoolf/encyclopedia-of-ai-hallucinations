@@ -256,7 +256,7 @@ handlerDescribe("GET /e/:public_id", () => {
     // parseEahId("legacyslug0") === null → public_id branch.
     db.queryOne = async (sql: string) => {
       if (/WHERE public_id/i.test(sql)) {
-        return { id: 9, public_id: "legacyslug0", eah_number: 7, status: "published" };
+        return { id: 9, public_id: "legacyslug0", eah_number: 7, status: "reviewed", repro_status: "reproduced" };
       }
       return undefined;
     };
@@ -268,10 +268,10 @@ handlerDescribe("GET /e/:public_id", () => {
     expect(res.headers.get("Location")).toBe("/e/A000007");
   });
 
-  test("404 when the row exists but is not published", async () => {
+  test("404 when the row exists but is a private draft", async () => {
     db.queryOne = async (sql: string) => {
       if (/WHERE eah_number/i.test(sql)) {
-        return { id: 3, public_id: "p", eah_number: 3, status: "pending" };
+        return { id: 3, public_id: "p", eah_number: 3, status: "draft", repro_status: "pending" };
       }
       return undefined;
     };

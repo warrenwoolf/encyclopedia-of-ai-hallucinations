@@ -107,19 +107,25 @@ VALUES
  ('user','user@smoke.test',1,'$phash',0,0,NOW())
 ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), is_admin=VALUES(is_admin), is_owner=VALUES(is_owner);
 
+# Tiered sample data (public_id is CHAR(10), so keep slugs ≤10 chars and unique).
+# Canonical (reviewed+reproduced, carry A-numbers) plus one of each lower tier.
 INSERT IGNORE INTO submissions
- (public_id,eah_number,title,prompt,output,ai_model,category,status,entry_status,tracking_hash,submitted_at,owner_user_id)
+ (public_id,eah_number,title,prompt,output,ai_model,category,status,repro_status,entry_status,transcript_mode,source_url,summary,tracking_hash,submitted_at,owner_user_id)
 VALUES
- ('smoke-pub-1',900001,'Strawberry R-count','how many r in strawberry','two','GPT-5','tokenization','published','active',UNHEX(SHA2('s1',256)),NOW(),NULL),
- ('smoke-pub-2',900002,'Invented citation','cite a paper on X','Smith et al. 2019 (does not exist)','Claude','fabricated-citation','published','active',UNHEX(SHA2('s2',256)),NOW(),NULL),
- ('smoke-pub-3',900003,'Seahorse loop','is there a seahorse emoji','spirals forever','GPT-5','spiraling','published','patched',UNHEX(SHA2('s3',256)),NOW(),NULL);
+ ('smokepub01',900001,'Strawberry R-count','how many r in strawberry','two','GPT-5','tokenization','reviewed','reproduced','active','single',NULL,NULL,UNHEX(SHA2('s1',256)),NOW(),NULL),
+ ('smokepub02',900002,'Invented citation','cite a paper on X','Smith et al. 2019 (does not exist)','Claude','fabricated-citation','reviewed','reproduced','active','single',NULL,NULL,UNHEX(SHA2('s2',256)),NOW(),NULL),
+ ('smokepub03',900003,'Seahorse loop','is there a seahorse emoji','spirals forever','GPT-5','spiraling','reviewed','reproduced','patched','single',NULL,NULL,UNHEX(SHA2('s3',256)),NOW(),NULL),
+ ('smokerev01',NULL,'Reviewed not reproduced','p','o','GPT-5','tokenization','reviewed','pending','active','single',NULL,NULL,UNHEX(SHA2('s6',256)),NOW(),NULL),
+ ('smokefail1',NULL,'Failed to reproduce','p','o','Claude','spiraling','reviewed','failed','active','single',NULL,NULL,UNHEX(SHA2('s7',256)),NOW(),NULL),
+ ('smokeunrv1',NULL,'Unreviewed public sighting','p','o','GPT-5','other','unreviewed','pending','active','single',NULL,NULL,UNHEX(SHA2('s8',256)),NOW(),NULL),
+ ('smokelink1',NULL,'Reddit AI fail','','','GPT-5','other','unreviewed','pending','active','link','https://www.reddit.com/r/test/comments/abc','model insisted 9.11 > 9.9',UNHEX(SHA2('s9',256)),NOW(),NULL);
 
 INSERT IGNORE INTO submissions
- (public_id,eah_number,title,prompt,output,ai_model,category,status,entry_status,tracking_hash,submitted_at,owner_user_id)
-SELECT 'smoke-draft-1',900010,'My draft entry','p','o','GPT-5','','draft','active',UNHEX(SHA2('s4',256)),NOW(),id FROM users WHERE username='user';
+ (public_id,eah_number,title,prompt,output,ai_model,category,status,repro_status,entry_status,transcript_mode,tracking_hash,submitted_at,owner_user_id)
+SELECT 'smokedrft1',NULL,'My draft entry','p','o','GPT-5','','draft','pending','active','single',UNHEX(SHA2('s4',256)),NOW(),id FROM users WHERE username='user';
 INSERT IGNORE INTO submissions
- (public_id,eah_number,title,prompt,output,ai_model,category,status,entry_status,tracking_hash,submitted_at,owner_user_id)
-SELECT 'smoke-pending-1',900011,'My pending entry','p','o','Claude','spiraling','pending','active',UNHEX(SHA2('s5',256)),NOW(),id FROM users WHERE username='user';
+ (public_id,eah_number,title,prompt,output,ai_model,category,status,repro_status,entry_status,transcript_mode,tracking_hash,submitted_at,owner_user_id)
+SELECT 'smokeunr01',NULL,'My unreviewed entry','p','o','Claude','spiraling','unreviewed','pending','active','single',UNHEX(SHA2('s5',256)),NOW(),id FROM users WHERE username='user';
 SQL
   dbq < "$sqlfile"
   rm -f "$sqlfile"

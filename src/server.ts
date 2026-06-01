@@ -281,7 +281,7 @@ async function handle(req: Request, server: any): Promise<Response> {
     const { formatEahId } = await import("./eah-id.ts");
     let suggestions: Array<{ eah_number: number | null; title: string | null; public_id: string }> = [];
     try {
-      suggestions = await query("SELECT eah_number, title, public_id FROM submissions WHERE status='published' ORDER BY RAND() LIMIT 3");
+      suggestions = await query("SELECT eah_number, title, public_id FROM submissions WHERE status='reviewed' ORDER BY RAND() LIMIT 3");
     } catch {}
     const suggestionList = suggestions.length === 0
       ? raw("")

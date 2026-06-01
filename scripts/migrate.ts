@@ -269,8 +269,9 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; sql: string }> = 
     sql: "ALTER TABLE submissions ADD INDEX IF NOT EXISTS idx_submitter_email (submitter_email)",
   },
   // -- A-number system (OEIS-style sequential ID, "A" + 6-digit zero-padded). --
-  // Assigned at draft creation; freed back into freed_eah_numbers on reject /
-  // withdraw; locked once published.
+  // Assigned only when a reviewed entry is marked 'reproduced' (the canonical
+  // tier); freed back into freed_eah_numbers if it's later demoted; retired (not
+  // recycled) when a reproduced entry is owner-deleted. See src/eah-id.ts.
   {
     table: "submissions",
     column: "eah_number",
@@ -397,19 +398,113 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; sql: string }> = 
     column: "status_with_draft",
     sql: "ALTER TABLE submissions MODIFY COLUMN status ENUM('draft','pending','published','rejected','withdrawn') NOT NULL DEFAULT 'draft'",
   },
+  // ── Tiered-lifecycle overhaul (iNaturalist-style trust ladder) ───────────────
+  // The moderation axis becomes draft → unreviewed → reviewed (→ rejected). A
+  // second orthogonal axis, repro_status, records the staff reproduction outcome
+  // and is only meaningful once status='reviewed'. The legacy 'pending'/'published'
+  // values are kept in the enum so migrateStatusTiers() (run below) can read and
+  // rewrite existing rows; no live row references them afterwards.
+  {
+    // Reproduction outcome. Only meaningful when status='reviewed':
+    //   pending    — reviewed, reproduction not yet attempted (also the resting
+    //                state for link/social-media submissions, which can't be
+    //                reproduced).
+    //   reproduced — staff reproduced the behavior. THIS is the tier that earns
+    //                a canonical A-number (see src/eah-id.ts).
+    //   failed     — staff tried and could not reproduce it (kept, labeled).
+    table: "submissions",
+    column: "repro_status",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS repro_status ENUM('pending','reproduced','failed') NOT NULL DEFAULT 'pending'",
+  },
+  {
+    // Link to a third-party post (Reddit/X/etc.) for 'link' transcript_mode
+    // submissions. The pasted failure text lives in `summary` so the entry
+    // survives link rot; this is just the citation back to the original.
+    table: "submissions",
+    column: "source_url",
+    sql: "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS source_url VARCHAR(2048) NULL",
+  },
+  {
+    // Extend the moderation enum to the tiered set. Adding values is in-place in
+    // MariaDB. Default stays 'draft' (the safe/private default): submit.ts sets
+    // 'unreviewed' explicitly on the submit-for-review path.
+    table: "submissions",
+    column: "status_with_tiers",
+    sql: "ALTER TABLE submissions MODIFY COLUMN status ENUM('draft','unreviewed','reviewed','rejected','withdrawn','pending','published') NOT NULL DEFAULT 'draft'",
+  },
+  {
+    // Add 'link' to the transcript shape enum (link/social-media submissions).
+    table: "submissions",
+    column: "transcript_mode_link",
+    sql: "ALTER TABLE submissions MODIFY COLUMN transcript_mode ENUM('single','turns','block','link') NOT NULL DEFAULT 'single'",
+  },
+  {
+    table: "submissions",
+    column: "idx_repro_status",
+    sql: "ALTER TABLE submissions ADD INDEX IF NOT EXISTS idx_repro_status (repro_status)",
+  },
 ];
 
 /**
- * Backfill eah_number on rows that don't have one yet. Runs after all schema
- * changes and is itself idempotent.
+ * One-shot, idempotent migration of legacy moderation statuses onto the tiered
+ * lifecycle. Guarded so re-runs are no-ops (no live row stays 'pending'/'published',
+ * and number-freeing only touches rows that still wrongly hold a number).
  *
- * Policy:
- *   - Rows with status 'pending' or 'published' get the next sequential
- *     number, ordered by (submitted_at, id) so the early entries get the
- *     low A-numbers.
- *   - Rows with status 'rejected' or 'withdrawn' get NULL — they didn't
- *     consume an A-number under the new rules, and would consume one
- *     spuriously if we backfilled them now.
+ * Mapping:
+ *   published          → reviewed + repro_status='reproduced'  (grandfather the
+ *                        canon; KEEP their A-numbers)
+ *   pending            → unreviewed                            (free A-number)
+ *   withdrawn          → draft                                 (free A-number)
+ *   draft (legacy)     → draft                                 (free A-number —
+ *                        drafts no longer hold numbers)
+ *   rejected           → unchanged (already number-free)
+ *
+ * Freeing = NULL the number and return it to freed_eah_numbers, so the pool can
+ * recycle it for the next entry that reaches 'reproduced'.
+ */
+async function migrateStatusTiers(): Promise<void> {
+  const { query } = await import("../src/db.ts");
+
+  // Return to the pool every number held by a row that shouldn't keep one under
+  // the new rules: anything not published and not already-reviewed. Do this
+  // BEFORE the status rewrite so the WHERE still sees legacy values. Idempotent:
+  // once NULLed, the row no longer matches.
+  const toFree = await query<{ eah_number: number }>(
+    `SELECT eah_number FROM submissions
+       WHERE eah_number IS NOT NULL
+         AND status IN ('pending', 'draft', 'withdrawn')`,
+  );
+  for (const r of toFree) {
+    await execute("INSERT IGNORE INTO freed_eah_numbers (n) VALUES (?)", [r.eah_number]);
+  }
+  await execute(
+    `UPDATE submissions SET eah_number = NULL
+       WHERE eah_number IS NOT NULL
+         AND status IN ('pending', 'draft', 'withdrawn')`,
+  );
+
+  // Status rewrite. published carries its number into the reproduced canon.
+  const pub = await execute(
+    "UPDATE submissions SET status = 'reviewed', repro_status = 'reproduced' WHERE status = 'published'",
+  );
+  const pend = await execute("UPDATE submissions SET status = 'unreviewed' WHERE status = 'pending'");
+  const wd = await execute("UPDATE submissions SET status = 'draft' WHERE status = 'withdrawn'");
+
+  console.log(
+    `ok  status tiers (published→reproduced: ${pub.affectedRows}, ` +
+      `pending→unreviewed: ${pend.affectedRows}, withdrawn→draft: ${wd.affectedRows}, ` +
+      `numbers freed: ${toFree.length})`,
+  );
+}
+
+/**
+ * Backfill eah_number on canonical rows that somehow lack one. Runs after the
+ * tier migration and is itself idempotent.
+ *
+ * Policy: only reviewed + reproduced rows (the canonical tier) carry an A-number.
+ * Any such row missing one gets the next sequential number, ordered by
+ * (submitted_at, id) so the earliest entries get the low A-numbers. Every other
+ * tier is intentionally number-free.
  */
 async function backfillEahNumbers(): Promise<void> {
   const { query } = await import("../src/db.ts");
@@ -425,7 +520,8 @@ async function backfillEahNumbers(): Promise<void> {
     `SELECT id
        FROM submissions
        WHERE eah_number IS NULL
-         AND status IN ('pending', 'published')
+         AND status = 'reviewed'
+         AND repro_status = 'reproduced'
        ORDER BY submitted_at ASC, id ASC`,
   );
 
@@ -493,6 +589,7 @@ async function main(): Promise<void> {
     console.log(`ok  ${c.table}.${c.column}`);
   }
   await seedCategories();
+  await migrateStatusTiers();
   await backfillEahNumbers();
 }
 

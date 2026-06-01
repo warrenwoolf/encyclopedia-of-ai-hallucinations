@@ -16,6 +16,7 @@ import { query, queryOne } from "../db.ts";
 import { CATEGORIES, categoryLabel, isValidCategory, resolveCategory } from "../categories.ts";
 import { formatEahId, parseEahId } from "../eah-id.ts";
 import { normalizeMode, effectiveTurns, renderConversation, type Turn } from "../turns.ts";
+import { tierBadge } from "./my-shared.ts";
 import { type RouteContext, type RouteHandler } from "./types.ts";
 
 interface Row {
@@ -26,11 +27,15 @@ interface Row {
   ai_model: string;
   category: string;
   entry_status: "active" | "patched";
+  status: string;
+  repro_status: string;
   submitted_at: Date;
   verified_hits: number | null;
   verified_total: number | null;
   prompt: string;
   output: string;
+  source_url: string | null;
+  summary: string | null;
   transcript_mode: string;
   anon_public: number;
   author_name: string | null;
@@ -58,9 +63,26 @@ export function longField(text: string): SafeHtml {
  * pure-CSS "show full conversation" <details> so the listing stays cheap.
  */
 export function renderCardConversation(
-  r: { prompt: string; output: string; transcript_mode: string },
+  r: { prompt: string; output: string; transcript_mode: string; source_url?: string | null; summary?: string | null },
   storedTurns: Turn[],
 ): SafeHtml {
+  // Link / social-media submissions have no conversation — preview the source
+  // link and the (required) summary instead.
+  if (normalizeMode(r.transcript_mode) === "link") {
+    return h`
+      <div class="entry-field">
+        <div class="entry-field-label">Source</div>
+        <div class="entry-field-box">${r.source_url
+          ? h`<a href="${r.source_url}" rel="nofollow noopener noreferrer">${r.source_url}</a>`
+          : h`<em>(no link)</em>`}</div>
+      </div>
+      ${r.summary && r.summary.trim().length > 0
+        ? h`<div class="entry-field">
+            <div class="entry-field-label">What's wrong</div>
+            <div class="entry-field-box">${longField(r.summary)}</div>
+          </div>`
+        : raw("")}`;
+  }
   const turns = effectiveTurns(normalizeMode(r.transcript_mode), storedTurns, r.prompt, r.output);
   if (turns.length <= 2) {
     // Legacy / simple shape: keep the exact Prompt + Response boxes.
@@ -162,9 +184,14 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   }
   const categorySet = new Set(categories);
 
+  // Opt-in: include 'unreviewed' (public but unvetted) submissions in the
+  // listing. Default off — they're hidden from the default browse but reachable
+  // by direct link and via this toggle.
+  const showUnreviewed = sp.get("unreviewed") === "1";
+
   // Fetch all distinct model names for the model filter dropdown.
   const allModels = await query<{ ai_model: string }>(
-    `SELECT DISTINCT ai_model FROM submissions WHERE status='published' ORDER BY ai_model ASC`,
+    `SELECT DISTINCT ai_model FROM submissions WHERE status='reviewed' ORDER BY ai_model ASC`,
   );
 
   const statuses = Array.from(
@@ -185,7 +212,12 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   // applied on top per-query so the sidebar can show *faceted* counts — i.e. how
   // many entries each category / status would yield given the other active
   // filters, not a flat global tally.
-  const base: string[] = ["s.status = 'published'"];
+  // Moderation-visibility gate: reviewed entries always; unreviewed only when
+  // the visitor opts in. (This is the trust-tier axis, distinct from the
+  // entry_status active/patched facet handled below.)
+  const base: string[] = [
+    showUnreviewed ? "s.status IN ('reviewed','unreviewed')" : "s.status = 'reviewed'",
+  ];
   const baseParams: unknown[] = [];
   let join = "";
 
@@ -301,7 +333,8 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
 
   const rows = await query<Row>(
     `SELECT DISTINCT s.id, s.public_id, s.eah_number, s.title, s.ai_model, s.category, s.entry_status,
-            s.submitted_at, s.verified_hits, s.verified_total, s.prompt, s.output, s.transcript_mode,
+            s.status, s.repro_status, s.submitted_at, s.verified_hits, s.verified_total,
+            s.prompt, s.output, s.source_url, s.summary, s.transcript_mode,
             s.anon_public, s.author_name, u.username AS owner_username
        ${from}
        WHERE ${whereSql}
@@ -333,7 +366,9 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   // (mode != 'single'), keeping the common case a single tag-only query. Ordered
   // by (submission_id, turn_index) so we can group them in order.
   const turnsByRow = new Map<number, Turn[]>();
-  const multiTurnIds = rows.filter((r) => normalizeMode(r.transcript_mode) !== "single").map((r) => r.id);
+  const multiTurnIds = rows
+    .filter((r) => { const m = normalizeMode(r.transcript_mode); return m === "turns" || m === "block"; })
+    .map((r) => r.id);
   if (multiTurnIds.length > 0) {
     const ph = multiTurnIds.map(() => "?").join(",");
     const turnRows = await query<{ submission_id: number; role: "user" | "assistant"; content: string }>(
@@ -352,7 +387,11 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   const hasFilters = Boolean(categories.length || tagValid || model || q || statuses.length);
 
   // `category` and `status` are arrays; buildQs emits one param per selection.
-  const sharedQs = { category: categories, tag: tagValid, model, q, status: statuses, sort };
+  // `unreviewed` rides along (as "1"/"") so toggling other filters preserves it.
+  const sharedQs = {
+    category: categories, tag: tagValid, model, q, status: statuses, sort,
+    unreviewed: showUnreviewed ? "1" : "",
+  };
 
   // Active-filter chips under the results header are *removal* controls: each is
   // a link to the same view with that one filter dropped (a category chip drops
@@ -465,6 +504,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
                   <a class="entry-card-eid" href="${linkTarget}">${eahId || r.public_id}</a>
                   <a class="entry-card-title" href="${linkTarget}">${r.title ?? h`<em>(untitled)</em>`}</a>
                 </span>
+                ${tierBadge(r.status, r.repro_status)}
                 ${r.entry_status === "patched"
                   ? h`<span class="entry-badge-patched">patched</span>`
                   : raw("")}
@@ -536,6 +576,16 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
               ${sortRadio("verified", "Most verified")}
               ${sortRadio("id", "By A-number")}
             </div>
+          </div>
+          <div class="sidebar-section">
+            <h3 class="sidebar-h">Trust tier</h3>
+            <label class="checkbox-label sidebar-toggle">
+              <input type="checkbox" name="unreviewed" value="1"
+                     ${showUnreviewed ? raw("checked") : raw("")}>
+              Include unreviewed submissions
+            </label>
+            <p class="field-hint"><small>Off by default. Unreviewed entries are
+              public but haven't been checked by staff.</small></p>
           </div>
         </form>
       </aside>

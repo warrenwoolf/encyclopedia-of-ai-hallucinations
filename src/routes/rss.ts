@@ -52,7 +52,7 @@ export const rss: RouteHandler = async () => {
     `SELECT eah_number, public_id, title, summary, prompt, output, ai_model, category,
             submitted_at, reviewed_at
        FROM submissions
-      WHERE status = 'published'
+      WHERE repro_status = 'reproduced' AND eah_number IS NOT NULL
       ORDER BY COALESCE(reviewed_at, submitted_at) DESC
       LIMIT 20`,
   );

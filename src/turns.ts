@@ -27,7 +27,7 @@
  */
 import { h, raw, type SafeHtml } from "./html.ts";
 
-export type TranscriptMode = "single" | "turns" | "block";
+export type TranscriptMode = "single" | "turns" | "block" | "link";
 export type TurnRole = "user" | "assistant";
 
 export interface Turn {
@@ -88,7 +88,7 @@ function makeDelimMatcher(custom?: BlockDelimiters): (line: string) => TurnRole 
 }
 
 export function normalizeMode(s: string | null | undefined): TranscriptMode {
-  return s === "turns" || s === "block" ? s : "single";
+  return s === "turns" || s === "block" || s === "link" ? s : "single";
 }
 
 /**
@@ -392,7 +392,9 @@ export function applyTurnAction(action: string, turns: Turn[]): Turn[] | null {
  * so it serializes to null. Stable formatting for the others.
  */
 export function serializeTranscript(mode: TranscriptMode, turns: Turn[]): string | null {
-  if (mode === "single") return null;
+  // 'single' tracks via prompt/output; 'link' tracks via source_url — neither
+  // has turn rows, so both serialize to null.
+  if (mode === "single" || mode === "link") return null;
   if (turns.length === 0) return null;
   return turns.map((t) => `[${t.role}]\n${t.content}`).join("\n\n");
 }

@@ -252,8 +252,8 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
 
   // ── entry handler ─────────────────────────────────────────────────────────
   describe("GET /e/:public_id", () => {
-    test("renders a published entry by A-number", async () => {
-      const id = await insertSubmission({ eahNumber: 1, status: "published", title: "test1" });
+    test("renders a reviewed+reproduced entry by A-number", async () => {
+      const id = await insertSubmission({ eahNumber: 1, status: "reviewed", reproStatus: "reproduced", title: "test1" });
       await addTag(id, "tag1");
       const res = await entry(
         new Request("http://x/e/A000001"),
@@ -266,7 +266,7 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
     });
 
     test("301-redirects a legacy public_id to the canonical A-number URL", async () => {
-      await insertSubmission({ eahNumber: 2, status: "published", publicId: "legacyslg0" });
+      await insertSubmission({ eahNumber: 2, status: "reviewed", reproStatus: "reproduced", publicId: "legacyslg0" });
       const res = await entry(
         new Request("http://x/e/legacyslg0"),
         ctx({ params: { public_id: "legacyslg0" } }),
@@ -275,8 +275,19 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
       expect(res.headers.get("Location")).toBe("/e/A000002");
     });
 
-    test("404 for a non-published submission", async () => {
-      await insertSubmission({ eahNumber: 3, status: "pending" });
+    test("an unreviewed entry is viewable by direct slug, with a caution banner", async () => {
+      await insertSubmission({ status: "unreviewed", publicId: "unrevslg01", title: "unrev1" });
+      const res = await entry(
+        new Request("http://x/e/unrevslg01"),
+        ctx({ params: { public_id: "unrevslg01" } }),
+      );
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("Unreviewed");
+    });
+
+    test("404 for a private draft", async () => {
+      await insertSubmission({ eahNumber: 3, status: "draft" });
       const res = await entry(
         new Request("http://x/e/A000003"),
         ctx({ params: { public_id: "A000003" } }),
@@ -284,10 +295,10 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
       expect(res.status).toBe(404);
     });
 
-    test("prev/next navigation links the neighbouring published entries", async () => {
-      await insertSubmission({ eahNumber: 1, status: "published" });
-      await insertSubmission({ eahNumber: 2, status: "published" });
-      await insertSubmission({ eahNumber: 3, status: "published" });
+    test("prev/next navigation links the neighbouring reproduced entries", async () => {
+      await insertSubmission({ eahNumber: 1, status: "reviewed", reproStatus: "reproduced" });
+      await insertSubmission({ eahNumber: 2, status: "reviewed", reproStatus: "reproduced" });
+      await insertSubmission({ eahNumber: 3, status: "reviewed", reproStatus: "reproduced" });
       const res = await entry(
         new Request("http://x/e/A000002"),
         ctx({ params: { public_id: "A000002" } }),
@@ -298,12 +309,12 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
     });
   });
 
-  // ── admin review (approve / reject) ──────────────────────────────────────────
+  // ── admin review (tiered actions) ────────────────────────────────────────────
   describe("POST /admin/queue/:id (review)", () => {
-    test("approve publishes the submission and keeps its A-number", async () => {
-      const id = await insertSubmission({ eahNumber: 10, status: "pending" });
+    test("confirm marks an unreviewed submission as reviewed (no A-number yet)", async () => {
+      const id = await insertSubmission({ status: "unreviewed" });
       const res = await postReview(
-        csrfPost(`/admin/queue/${id}`, { action: "approve" }),
+        csrfPost(`/admin/queue/${id}`, { action: "confirm" }),
         ctx({ params: { id: String(id) }, admin: fakeAdmin(1) }),
       );
       expect(res.status).toBe(303);
@@ -311,94 +322,129 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
         "SELECT status, eah_number FROM submissions WHERE id = ?",
         [id],
       );
-      expect(row?.status).toBe("published");
-      expect(Number(row?.eah_number)).toBe(10);
+      expect(row?.status).toBe("reviewed");
+      expect(row?.eah_number).toBeNull();
       expect(await messageCount(id)).toBeGreaterThan(0); // system message posted
     });
 
-    test("approve is blocked when the submission has no category", async () => {
-      // Category is optional for submitters; staff must assign one before an
-      // entry can go live. An uncategorized submission must not publish.
-      const id = await insertSubmission({ eahNumber: 19, status: "pending" });
+    test("confirm is blocked when the submission has no category", async () => {
+      const id = await insertSubmission({ status: "unreviewed" });
       await execute("UPDATE submissions SET category = '' WHERE id = ?", [id]);
       const res = await postReview(
-        csrfPost(`/admin/queue/${id}`, { action: "approve" }),
+        csrfPost(`/admin/queue/${id}`, { action: "confirm" }),
         ctx({ params: { id: String(id) }, admin: fakeAdmin(1) }),
       );
       expect(res.status).toBe(400);
-      const row = await queryOne<{ status: string }>(
-        "SELECT status FROM submissions WHERE id = ?",
-        [id],
-      );
-      expect(row?.status).toBe("pending"); // unchanged — still awaiting a category
+      const row = await queryOne<{ status: string }>("SELECT status FROM submissions WHERE id = ?", [id]);
+      expect(row?.status).toBe("unreviewed"); // unchanged — still awaiting a category
     });
 
-    test("reject sets status='rejected' and frees the A-number", async () => {
-      const id = await insertSubmission({ eahNumber: 11, status: "pending" });
-      await postReview(
+    test("reproduce allocates the canonical A-number", async () => {
+      const id = await insertSubmission({ status: "reviewed", reproStatus: "pending" });
+      const res = await postReview(
+        csrfPost(`/admin/queue/${id}`, { action: "reproduce" }),
+        ctx({ params: { id: String(id) }, admin: fakeAdmin(1) }),
+      );
+      expect(res.status).toBe(303);
+      const row = await queryOne<{ status: string; repro_status: string; eah_number: number | null }>(
+        "SELECT status, repro_status, eah_number FROM submissions WHERE id = ?",
+        [id],
+      );
+      expect(row?.status).toBe("reviewed");
+      expect(row?.repro_status).toBe("reproduced");
+      expect(Number(row?.eah_number)).toBeGreaterThan(0);
+    });
+
+    test("reproduce is refused for a link submission (caps at reviewed)", async () => {
+      const id = await insertSubmission({ status: "reviewed", reproStatus: "pending", transcriptMode: "link" });
+      const res = await postReview(
+        csrfPost(`/admin/queue/${id}`, { action: "reproduce" }),
+        ctx({ params: { id: String(id) }, admin: fakeAdmin(1) }),
+      );
+      expect(res.status).toBe(400);
+      const row = await queryOne<{ repro_status: string; eah_number: number | null }>(
+        "SELECT repro_status, eah_number FROM submissions WHERE id = ?",
+        [id],
+      );
+      expect(row?.repro_status).toBe("pending");
+      expect(row?.eah_number).toBeNull();
+    });
+
+    test("reject hard-deletes the submission", async () => {
+      const id = await insertSubmission({ status: "unreviewed" });
+      const res = await postReview(
         csrfPost(`/admin/queue/${id}`, { action: "reject", rejection_reason: "test reason" }),
         ctx({ params: { id: String(id) }, admin: fakeAdmin(1) }),
       );
-      const row = await queryOne<{ status: string; eah_number: number | null }>(
-        "SELECT status, eah_number FROM submissions WHERE id = ?",
-        [id],
-      );
-      expect(row?.status).toBe("rejected");
-      expect(row?.eah_number).toBeNull();
-      const pooled = await query<{ n: number }>("SELECT n FROM freed_eah_numbers");
-      expect(pooled.map((r) => Number(r.n))).toContain(11);
+      expect(res.status).toBe(303);
+      const row = await queryOne<{ id: number }>("SELECT id FROM submissions WHERE id = ?", [id]);
+      expect(row).toBeUndefined();
     });
 
     test("rejects an invalid CSRF token with 403", async () => {
-      const id = await insertSubmission({ eahNumber: 12, status: "pending" });
+      const id = await insertSubmission({ status: "unreviewed" });
       const req = new Request(`http://localhost/admin/queue/${id}`, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: "action=approve&_csrf=bogus",
+        body: "action=confirm&_csrf=bogus",
       });
       const res = await postReview(req, ctx({ params: { id: String(id) }, admin: fakeAdmin(1) }));
       expect(res.status).toBe(403);
       const row = await queryOne<{ status: string }>("SELECT status FROM submissions WHERE id = ?", [id]);
-      expect(row?.status).toBe("pending"); // unchanged
-    });
-
-    // BUG E: postReview's UPDATE has no `AND status='pending'` guard. Re-approving
-    // an already-rejected submission (whose A-number was freed to NULL) republishes
-    // it with a NULL eah_number — a broken state. Correct behavior: approving a
-    // non-pending row should not publish it. EXPECTED TO FAIL until the guard is added.
-    test("approving an already-rejected submission must NOT republish it (Bug E)", async () => {
-      const id = await insertSubmission({ eahNumber: null, status: "rejected" });
-      await postReview(
-        csrfPost(`/admin/queue/${id}`, { action: "approve" }),
-        ctx({ params: { id: String(id) }, admin: fakeAdmin(1) }),
-      );
-      const row = await queryOne<{ status: string; eah_number: number | null }>(
-        "SELECT status, eah_number FROM submissions WHERE id = ?",
-        [id],
-      );
-      // A published entry must never have a NULL A-number.
-      expect(row?.status === "published" && row?.eah_number === null).toBe(false);
+      expect(row?.status).toBe("unreviewed"); // unchanged
     });
   });
 
-  // ── submit handler (anonymous) ───────────────────────────────────────────────
-  describe("POST /submit (anonymous)", () => {
-    // Previously failing as Bug L blast radius (submit.ts's INSERT listed
-    // owner_user_id which didn't exist). migrate.ts now adds the column, so
-    // this is a passing regression assertion.
-    test("a valid anonymous submission is stored as 'pending'", async () => {
+  // ── submit handler (account-only) ─────────────────────────────────────────────
+  describe("POST /submit", () => {
+    test("an anonymous submit is redirected to login and stores nothing", async () => {
+      const before = await query<{ n: number }>("SELECT COUNT(*) AS n FROM submissions");
       const req = csrfPost("/submit", {
-        title: "test1",
-        prompt: "test prompt",
-        output: "test output",
-        ai_model: "test-model",
-        category: "other",
+        title: "test1", prompt: "p", output: "o", ai_model: "m", category: "other",
+        action: "propose",
       });
-      await submitPost(req, ctx({ path: "http://localhost/submit", ip: "203.0.113.7" }));
-      const rows = await query<{ status: string }>(
-        "SELECT status FROM submissions WHERE status = 'pending'",
+      const res = await submitPost(req, ctx({ path: "http://localhost/submit", ip: "203.0.113.7" }));
+      expect(res.status).toBe(303);
+      expect(res.headers.get("Location")).toBe("/login");
+      const after = await query<{ n: number }>("SELECT COUNT(*) AS n FROM submissions");
+      expect(Number(after[0]?.n)).toBe(Number(before[0]?.n));
+    });
+
+    test("a logged-in 'submit for review' stores an unreviewed, number-less row", async () => {
+      const userId = await insertUser({ username: "subuser", email: "subuser@example.com" });
+      const req = csrfPost("/submit", {
+        title: "review me", ai_model: "m", category: "other",
+        transcript_mode: "turns", turn_role: ["user", "assistant"], turn_content: ["p", "o"],
+        action: "propose",
+      });
+      const res = await submitPost(req, ctx({ path: "http://localhost/submit", ip: "203.0.113.8", user: fakeUser(userId) }));
+      expect(res.status).toBe(303);
+      const row = await queryOne<{ status: string; eah_number: number | null }>(
+        "SELECT status, eah_number FROM submissions WHERE owner_user_id = ?",
+        [userId],
       );
-      expect(rows.length).toBe(1);
+      expect(row?.status).toBe("unreviewed");
+      expect(row?.eah_number).toBeNull();
+    });
+
+    test("a logged-in link submission is stored with transcript_mode='link'", async () => {
+      const userId = await insertUser({ username: "linkuser", email: "linkuser@example.com" });
+      const req = csrfPost("/submit", {
+        title: "link entry", ai_model: "m", category: "other",
+        submission_kind: "link",
+        source_url: "https://www.reddit.com/r/test/comments/abc",
+        summary: "model claimed the moon is made of cheese",
+        action: "propose",
+      });
+      const res = await submitPost(req, ctx({ path: "http://localhost/submit", ip: "203.0.113.9", user: fakeUser(userId) }));
+      expect(res.status).toBe(303);
+      const row = await queryOne<{ status: string; transcript_mode: string; source_url: string | null }>(
+        "SELECT status, transcript_mode, source_url FROM submissions WHERE owner_user_id = ?",
+        [userId],
+      );
+      expect(row?.status).toBe("unreviewed");
+      expect(row?.transcript_mode).toBe("link");
+      expect(row?.source_url).toContain("reddit.com");
     });
   });
 
@@ -443,16 +489,16 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
       const userId = await insertUser({ username: "user1", email: "user1@example.com" });
       const req = csrfPost("/submit", {
         title: "test1",
-        prompt: "test prompt",
-        output: "test output",
+        transcript_mode: "turns", turn_role: ["user", "assistant"], turn_content: ["test prompt", "test output"],
         ai_model: "test-model",
         category: "other",
       });
       const res = await submitPost(req, ctx({ path: "http://localhost/submit", ip: "203.0.113.7", user: fakeUser(userId) }));
-      // Logged-in submitters are redirected to their draft edit page.
+      // Logged-in submitters are redirected to their draft edit page (by slug).
       expect(res.status).toBe(303);
       const location = res.headers.get("Location") ?? "";
-      expect(location.startsWith("/my/submissions/A")).toBe(true);
+      expect(location.startsWith("/my/submissions/")).toBe(true);
+      expect(location.endsWith("/edit")).toBe(true);
 
       const row = await queryOne<{ status: string; owner_user_id: number | null }>(
         "SELECT status, owner_user_id FROM submissions WHERE owner_user_id = ?",
@@ -464,31 +510,28 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
 
     test("myEditPost updates the draft and records a version diff", async () => {
       const userId = await insertUser({ username: "user1", email: "user1@example.com" });
-      const id = await insertSubmission({ eahNumber: 50, status: "draft", ownerUserId: userId, title: "original title" });
+      const id = await insertSubmission({ status: "draft", publicId: "draftA0050", ownerUserId: userId, title: "original title" });
 
       const res = await myEditPost(
-        csrfPost("/my/submissions/A000050/edit", {
+        csrfPost("/my/submissions/draftA0050/edit", {
           title: "updated title",
-          prompt: "test prompt",
-          output: "test output",
+          transcript_mode: "turns", turn_role: ["user", "assistant"], turn_content: ["test prompt", "test output"],
           ai_model: "test-model",
           category: "other",
         }),
-        ctx({ params: { eahId: "A000050" }, user: fakeUser(userId) }),
+        ctx({ params: { eahId: "draftA0050" }, user: fakeUser(userId) }),
       );
 
-      // Successful edit redirects back to the edit page with ?saved=1.
+      // Successful edit redirects back to the edit page (by slug) with ?saved=1.
       expect(res.status).toBe(303);
-      expect(res.headers.get("Location")).toBe("/my/submissions/A000050/edit?saved=1");
+      expect(res.headers.get("Location")).toBe("/my/submissions/draftA0050/edit?saved=1");
 
-      // The submission row should reflect the new title.
       const row = await queryOne<{ title: string }>(
         "SELECT title FROM submissions WHERE id = ?",
         [id],
       );
       expect(row?.title).toBe("updated title");
 
-      // At least one version-diff row should have been written.
       const vrows = await query<{ field_name: string; old_value: string | null; new_value: string | null }>(
         "SELECT field_name, old_value, new_value FROM submission_versions WHERE submission_id = ?",
         [id],
@@ -500,45 +543,32 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
       expect(titleDiff?.new_value).toBe("updated title");
     });
 
-    test("myPropose flips a draft's status to 'pending'", async () => {
+    test("myPropose flips a draft's status to 'unreviewed'", async () => {
       const userId = await insertUser({ username: "user1", email: "user1@example.com" });
-      const id = await insertSubmission({ eahNumber: 51, status: "draft", ownerUserId: userId });
+      const id = await insertSubmission({ status: "draft", publicId: "draftA0051", ownerUserId: userId });
 
       const res = await myPropose(
-        csrfPost("/my/submissions/A000051/propose", {}),
-        ctx({ params: { eahId: "A000051" }, user: fakeUser(userId) }),
+        csrfPost("/my/submissions/draftA0051/propose", {}),
+        ctx({ params: { eahId: "draftA0051" }, user: fakeUser(userId) }),
       );
 
       expect(res.status).toBe(303);
-
-      const row = await queryOne<{ status: string }>(
-        "SELECT status FROM submissions WHERE id = ?",
-        [id],
-      );
-      expect(row?.status).toBe("pending");
+      const row = await queryOne<{ status: string }>("SELECT status FROM submissions WHERE id = ?", [id]);
+      expect(row?.status).toBe("unreviewed");
     });
 
-    test("myWithdraw moves a pending submission back to draft, keeping its A-number", async () => {
+    test("myWithdraw moves an unreviewed submission back to draft", async () => {
       const userId = await insertUser({ username: "user1", email: "user1@example.com" });
-      const id = await insertSubmission({ eahNumber: 52, status: "pending", ownerUserId: userId });
+      const id = await insertSubmission({ status: "unreviewed", publicId: "draftA0052", ownerUserId: userId });
 
       const res = await myWithdraw(
-        csrfPost("/my/submissions/A000052/withdraw", {}),
-        ctx({ params: { eahId: "A000052" }, user: fakeUser(userId) }),
+        csrfPost("/my/submissions/draftA0052/withdraw", {}),
+        ctx({ params: { eahId: "draftA0052" }, user: fakeUser(userId) }),
       );
 
       expect(res.status).toBe(303);
-
-      const row = await queryOne<{ status: string; eah_number: number | null }>(
-        "SELECT status, eah_number FROM submissions WHERE id = ?",
-        [id],
-      );
-      // Back to draft, A-number retained (not freed).
+      const row = await queryOne<{ status: string }>("SELECT status FROM submissions WHERE id = ?", [id]);
       expect(row?.status).toBe("draft");
-      expect(Number(row?.eah_number)).toBe(52);
-      // A-number is NOT in the freed pool.
-      const pooled = await query<{ n: number }>("SELECT n FROM freed_eah_numbers");
-      expect(pooled.map((r) => Number(r.n))).not.toContain(52);
       // A system message records the withdrawal (discussion is kept).
       const msgs = await query<{ sender_type: string }>(
         "SELECT sender_type FROM submission_messages WHERE submission_id = ?",
@@ -547,42 +577,37 @@ describe.skipIf(!DB_ENABLED)("integration (real MariaDB)", () => {
       expect(msgs.some((m) => m.sender_type === "system")).toBe(true);
     });
 
-    test("myWithdraw refuses a draft (only pending can be withdrawn)", async () => {
+    test("myWithdraw refuses a draft (only unreviewed can be withdrawn)", async () => {
       const userId = await insertUser({ username: "user1", email: "user1@example.com" });
-      await insertSubmission({ eahNumber: 53, status: "draft", ownerUserId: userId });
+      await insertSubmission({ status: "draft", publicId: "draftA0053", ownerUserId: userId });
 
       const res = await myWithdraw(
-        csrfPost("/my/submissions/A000053/withdraw", {}),
-        ctx({ params: { eahId: "A000053" }, user: fakeUser(userId) }),
+        csrfPost("/my/submissions/draftA0053/withdraw", {}),
+        ctx({ params: { eahId: "draftA0053" }, user: fakeUser(userId) }),
       );
       expect(res.status).toBe(404);
     });
 
-    test("myDelete removes a draft and recycles its A-number", async () => {
+    test("myDelete removes a draft", async () => {
       const userId = await insertUser({ username: "user1", email: "user1@example.com" });
-      const id = await insertSubmission({ eahNumber: 54, status: "draft", ownerUserId: userId });
+      const id = await insertSubmission({ status: "draft", publicId: "draftA0054", ownerUserId: userId });
 
       const res = await myDelete(
-        csrfPost("/my/submissions/A000054/delete", {}),
-        ctx({ params: { eahId: "A000054" }, user: fakeUser(userId) }),
+        csrfPost("/my/submissions/draftA0054/delete", {}),
+        ctx({ params: { eahId: "draftA0054" }, user: fakeUser(userId) }),
       );
       expect(res.status).toBe(303);
-
-      // Row is gone.
       const row = await queryOne<{ id: number }>("SELECT id FROM submissions WHERE id = ?", [id]);
       expect(row).toBeUndefined();
-      // A-number recycled into the pool.
-      const pooled = await query<{ n: number }>("SELECT n FROM freed_eah_numbers");
-      expect(pooled.map((r) => Number(r.n))).toContain(54);
     });
 
-    test("myDelete refuses a pending submission (must withdraw to draft first)", async () => {
+    test("myDelete refuses an unreviewed submission (must withdraw to draft first)", async () => {
       const userId = await insertUser({ username: "user1", email: "user1@example.com" });
-      const id = await insertSubmission({ eahNumber: 55, status: "pending", ownerUserId: userId });
+      const id = await insertSubmission({ status: "unreviewed", publicId: "draftA0055", ownerUserId: userId });
 
       const res = await myDelete(
-        csrfPost("/my/submissions/A000055/delete", {}),
-        ctx({ params: { eahId: "A000055" }, user: fakeUser(userId) }),
+        csrfPost("/my/submissions/draftA0055/delete", {}),
+        ctx({ params: { eahId: "draftA0055" }, user: fakeUser(userId) }),
       );
       expect(res.status).toBe(404);
       const row = await queryOne<{ id: number }>("SELECT id FROM submissions WHERE id = ?", [id]);

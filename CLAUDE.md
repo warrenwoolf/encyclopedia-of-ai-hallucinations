@@ -24,13 +24,14 @@ Co-founders: **Rudra Jadhav** and **Warren Woolf** (`warrenwoolf` on GitHub).
 
 ## The A-number system
 
-Every submission has `submissions.eah_number` (nullable INT), displayed as `A######` (6-digit zero-padded). Helpers in `src/eah-id.ts`:
+`submissions.eah_number` (nullable INT) is displayed as `A######` (6-digit zero-padded). **A-numbers are the canon: they are allocated ONLY when a `reviewed` entry is marked `reproduced`** (the top tier — see "Submission & review flow"). Everything below that tier (draft / unreviewed / reviewed-not-reproduced / failed) has `eah_number = NULL` and is addressed by its `public_id` slug. Helpers in `src/eah-id.ts`:
 
-- `allocateEahNumber(tx)` — pops MIN from `freed_eah_numbers` if any, else `MAX+1`. **Must be in the same transaction that inserts the row** — leaks on contention otherwise.
-- `freeEahNumber(tx, submissionId)` — NULLs the number and adds to pool. Called on **reject** and **draft delete**. Must be in the same tx as the status flip.
-- **Withdraw** (pending→draft) does NOT free the number.
-- Owner-deleting a *published* entry from `/admin/all` **retires** the number (not recycled into pool).
-- `GET /e/:id` accepts A-numbers or the legacy `public_id` slug (10-char base64url); legacy path 301s to canonical.
+- `allocateEahNumber(tx)` — pops MIN from `freed_eah_numbers` if any, else `MAX+1`. Called in the **reproduce** transition (`src/routes/admin/review.ts`), inside the same tx as the `repro_status='reproduced'` flip. Re-read the row `FOR UPDATE` and check eligibility (status `reviewed`, not `link` mode, `eah_number IS NULL`) **before** allocating, so an ineligible action doesn't leak a number.
+- `freeEahNumber(tx, submissionId)` — NULLs the number and returns it to the pool. Called when a reproduced entry is demoted or rejected. Must be in the same tx as the status flip. A no-op (safe) for rows that never had a number.
+- Owner-deleting a *reproduced* (canonical) entry from `/admin/all` **retires** the number (not recycled into pool).
+- `GET /e/:id` accepts A-numbers or the `public_id` slug (10-char base64url). A slug for a reproduced entry 301s to the canonical A-number URL; slugs for lower tiers serve directly (they have no A-number).
+
+**Owner routes are slug-addressed.** Because most submissions have no A-number, the `/my/submissions/:id/*` family resolves `ctx.params.eahId` as a `public_id` (the param name is legacy; `fetchOwned` queries `WHERE public_id = ?`). Don't assume a row has an A-number when building owner-facing URLs.
 
 ## Accounts
 
@@ -45,13 +46,26 @@ Every submission has `submissions.eah_number` (nullable INT), displayed as `A###
 
 Submission is account-only. `/submit` redirects anonymous users to `/login`.
 
-- **Status flow:** `draft` ⇄ `pending` (submitter propose/withdraw) → `published` | `rejected` (staff). A draft can be deleted outright.
-- **Pending cap:** `MAX_PENDING_PER_USER = 5`. Drafts are unlimited. Cap re-checked on propose.
-- **Two submit buttons:** "Save as draft" (→ edit page) and "Submit for review" (→ dashboard).
-- **Category** is optional at submit; staff must assign one before approving. Direct-add (`/admin/entries/*`) requires it immediately.
-- **Withdraw:** pending→draft, keeps discussion and A-number. **Delete:** draft-only, hard-deletes row and recycles A-number.
-- **Staff editing** requires `allow_author_edits = 1`. Published entries are owner-editable only for content; staff can still flip `active`/`patched` via the status endpoint.
-- `submission_messages`: `sender_type` = `staff` / `user` / `system`. System rows auto-post on status transitions.
+**Tiered trust ladder (iNaturalist-style).** Two orthogonal columns: `status` (moderation axis) and `repro_status` (reproduction axis, only meaningful once `reviewed`). The tiers:
+
+| Tier | `status` | `repro_status` | A-number | Public? |
+|---|---|---|---|---|
+| Private draft | `draft` | `pending` | no | owner only |
+| Unreviewed | `unreviewed` | `pending` | no | yes, but hidden from default lists (link + opt-in toggle) |
+| Reviewed, not reproduced | `reviewed` | `pending` | no | yes (default lists) |
+| **Reproduced (canon)** | `reviewed` | `reproduced` | **yes** | yes |
+| Failed to reproduce | `reviewed` | `failed` | no | yes |
+
+`entry_status` (`active`/`patched`) is a *third*, independent axis (does the model still do it).
+
+- **Lifecycle:** submit → `draft` (private) or `unreviewed` (public). Staff **confirm** (`unreviewed→reviewed`, requires a category) or **reject** (hard-deletes the row). Then staff attempt reproduction: **reproduce** (`→reproduced`, allocates the A-number) or **fail** (`→failed`). Link/social-media submissions **cap at `reviewed`** (can't be reproduced).
+- **Legacy enum values** `pending`/`published` are kept in the `status` ENUM only so the one-shot data migration can read old rows; no live row should reference them. `withdrawn` survives as a back-compat value.
+- **Visibility = `reviewed`+** everywhere public (browse default `status='reviewed'`, opt-in `?unreviewed=1` widens to include `unreviewed`; entry page 404s only for `draft`; RSS/sitemap = reproduced canon only). Grep for `status = 'reviewed'` before adding a public listing.
+- **Cap:** `MAX_PENDING_PER_USER = 5` on `unreviewed` submissions per user. Drafts unlimited.
+- **Two submit buttons:** "Save as draft" (→ slug edit page) and "Submit for review" (→ dashboard, lands `unreviewed`). A submission is either a pasted transcript or a **link** (`submission_kind=link` → `transcript_mode='link'` + `source_url`; requires a `summary` for link-rot insurance; link entries aren't editable via the transcript editor).
+- **Withdraw:** `unreviewed→draft`, keeps discussion. **Delete:** draft-only, hard-deletes row.
+- **Staff editing** requires `allow_author_edits = 1`. Reviewed entries are owner-editable only for content; staff can still flip `active`/`patched` via the status endpoint (A-number-addressed, so reproduced entries only).
+- `submission_messages`: `sender_type` = `staff` / `user` / `system`. System rows auto-post on every tier transition (the human-readable transition audit trail; version-diffs remain content-only).
 
 See `docs/ROUTES.md` for the full route table.
 
@@ -69,7 +83,9 @@ Three levels: normal user, **staff** (`is_admin=1`), **owner** (`is_owner=1`). `
 
 `scripts/migrate.ts` is the **only schema source of truth** — idempotent and additive. To add a column: add to `COLUMN_ADDITIONS` using `ALTER TABLE … ADD COLUMN IF NOT EXISTS …`. Never drop columns in this script; use a separate manual script for destructive changes.
 
-Key `submissions` columns: `eah_number`, `public_id` (legacy slug), `owner_user_id`, `prompt`, `output`, `ai_model`, `category` (empty string = uncategorized), `status` (`draft`/`pending`/`published`/`rejected`/`withdrawn`), `entry_status` (`active`/`patched`), `transcript_mode` (`single`/`turns`/`block`), `anon_public`, `allow_author_edits`, `ip_hash`, `rejection_reason`, `reviewer_notes`.
+Key `submissions` columns: `eah_number` (NULL until reproduced), `public_id` (slug; primary owner-route key), `owner_user_id`, `prompt`, `output`, `ai_model`, `category` (empty string = uncategorized), `status` (`draft`/`unreviewed`/`reviewed`/`rejected`; legacy `pending`/`published`/`withdrawn` still in the enum), `repro_status` (`pending`/`reproduced`/`failed`), `entry_status` (`active`/`patched`), `transcript_mode` (`single`/`turns`/`block`/`link`), `source_url` (link submissions), `anon_public`, `allow_author_edits`, `ip_hash`, `rejection_reason`, `reviewer_notes`.
+
+The migration is idempotent: `COLUMN_ADDITIONS` adds `repro_status`/`source_url` and `MODIFY`s the `status`/`transcript_mode` enums; `migrateStatusTiers()` then rewrites legacy rows once (`published→reviewed+reproduced` keeping numbers; `pending→unreviewed` and `draft`/`withdrawn` freeing numbers).
 
 Other tables: `user_sessions`, `email_verifications`, `tags`, `submission_tags`, `submission_messages`, `submission_versions`, `submission_turns`, `freed_eah_numbers`, `complaints`.
 
@@ -77,7 +93,7 @@ Other tables: `user_sessions`, `email_verifications`, `tags`, `submission_tags`,
 
 A submission can hold an **optional multi-turn conversation** (up to `MAX_TURNS = 100`, mainly for short 2–4 turn chats) instead of the legacy single `prompt`/`output` pair. Pure logic lives in `src/turns.ts` (unit-tested in `test/turns.test.ts`); DB read/write helpers in `src/turns-db.ts`.
 
-- **Data model (additive only):** `submissions.transcript_mode` ENUM(`single`/`turns`/`block`) DEFAULT `single`; legacy `prompt`/`output` columns are **kept**. `submission_turns` (FK→submissions ON DELETE CASCADE, `turn_index` 0-based, `role` `user`/`assistant`, `content` MEDIUMTEXT). `single` rows (incl. all legacy) have no turn rows. `turns`/`block` rows store turns AND **mirror** the first user/assistant turn into `prompt`/`output` (`deriveLegacyPair`) so the NOT NULL constraint and browse `q` LIKE search keep working. The trivial shape (lone turn, or exactly `[user, assistant]`) collapses back to `single` via `isSimplePair()` — the common case never creates turn rows.
+- **Data model (additive only):** `submissions.transcript_mode` ENUM(`single`/`turns`/`block`/`link`) DEFAULT `single`; legacy `prompt`/`output` columns are **kept**. `link` is the social-media-link shape: no turns, empty `prompt`/`output`, content lives in `source_url` + `summary`; renderers special-case it (grep `transcript_mode === "link"`). `submission_turns` (FK→submissions ON DELETE CASCADE, `turn_index` 0-based, `role` `user`/`assistant`, `content` MEDIUMTEXT). `single` rows (incl. all legacy) have no turn rows. `turns`/`block` rows store turns AND **mirror** the first user/assistant turn into `prompt`/`output` (`deriveLegacyPair`) so the NOT NULL constraint and browse `q` LIKE search keep working. The trivial shape (lone turn, or exactly `[user, assistant]`) collapses back to `single` via `isSimplePair()` — the common case never creates turn rows.
 - **Two input modes** (`renderTranscriptFields`, radio toggle): **separate turns** (`turn_role[]` + `turn_content[]`, paired by index) or **pasted block** (`transcript_block`, split on `### User`/`### Assistant` delimiter lines, also `<<USER>>`/`<<ASSISTANT>>`, via `splitBlock()`). `readTranscriptForm()` parses either out of the urlencoded body (repeated fields via `.getAll()`); content is `sanitizeText()`-scrubbed; `validateTurns()` enforces ≥1 non-empty turn, per-turn ≤ `MAX_TURN_CONTENT` (32000), ≤ `MAX_TURNS`.
 - **Client JS (`src/static/turns.js`)** is progressive enhancement only (toggles turns-vs-block region, clones/removes turn boxes). With JS off, "Add/Remove turn" are plain `name="action"` submit buttons (`add_turn`/`remove_turn:N`) the POST handlers detect via `applyTurnAction` and re-render server-side, no save. Registered in `STATIC_FILES` + `deploy.sh` purge list.
 - **Rendering is shared** so `.entry-card` stays consistent (grep `entry-card`/`conversation`). `effectiveTurns()` synthesizes a `[prompt, output]` pair for `single` rows so all renderers are uniform. `renderConversation(turns, longField, collapseThreshold)`: simple pair labels **"Prompt"/"Response"**, richer ones **"User"/"Assistant"**. Entry page + overview show the full conversation; browse/home/dashboard cards (`renderCardConversation`, exported from `browse.ts`) collapse past the first two turns behind a pure-CSS `<details>`. Cards batch-load turns in one `WHERE submission_id IN (...)` query, only for `transcript_mode != 'single'` rows.
@@ -87,9 +103,9 @@ A submission can hold an **optional multi-turn conversation** (up to `MAX_TURNS 
 
 Both `src/email.ts` and `src/discord.ts` share the same contract: **every exported function returns `Promise<void>` and never throws**. Failures log and are discarded — a failed send must not break submit or review. Both no-op when their token env var is unset.
 
-Email triggers: submission received, reviewer message, approve/reject decision, reader complaint (to staff inbox).
+Email triggers: submission received, reviewer message, decision (confirm/reject `sendDecision`; reproduce/fail go out as `sendReviewerMessage`), reader complaint (to staff inbox).
 
-Discord triggers: new submission enters queue → staff channel; entry published → public channel; complaint filed → staff channel. `src/discord-gateway.ts` opens a gateway WebSocket with `intents: 0` solely to keep the bot showing as online; it heartbeats and reconnects silently.
+Discord triggers: new submission enters queue → staff channel; entry reaches `reviewed` (becomes publicly listed) → public channel (`notifyPublished`, linked by slug since there's no A-number yet); complaint filed → staff channel. `src/discord-gateway.ts` opens a gateway WebSocket with `intents: 0` solely to keep the bot showing as online; it heartbeats and reconnects silently.
 
 ## Deploy
 

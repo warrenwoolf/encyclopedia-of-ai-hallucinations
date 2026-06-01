@@ -323,12 +323,14 @@ export async function postNewEntry(req: Request, ctx: RouteContext): Promise<Res
     eahNumber = await transaction(async (tx) => {
       const n = await allocateEahNumber(tx);
       const ins = await tx.execute(
+        // Direct-add entries are canonical from the start: reviewed + reproduced,
+        // with an A-number allocated immediately.
         `INSERT INTO submissions
           (public_id, eah_number, title, tracking_hash, prompt, output, ai_model, summary, notes,
-           shared_chat_url, category, author_name, submitted_at, status, ip_hash,
+           shared_chat_url, category, author_name, submitted_at, status, repro_status, ip_hash,
            hallucination_date, allow_author_edits, entry_status,
            reviewed_by, reviewed_at, verified_hits, verified_total)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'published', ?, ?, 0, ?, ?, NOW(), ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'reviewed', 'reproduced', ?, ?, 0, ?, ?, NOW(), ?, ?)`,
         [
           publicId,
           n,
@@ -414,7 +416,7 @@ function mayEdit(
   ctx: RouteContext,
 ): boolean {
   if (ctx.owner) return true;
-  if (row.status === "published") return false;
+  if (row.status === "reviewed") return false;
   return (
     row.owner_user_id == null ||
     row.owner_user_id === ctx.admin!.userId ||
@@ -428,8 +430,8 @@ export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Res
   if (!row) return await badRequest("No entry with that A-number.", 404);
   if (!mayEdit(row, ctx)) {
     return await badRequest(
-      row.status === "published"
-        ? "Published entries can only be edited by an owner."
+      row.status === "reviewed"
+        ? "Reviewed entries can only be edited by an owner."
         : "The submitter hasn't allowed staff to edit this submission.",
       403,
     );
@@ -480,8 +482,8 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
   if (!row) return await badRequest("No entry with that A-number.", 404);
   if (!mayEdit(row, ctx)) {
     return await badRequest(
-      row.status === "published"
-        ? "Published entries can only be edited by an owner."
+      row.status === "reviewed"
+        ? "Reviewed entries can only be edited by an owner."
         : "The submitter hasn't allowed staff to edit this submission.",
       403,
     );
@@ -587,7 +589,7 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
 
   // Published entries have a public page; drafts/pending/etc. don't, so send
   // staff back to the queue detail for those instead of a 404'ing /e/ URL.
-  const dest = row.status === "published"
+  const dest = row.status === "reviewed"
     ? `/e/${formatEahId(row.eah_number)}`
     : `/admin/queue/${row.id}`;
   return new Response(null, { status: 303, headers: { Location: dest } });
@@ -615,10 +617,10 @@ export async function postEntryStatus(req: Request, ctx: RouteContext): Promise<
   }
 
   const result = await execute(
-    "UPDATE submissions SET entry_status = ? WHERE eah_number = ? AND status = 'published'",
+    "UPDATE submissions SET entry_status = ? WHERE eah_number = ? AND status = 'reviewed'",
     [next, n],
   );
-  if (result.affectedRows === 0) return badRequest("Entry not found or not published.", 404);
+  if (result.affectedRows === 0) return badRequest("Entry not found or not a reviewed entry.", 404);
 
   return new Response(null, {
     status: 303,
@@ -643,7 +645,7 @@ export async function redirectToEntry(req: Request, ctx: RouteContext): Promise<
   // If published, go to the public entry; otherwise to admin edit.
   const row = await queryOne<{ status: string }>("SELECT status FROM submissions WHERE eah_number = ?", [n]);
   if (!row) return new Response(null, { status: 303, headers: { Location: "/admin/all" } });
-  if (row.status === "published") {
+  if (row.status === "reviewed") {
     return new Response(null, { status: 303, headers: { Location: `/e/${eahId}` } });
   }
   return new Response(null, { status: 303, headers: { Location: `/admin/entries/${eahId}/edit` } });

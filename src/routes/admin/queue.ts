@@ -28,7 +28,17 @@ interface PendingRow {
   title: string | null;
   ai_model: string | null;
   category: string;
+  status: string;
+  repro_status: string;
+  transcript_mode: string;
   submitted_at: Date;
+}
+
+/** What staff action this queue row is waiting on. */
+function stageLabel(status: string, transcriptMode: string): string {
+  if (status === "unreviewed") return "needs review";
+  if (transcriptMode === "link") return "reviewed (link — no repro)";
+  return "needs reproduction";
 }
 
 interface SubmissionFull {
@@ -51,7 +61,10 @@ interface SubmissionFull {
   anon_public: number;
   submitter_email: string | null;
   submitted_at: Date;
-  status: "pending" | "published" | "rejected" | "withdrawn";
+  status: string;
+  repro_status: string;
+  transcript_mode: string;
+  source_url: string | null;
   reviewed_by: number | null;
   reviewed_at: Date | null;
   reviewer_notes: string | null;
@@ -96,11 +109,16 @@ export async function getQueue(req: Request, ctx: RouteContext): Promise<Respons
 
   const { token: csrfToken, setCookie } = tokenForRequest(req);
 
+  // Worklist: things awaiting a staff action — unreviewed submissions (need a
+  // first-pass review) and reviewed-but-not-yet-reproduced ones (need a repro
+  // attempt). Unreviewed first, then by age.
   const rows = await query<PendingRow>(
-    `SELECT id, public_id, eah_number, title, ai_model, category, submitted_at
+    `SELECT id, public_id, eah_number, title, ai_model, category, status, repro_status,
+            transcript_mode, submitted_at
        FROM submissions
-       WHERE status = 'pending'
-       ORDER BY submitted_at ASC
+       WHERE status = 'unreviewed'
+          OR (status = 'reviewed' AND repro_status = 'pending')
+       ORDER BY (status = 'unreviewed') DESC, submitted_at ASC
        LIMIT 1000`,
   );
 
@@ -110,7 +128,8 @@ export async function getQueue(req: Request, ctx: RouteContext): Promise<Respons
         <table class="queue">
           <thead>
             <tr>
-              <th>ENAIH ID</th>
+              <th>ref</th>
+              <th>stage</th>
               <th>title</th>
               <th>model</th>
               <th>category</th>
@@ -121,7 +140,8 @@ export async function getQueue(req: Request, ctx: RouteContext): Promise<Respons
           <tbody>
             ${rows.map((r) => h`
               <tr>
-                <td><code>${formatEahId(r.eah_number)}</code></td>
+                <td><code>${formatEahId(r.eah_number) || `#${r.public_id}`}</code></td>
+                <td>${stageLabel(r.status, r.transcript_mode)}</td>
                 <td>${r.title ?? h`<em>(no title)</em>`}</td>
                 <td>${r.ai_model ?? ""}</td>
                 <td>${categoryLabel(r.category)}</td>
@@ -135,7 +155,7 @@ export async function getQueue(req: Request, ctx: RouteContext): Promise<Respons
 
   const body = h`
     ${jumpToForm}
-    <p>${rows.length} pending submission${rows.length === 1 ? "" : "s"}.
+    <p>${rows.length} submission${rows.length === 1 ? "" : "s"} awaiting action.
        <a href="/admin/entries/new">+ add a new entry directly</a>
        (bypasses the draft queue) ·
        <a href="/admin/categories">manage categories</a>.</p>
@@ -163,7 +183,8 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
 
   const row = await queryOne<SubmissionFull>(
     `SELECT id, public_id, eah_number, title, prompt, output, ai_model, summary, notes,
-            shared_chat_url, category, entry_status, hallucination_date, allow_author_edits,
+            shared_chat_url, source_url, category, entry_status, repro_status, transcript_mode,
+            hallucination_date, allow_author_edits,
             author_name, owner_user_id, anon_public, submitter_email, submitted_at, status,
             reviewed_by, reviewed_at, reviewer_notes, staff_review_message,
             verified_hits, verified_total, rejection_reason, ip_hash
@@ -205,11 +226,11 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
 
   const { token: csrfToken, setCookie: csrfSetCookie } = tokenForRequest(req);
 
-  const alreadyReviewed: SafeHtml = row.status !== "pending"
+  const alreadyReviewed: SafeHtml = row.status !== "unreviewed"
     ? h`<p class="notice">
-        This submission has already been reviewed (status <strong>${row.status}</strong>${
-          row.reviewed_at ? h` at ${fmtDate(row.reviewed_at)}` : raw("")
-        }). You may still re-review it below.
+        Current tier: <strong>${row.status}${row.status === "reviewed" ? h` / repro: ${row.repro_status}` : raw("")}</strong>${
+          row.reviewed_at ? h` (last action ${fmtDate(row.reviewed_at)})` : raw("")
+        }.
       </p>`
     : raw("");
 
@@ -274,7 +295,7 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
     </form>
   `;
 
-  const entryStatusToggle: SafeHtml = row.status === "published" && eahId
+  const entryStatusToggle: SafeHtml = row.status === "reviewed" && eahId
     ? h`
         <h3>Entry status (Active / Patched)</h3>
         <form method="post" action="/admin/entries/${eahId}/status">
@@ -289,6 +310,29 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
         </form>
       `
     : raw("");
+
+  // Action buttons depend on the current tier. Unreviewed → confirm/reject;
+  // reviewed-and-pending-repro → reproduce/fail (unless a link) /reject; decided
+  // tiers → reject only.
+  const reviewActions: SafeHtml = (() => {
+    if (row.status === "unreviewed") {
+      return h`
+        <button name="action" value="confirm" type="submit">Confirm (mark reviewed)</button>
+        <button name="action" value="reject" type="submit" class="btn-danger">Reject (delete)</button>`;
+    }
+    if (row.status === "reviewed" && row.repro_status === "pending") {
+      const repro = row.transcript_mode === "link"
+        ? h`<span class="muted">Link submission — can't be reproduced (caps at reviewed). </span>`
+        : h`<button name="action" value="reproduce" type="submit">Mark reproduced (assign A-number)</button>
+            <button name="action" value="fail" type="submit">Mark failed to reproduce</button>
+            `;
+      return h`${repro}<button name="action" value="reject" type="submit" class="btn-danger">Reject (delete)</button>`;
+    }
+    return h`<span class="muted">This entry is decided (status ${row.status}${
+      row.status === "reviewed" ? h` / ${row.repro_status}` : raw("")
+    }). </span>
+      <button name="action" value="reject" type="submit" class="btn-danger">Reject (delete)</button>`;
+  })();
 
   const reviewerNotesPrev = row.reviewer_notes ?? "";
   const rejectionReasonPrev = row.rejection_reason ?? "";
@@ -399,11 +443,16 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
         </div>`
       : raw("")}
 
-    <h3>Prompt</h3>
-    <pre class="prompt">${row.prompt}</pre>
-
-    <h3>Output</h3>
-    <pre class="output">${row.output}</pre>
+    ${row.transcript_mode === "link"
+      ? h`<h3>Source link</h3>
+          <p>${row.source_url
+            ? h`<a href="${row.source_url}" rel="nofollow noopener noreferrer">${row.source_url}</a>`
+            : h`<em>(no link)</em>`}</p>
+          <p class="muted"><small>Link submission — caps at the 'reviewed' tier (no reproduction). The submitter's description is in Summary above.</small></p>`
+      : h`<h3>Prompt</h3>
+          <pre class="prompt">${row.prompt}</pre>
+          <h3>Output</h3>
+          <pre class="output">${row.output}</pre>`}
 
     ${chatBlock}
 
@@ -441,13 +490,12 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
           <option value="" ${row.category ? raw("") : raw("selected")}>-- uncategorized --</option>
           ${CATEGORIES.map((c) => h`<option value="${c.key}" ${c.key === row.category ? raw("selected") : raw("")}>${c.label}</option>`)}
         </select>
-        <br><small class="muted">A category is required to approve. Set it right here —
+        <br><small class="muted">A category is required to confirm. Set it right here —
           no need to open the edit form or ask the submitter for edit consent.
           <a href="/admin/categories">manage categories →</a></small>
       </p>
-      <p>
-        <button name="action" value="approve" type="submit">Approve and publish</button>
-        <button name="action" value="reject" type="submit">Reject (frees A-number)</button>
+      <p class="review-actions">
+        ${reviewActions}
       </p>
     </form>
 

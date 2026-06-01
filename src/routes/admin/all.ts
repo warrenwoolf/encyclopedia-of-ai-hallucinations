@@ -13,7 +13,7 @@ import { htmlResponse, parseForm, type RouteContext } from "../types.ts";
 
 const PAGE_SIZE = 100;
 
-const VALID_STATUSES = new Set(["pending", "published", "rejected", "withdrawn"]);
+const VALID_STATUSES = new Set(["draft", "unreviewed", "reviewed", "rejected"]);
 
 interface Row {
   id: number;
@@ -86,10 +86,10 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
     <p class="filterbar">
       Filter:
       ${filterLink("all", null, status)} ·
-      ${filterLink("pending", "pending", status)} ·
-      ${filterLink("published", "published", status)} ·
-      ${filterLink("rejected", "rejected", status)} ·
-      ${filterLink("withdrawn", "withdrawn", status)}
+      ${filterLink("draft", "draft", status)} ·
+      ${filterLink("unreviewed", "unreviewed", status)} ·
+      ${filterLink("reviewed", "reviewed", status)} ·
+      ${filterLink("rejected", "rejected", status)}
     </p>
   `;
 

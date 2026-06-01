@@ -22,7 +22,7 @@ import { isSuspended } from "../auth.ts";
 import { query, queryOne, transaction } from "../db.ts";
 import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { CATEGORIES, categoryLabel, isValidCategory } from "../categories.ts";
-import { formatEahId, parseEahId, freeEahNumber } from "../eah-id.ts";
+import { formatEahId, freeEahNumber } from "../eah-id.ts";
 import { recordVersionDiffs, type TrackedValues } from "../versions.ts";
 import { notifyNewSubmission } from "../discord.ts";
 import {
@@ -31,7 +31,7 @@ import {
   readTranscriptForm, applyTurnAction, deriveLegacyPair, serializeTranscript,
 } from "../turns.ts";
 import { loadTurns, replaceTurns } from "../turns-db.ts";
-import { statusBadge, statusLabel, actionBar } from "./my-shared.ts";
+import { statusBadge, statusLabel, tierBadge, tierLabel, actionBar } from "./my-shared.ts";
 import { longField, renderCardConversation } from "./browse.ts";
 import { renderNote, type MessageRow } from "./my-discussion.ts";
 import { MAX_PENDING_PER_USER } from "./submit.ts";
@@ -54,8 +54,8 @@ const LIMITS = {
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 // Statuses shown on the dashboard, in display order (withdrawn is excluded
-// everywhere — it frees the A-number, leaving no overview page to link to).
-const DASHBOARD_STATUSES = ["draft", "pending", "published", "rejected"];
+// everywhere — it's a terminal back-to-draft transition with no overview page).
+const DASHBOARD_STATUSES = ["draft", "unreviewed", "reviewed", "rejected"];
 
 // Inline magnifier for the dashboard search box (same glyph as browse).
 const MY_SEARCH_ICON =
@@ -70,7 +70,8 @@ function escapeLike(s: string): string {
 
 interface SubmissionRow {
   id: number;
-  eah_number: number;
+  eah_number: number | null;
+  repro_status: string;
   owner_user_id: number;
   status: string;
   title: string | null;
@@ -81,6 +82,7 @@ interface SubmissionRow {
   summary: string | null;
   notes: string | null;
   shared_chat_url: string | null;
+  source_url: string | null;
   author_name: string | null;
   hallucination_date: string | null;
   entry_status: string;
@@ -120,21 +122,21 @@ function dateInputValue(value: string | Date | null | undefined): string {
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Load a submission by A-number, verifying it belongs to the given user.
- * Returns null if the A-number is invalid, the row doesn't exist, or the
- * owner doesn't match.
+ * Load a submission by its public_id slug, verifying it belongs to the given
+ * user. Owner routes address by slug because A-numbers only exist once an entry
+ * is reproduced. Returns null if the slug is blank, the row doesn't exist, or
+ * the owner doesn't match.
  */
-async function fetchOwned(eahIdStr: string, userId: number): Promise<SubmissionRow | null> {
-  const n = parseEahId(eahIdStr);
-  if (n === null) return null;
+async function fetchOwned(slug: string, userId: number): Promise<SubmissionRow | null> {
+  if (!slug) return null;
   const row = await queryOne<SubmissionRow>(
-    `SELECT id, eah_number, owner_user_id, status, title, prompt, output, ai_model,
-            category, summary, notes, shared_chat_url, author_name, hallucination_date,
+    `SELECT id, eah_number, repro_status, owner_user_id, status, title, prompt, output, ai_model,
+            category, summary, notes, shared_chat_url, source_url, author_name, hallucination_date,
             entry_status, public_id, submitted_at, anon_public, allow_author_edits,
             transcript_mode
        FROM submissions
-      WHERE eah_number = ? AND owner_user_id = ?`,
-    [n, userId],
+      WHERE public_id = ? AND owner_user_id = ?`,
+    [slug, userId],
   );
   return row ?? null;
 }
@@ -253,14 +255,14 @@ function validateEditForm(
 }
 
 function renderEditForm(opts: {
-  eahId: string;
+  slug: string;
   values: EditFormValues;
   csrf: string;
   error: string | null;
   username: string;
 }): SafeHtml {
-  const { eahId, values, csrf, error, username } = opts;
-  const action = `/my/submissions/${eahId}/edit`;
+  const { slug, values, csrf, error, username } = opts;
+  const action = `/my/submissions/${slug}/edit`;
 
   const errBlock = error
     ? h`<div class="form-error" role="alert"><strong>Error:</strong> ${error}</div>`
@@ -352,19 +354,23 @@ function renderEditForm(opts: {
  *  multi-turn transcript (empty for legacy/'single' rows — synthesized from
  *  prompt/output). */
 function renderReadOnlyInfo(row: SubmissionRow, tags: string[], turns: Turn[]): SafeHtml {
+  const isLink = normalizeMode(row.transcript_mode) === "link";
   const convoTurns = effectiveTurns(normalizeMode(row.transcript_mode), turns, row.prompt, row.output);
   return h`
     <dl class="entry-meta">
       <dt>Title</dt><dd>${row.title ?? "(none)"}</dd>
-      <dt>Status</dt><dd>${statusBadge(row.status)}</dd>
+      <dt>Status</dt><dd>${tierBadge(row.status, row.repro_status)}</dd>
       <dt>AI model</dt><dd>${row.ai_model}</dd>
       <dt>Category</dt><dd>${categoryLabel(row.category)}</dd>
       ${row.hallucination_date ? h`<dt>Date</dt><dd>${row.hallucination_date}</dd>` : raw("")}
       ${tags.length > 0 ? h`<dt>Tags</dt><dd>${tags.join(", ")}</dd>` : raw("")}
     </dl>
-    <h2>${convoTurns.length > 2 ? raw("Conversation") : raw("Prompt &amp; response")}</h2>
-    ${renderConversation(convoTurns, longField, 0)}
-    ${row.summary ? h`<h2>Summary</h2><p>${row.summary}</p>` : raw("")}
+    ${isLink
+      ? h`${row.source_url ? h`<h2>Source</h2><p><a href="${row.source_url}" rel="nofollow noopener">${row.source_url}</a></p>` : raw("")}
+          ${row.summary ? h`<h2>What's wrong</h2><p>${row.summary}</p>` : raw("")}`
+      : h`<h2>${convoTurns.length > 2 ? raw("Conversation") : raw("Prompt &amp; response")}</h2>
+          ${renderConversation(convoTurns, longField, 0)}
+          ${row.summary ? h`<h2>Summary</h2><p>${row.summary}</p>` : raw("")}`}
     ${row.notes ? h`<h2>Notes</h2><p>${row.notes}</p>` : raw("")}
   `;
 }
@@ -493,7 +499,9 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
 
   const rows = await query<{
     id: number;
-    eah_number: number;
+    eah_number: number | null;
+    repro_status: string;
+    public_id: string;
     title: string | null;
     status: string;
     ai_model: string;
@@ -503,9 +511,8 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
     transcript_mode: string;
     submitted_at: Date;
   }>(
-    // Withdrawn submissions free their A-number, so they have no working
-    // /my/submissions/:eahId links — exclude them from the list entirely.
-    `SELECT id, eah_number, title, status, ai_model, category, prompt, output, transcript_mode, submitted_at
+    `SELECT id, eah_number, repro_status, public_id, title, status, ai_model, category,
+            prompt, output, transcript_mode, submitted_at
        FROM submissions
       WHERE ${listWhere.join(" AND ")}
       ORDER BY submitted_at DESC`,
@@ -569,28 +576,23 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
   // shared action bar. Open by default to match the public browse listing.
   const items = rows.map((row) => {
     const eahId = formatEahId(row.eah_number);
+    const slug = row.public_id;
     const submittedDate = new Date(row.submitted_at).toISOString().slice(0, 10);
 
-    // The A-number links to the submission's overview page (the new general
-    // page). Rejected rows have their number freed, so they get no link.
+    // Overview is addressed by slug (every row has one). The A-number only
+    // exists once an entry is reproduced — show it when present, else a dash.
     const idCell = eahId
-      ? h`<a href="/my/submissions/${eahId}"><code>${eahId}</code></a>`
-      : h`<span class="muted">—</span>`;
+      ? h`<a href="/my/submissions/${slug}"><code>${eahId}</code></a>`
+      : h`<span class="muted">— (no A-number until reproduced)</span>`;
 
-    // Title links to the overview page (browse-card convention): clicking the
-    // title navigates, clicking elsewhere on the colored head toggles the
-    // <details>. Rejected rows have a freed A-number / no overview page, so
-    // they fall back to a plain (non-link) title.
     const titleInner = row.title ?? h`<em>(untitled)</em>`;
-    const titleEl = eahId
-      ? h`<a class="entry-card-title" href="/my/submissions/${eahId}">${titleInner}</a>`
-      : h`<span class="entry-card-title">${titleInner}</span>`;
+    const titleEl = h`<a class="entry-card-title" href="/my/submissions/${slug}">${titleInner}</a>`;
 
     return h`<li class="entry-card">
       <details open>
         <summary class="entry-card-head">
           ${titleEl}
-          <span class="entry-card-status">${statusLabel(row.status)}</span>
+          <span class="entry-card-status">${tierLabel(row.status, row.repro_status)}</span>
           <span class="entry-card-chevron" aria-hidden="true"></span>
         </summary>
         <div class="entry-card-body">
@@ -601,7 +603,7 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
             ${infoRow("Submitted", h`${submittedDate}`)}
           </dl>
           ${renderCardConversation(row, turnsByRow.get(row.id) ?? [])}
-          <div class="my-sub-actions">${actionBar(eahId, row.status, token)}</div>
+          <div class="my-sub-actions">${actionBar(slug, row.status, token, eahId)}</div>
         </div>
       </details>
     </li>`;
@@ -654,11 +656,18 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
   }
 
   const eahId = formatEahId(row.eah_number);
+  const slug = row.public_id;
+  const dispId = eahId || row.title || slug;
 
-  // Only drafts and proposed (pending) submissions are editable here. Anything
-  // else (published/rejected/withdrawn) is read-only — send it to the overview.
-  if (row.status !== "draft" && row.status !== "pending") {
-    return new Response(null, { status: 303, headers: { Location: `/my/submissions/${eahId}` } });
+  // Only drafts and unreviewed submissions are editable here. Reviewed/rejected
+  // are read-only — send them to the overview.
+  if (row.status !== "draft" && row.status !== "unreviewed") {
+    return new Response(null, { status: 303, headers: { Location: `/my/submissions/${slug}` } });
+  }
+  // The structured editor is transcript-only. Link submissions aren't editable
+  // here — to change one, delete and resubmit. Send them to the overview.
+  if (normalizeMode(row.transcript_mode) === "link") {
+    return new Response(null, { status: 303, headers: { Location: `/my/submissions/${slug}` } });
   }
 
   const { token, setCookie } = tokenForRequest(req);
@@ -708,7 +717,7 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
   const saved = ctx.url.searchParams.get("saved") === "1";
   const savedFlash = saved ? h`<div class="flash-success">Saved.</div>` : raw("");
 
-  const formHtml = renderEditForm({ eahId, values, csrf: token, error: null, username: ctx.user.username });
+  const formHtml = renderEditForm({ slug, values, csrf: token, error: null, username: ctx.user.username });
 
   const body = h`
     ${savedFlash}
@@ -717,11 +726,11 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
   `;
 
   return pageResponse(req, {
-    title: `Edit ${eahId} · ENAIH`,
-    heading: `Edit ${eahId}`,
+    title: `Edit ${dispId} · ENAIH`,
+    heading: `Edit ${dispId}`,
     body,
     user: ctx.user,
-    subnav: actionBar(eahId, row.status, token),
+    subnav: actionBar(slug, row.status, token, eahId),
   }, { setCookie });
 };
 
@@ -756,8 +765,8 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
   }
 
   const row = await fetchOwned(eahIdStr, ctx.user.userId);
-  // Drafts and proposed (pending) submissions are both editable.
-  if (!row || (row.status !== "draft" && row.status !== "pending")) {
+  // Drafts and unreviewed submissions are both editable.
+  if (!row || (row.status !== "draft" && row.status !== "unreviewed")) {
     return pageResponse(req, {
       title: "Not found · ENAIH",
       heading: "Not found",
@@ -766,6 +775,13 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
     }, { status: 404 });
   }
 
+  const slug = row.public_id;
+  // Link submissions aren't editable via the transcript editor (see myEditGet).
+  if (normalizeMode(row.transcript_mode) === "link") {
+    return new Response(null, { status: 303, headers: { Location: `/my/submissions/${slug}` } });
+  }
+  const eahId = formatEahId(row.eah_number);
+  const dispId = eahId || row.title || slug;
   const values = readEditForm(form);
 
   // No-JS fallback: "Add turn" / "Remove turn" re-render the form (no save).
@@ -773,17 +789,16 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
   const turnAction = applyTurnAction(action, values.turns);
   if (turnAction) {
     const { token, setCookie } = tokenForRequest(req);
-    const eahId = formatEahId(row.eah_number);
     const formHtml = renderEditForm({
-      eahId, values: { ...values, turns: turnAction }, csrf: token, error: null, username: ctx.user.username,
+      slug, values: { ...values, turns: turnAction }, csrf: token, error: null, username: ctx.user.username,
     });
     const body = h`<p>${statusBadge(row.status)}</p>${formHtml}`;
     return pageResponse(req, {
-      title: `Edit ${eahId} · EAH`,
-      heading: `Edit ${eahId}`,
+      title: `Edit ${dispId} · ENAIH`,
+      heading: `Edit ${dispId}`,
       body,
       user: ctx.user,
-      subnav: actionBar(eahId, row.status, token),
+      subnav: actionBar(slug, row.status, token, eahId),
     }, { setCookie });
   }
 
@@ -791,22 +806,20 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
 
   if (!v.ok) {
     const { token, setCookie } = tokenForRequest(req);
-    const eahId = formatEahId(row.eah_number);
-    const formHtml = renderEditForm({ eahId, values, csrf: token, error: v.error, username: ctx.user.username });
+    const formHtml = renderEditForm({ slug, values, csrf: token, error: v.error, username: ctx.user.username });
     const body = h`
       <p>${statusBadge(row.status)}</p>
       ${formHtml}
     `;
     return pageResponse(req, {
-      title: `Edit ${eahId} · ENAIH`,
-      heading: `Edit ${eahId}`,
+      title: `Edit ${dispId} · ENAIH`,
+      heading: `Edit ${dispId}`,
       body,
       user: ctx.user,
-      subnav: actionBar(eahId, row.status, token),
+      subnav: actionBar(slug, row.status, token, eahId),
     }, { status: 400, setCookie });
   }
 
-  const eahId = formatEahId(row.eah_number);
   const userId = ctx.user.userId;
 
   // Derive the stored shape + legacy prompt/output mirror from the validated
@@ -921,7 +934,7 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
 
   return new Response(null, {
     status: 303,
-    headers: { Location: `/my/submissions/${eahId}/edit?saved=1` },
+    headers: { Location: `/my/submissions/${slug}/edit?saved=1` },
   });
 };
 
@@ -968,25 +981,26 @@ export const myPropose: RouteHandler = async (req, ctx) => {
   if (!row || row.status !== "draft") {
     return new Response(null, { status: 404 });
   }
+  const slug = row.public_id;
 
   // Cap on submissions awaiting review (drafts are unlimited; only proposing
   // counts against the quota). Mirrors the check in submit.ts.
   const pendingRow = await queryOne<{ n: number }>(
     `SELECT COUNT(*) AS n FROM submissions
-      WHERE owner_user_id = ? AND status = 'pending'`,
+      WHERE owner_user_id = ? AND status = 'unreviewed'`,
     [ctx.user.userId],
   );
   const pending = Number(pendingRow?.n ?? 0);
   if (pending >= MAX_PENDING_PER_USER) {
-    const eahId = formatEahId(row.eah_number);
+    const dispId = row.title ?? slug;
     return pageResponse(req, {
       title: "Too many in review · ENAIH",
       heading: "Too many submissions in review",
       body: h`<p>You already have ${pending} submissions awaiting review, which is the
         maximum (${MAX_PENDING_PER_USER}). This one stays a draft for now.</p>
-        <p>To free up a slot, wait for a decision on a pending submission, or withdraw
+        <p>To free up a slot, wait for a decision on an unreviewed submission, or withdraw
         one back to a draft from your submissions page. Then you can propose this one.</p>
-        <p><a href="/my/submissions/${eahId}">Back to ${eahId}</a> ·
+        <p><a href="/my/submissions/${slug}">Back to ${dispId}</a> ·
            <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
     }, { status: 429 });
@@ -997,7 +1011,7 @@ export const myPropose: RouteHandler = async (req, ctx) => {
   try {
     await transaction(async (tx) => {
       await tx.execute(
-        "UPDATE submissions SET status = 'pending' WHERE id = ? AND owner_user_id = ? AND status = 'draft'",
+        "UPDATE submissions SET status = 'unreviewed' WHERE id = ? AND owner_user_id = ? AND status = 'draft'",
         [row.id, ctx.user!.userId],
       );
       await tx.execute(
@@ -1040,28 +1054,29 @@ export const myPropose: RouteHandler = async (req, ctx) => {
 export const myWithdrawConfirm: RouteHandler = async (req, ctx) => {
   if (!ctx.user) return new Response(null, { status: 303, headers: { Location: "/login" } });
   const row = await fetchOwned(ctx.params.eahId ?? "", ctx.user.userId);
-  if (!row || row.status !== "pending") {
+  if (!row || row.status !== "unreviewed") {
     return pageResponse(req, {
       title: "Not found · ENAIH",
       heading: "Not found",
-      body: h`<p>No proposed submission with that ID. <a href="/my/submissions">My submissions</a></p>`,
+      body: h`<p>No unreviewed submission with that ID. <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
     }, { status: 404 });
   }
-  const eahId = formatEahId(row.eah_number);
+  const slug = row.public_id;
+  const dispId = row.title ?? slug;
   const { token, setCookie } = tokenForRequest(req);
   const body = h`
-    <p>Withdraw <strong>${eahId}</strong> from review? It moves back to your drafts so you can
-    keep editing and propose it again later. The discussion with reviewers is kept.</p>
-    <form method="post" action="/my/submissions/${eahId}/withdraw">
+    <p>Withdraw <strong>${dispId}</strong> from review? It moves back to your private drafts so you
+    can keep editing and propose it again later. The discussion with reviewers is kept.</p>
+    <form method="post" action="/my/submissions/${slug}/withdraw">
       <input type="hidden" name="_csrf" value="${token}">
       <input type="hidden" name="confirm" value="1">
       <button type="submit" class="btn-secondary">Withdraw from review</button>
     </form>
-    <p><a href="/my/submissions/${eahId}">Cancel</a></p>
+    <p><a href="/my/submissions/${slug}">Cancel</a></p>
   `;
   return pageResponse(req, {
-    title: `Withdraw ${eahId} · ENAIH`, heading: `Withdraw ${eahId}`, body, user: ctx.user,
+    title: `Withdraw ${dispId} · ENAIH`, heading: `Withdraw ${dispId}`, body, user: ctx.user,
   }, { setCookie });
 };
 
@@ -1086,15 +1101,15 @@ export const myWithdraw: RouteHandler = async (req, ctx) => {
   }
 
   const row = await fetchOwned(eahIdStr, ctx.user.userId);
-  if (!row || row.status !== "pending") return new Response(null, { status: 404 });
+  if (!row || row.status !== "unreviewed") return new Response(null, { status: 404 });
 
-  const eahId = formatEahId(row.eah_number);
+  const slug = row.public_id;
   const username = ctx.user.username;
 
   try {
     await transaction(async (tx) => {
       await tx.execute(
-        "UPDATE submissions SET status = 'draft' WHERE id = ? AND owner_user_id = ? AND status = 'pending'",
+        "UPDATE submissions SET status = 'draft' WHERE id = ? AND owner_user_id = ? AND status = 'unreviewed'",
         [row.id, ctx.user!.userId],
       );
       await tx.execute(
@@ -1111,7 +1126,7 @@ export const myWithdraw: RouteHandler = async (req, ctx) => {
     }, { status: 500 });
   }
 
-  return new Response(null, { status: 303, headers: { Location: `/my/submissions/${eahId}` } });
+  return new Response(null, { status: 303, headers: { Location: `/my/submissions/${slug}` } });
 };
 
 // ─── delete (draft → gone) ───────────────────────────────────────────────────
@@ -1129,20 +1144,21 @@ export const myDeleteConfirm: RouteHandler = async (req, ctx) => {
       user: ctx.user,
     }, { status: 404 });
   }
-  const eahId = formatEahId(row.eah_number);
+  const slug = row.public_id;
+  const dispId = row.title ?? slug;
   const { token, setCookie } = tokenForRequest(req);
   const body = h`
-    <p>Delete draft <strong>${eahId}</strong> — “${row.title ?? "(untitled)"}”? This permanently
-    removes the draft, its discussion, and its edit history. This can't be undone.</p>
-    <form method="post" action="/my/submissions/${eahId}/delete">
+    <p>Delete draft <strong>${dispId}</strong>? This permanently removes the draft, its
+    discussion, and its edit history. This can't be undone.</p>
+    <form method="post" action="/my/submissions/${slug}/delete">
       <input type="hidden" name="_csrf" value="${token}">
       <input type="hidden" name="confirm" value="1">
       <button type="submit" class="btn-danger">Delete draft</button>
     </form>
-    <p><a href="/my/submissions/${eahId}">Cancel</a></p>
+    <p><a href="/my/submissions/${slug}">Cancel</a></p>
   `;
   return pageResponse(req, {
-    title: `Delete ${eahId} · ENAIH`, heading: `Delete ${eahId}`, body, user: ctx.user,
+    title: `Delete ${dispId} · ENAIH`, heading: `Delete ${dispId}`, body, user: ctx.user,
   }, { setCookie });
 };
 
@@ -1172,9 +1188,9 @@ export const myDelete: RouteHandler = async (req, ctx) => {
 
   try {
     await transaction(async (tx) => {
-      // Recycle the draft's A-number into the pool (it was never published, so
-      // reuse is fine — same policy as reject/withdraw), then hard-delete the
-      // row. Child rows (tags, messages, version diffs) cascade via FK.
+      // Drafts hold no A-number under the tiered model, so freeEahNumber is a
+      // defensive no-op here (legacy drafts that somehow carried one get it
+      // recycled). Then hard-delete; child rows cascade via FK.
       await freeEahNumber(tx, row.id);
       await tx.execute("DELETE FROM submissions WHERE id = ?", [row.id]);
     });
@@ -1209,20 +1225,22 @@ export const myHistory: RouteHandler = async (req, ctx) => {
   }
 
   const eahId = formatEahId(row.eah_number);
+  const slug = row.public_id;
+  const dispId = eahId || row.title || slug;
   const { token } = tokenForRequest(req);
   const versionRows = await loadVersions(row.id);
 
   const body = h`
-    <p><strong>${eahId}</strong> · ${statusBadge(row.status)} · ${row.title ?? "(untitled)"}</p>
+    <p><strong>${dispId}</strong> · ${tierBadge(row.status, row.repro_status)} · ${row.title ?? "(untitled)"}</p>
     ${renderHistoryBody(versionRows)}
   `;
 
   return pageResponse(req, {
-    title: `History ${eahId} · ENAIH`,
-    heading: `Edit history — ${eahId}`,
+    title: `History ${dispId} · ENAIH`,
+    heading: `Edit history — ${dispId}`,
     body,
     user: ctx.user,
-    subnav: actionBar(eahId, row.status, token),
+    subnav: actionBar(slug, row.status, token, eahId),
   });
 };
 
@@ -1249,6 +1267,8 @@ export const myView: RouteHandler = async (req, ctx) => {
   }
 
   const eahId = formatEahId(row.eah_number);
+  const slug = row.public_id;
+  const dispId = eahId || row.title || slug;
   const { token, setCookie } = tokenForRequest(req);
 
   const tagRows = await query<{ name: string }>(
@@ -1273,10 +1293,12 @@ export const myView: RouteHandler = async (req, ctx) => {
 
   const thread = messages.length > 0
     ? h`<div class="discuss-thread">${messages.map(renderNote)}</div>
-        <p><a href="/my/submissions/${eahId}/discussion">Open discussion to reply →</a></p>`
-    : h`<p class="muted">No messages yet. <a href="/my/submissions/${eahId}/discussion">Start a discussion →</a></p>`;
+        <p><a href="/my/submissions/${slug}/discussion">Open discussion to reply →</a></p>`
+    : h`<p class="muted">No messages yet. <a href="/my/submissions/${slug}/discussion">Start a discussion →</a></p>`;
 
-  const convoTurns = normalizeMode(row.transcript_mode) === "single" ? [] : await loadTurns(row.id);
+  // 'single' and 'link' rows have no submission_turns; only multi-turn shapes load them.
+  const sharedMode = normalizeMode(row.transcript_mode);
+  const convoTurns = sharedMode === "single" || sharedMode === "link" ? [] : await loadTurns(row.id);
 
   const body = h`
     ${renderReadOnlyInfo(row, tagRows.map((t) => t.name), convoTurns)}
@@ -1287,10 +1309,10 @@ export const myView: RouteHandler = async (req, ctx) => {
   `;
 
   return pageResponse(req, {
-    title: `${eahId} · ENAIH`,
-    heading: `${eahId} — ${row.title ?? "(untitled)"}`,
+    title: `${dispId} · ENAIH`,
+    heading: `${dispId} — ${row.title ?? "(untitled)"}`,
     body,
     user: ctx.user,
-    subnav: actionBar(eahId, row.status, token),
+    subnav: actionBar(slug, row.status, token, eahId),
   }, { setCookie });
 };

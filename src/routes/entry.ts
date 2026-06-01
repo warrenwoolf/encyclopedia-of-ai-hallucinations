@@ -30,8 +30,10 @@ interface SubmissionRow {
   summary: string | null;
   notes: string | null;
   shared_chat_url: string | null;
+  source_url: string | null;
   category: string;
   entry_status: "active" | "patched";
+  repro_status: string;
   hallucination_date: string | null;
   author_name: string | null;
   owner_user_id: number | null;
@@ -44,6 +46,9 @@ interface SubmissionRow {
   transcript_mode: string;
 }
 
+/** Public entry tiers (everything else — draft/rejected/withdrawn — 404s). */
+const PUBLIC_STATUSES = new Set(["unreviewed", "reviewed"]);
+
 function ymd(d: Date | string): string {
   const date = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(date.getTime())) return "";
@@ -54,7 +59,7 @@ function ymd(d: Date | string): string {
 }
 
 async function notFound(req: Request, ctx: { user: any }): Promise<Response> {
-  const body = h`<p>No entry with that ID, or it isn't published.</p>
+  const body = h`<p>No entry with that ID, or it isn't public.</p>
     <p><a href="/browse">Browse entries</a> · <a href="/">Home</a></p>`;
   return pageResponse(
     req,
@@ -71,36 +76,30 @@ export const entry: RouteHandler = async (req, ctx) => {
 
   // First try the A-number (canonical). If the param doesn't look like one,
   // fall back to the legacy public_id slug.
+  const COLS = `id, public_id, eah_number, title, prompt, output, ai_model, summary, notes,
+              shared_chat_url, source_url, category, entry_status, repro_status, hallucination_date,
+              author_name, owner_user_id, anon_public,
+              submitted_at, verified_hits, verified_total, status, transcript_mode`;
   let row: SubmissionRow | undefined;
   const eahNum = parseEahId(idParam);
   if (eahNum !== null) {
     row = await queryOne<SubmissionRow>(
-      `SELECT id, public_id, eah_number, title, prompt, output, ai_model, summary, notes,
-              shared_chat_url, category, entry_status, hallucination_date,
-              author_name, owner_user_id, anon_public,
-              submitted_at, verified_hits, verified_total, status, transcript_mode
-         FROM submissions
-         WHERE eah_number = ?`,
+      `SELECT ${COLS} FROM submissions WHERE eah_number = ?`,
       [eahNum],
     );
   } else {
     row = await queryOne<SubmissionRow>(
-      `SELECT id, public_id, eah_number, title, prompt, output, ai_model, summary, notes,
-              shared_chat_url, category, entry_status, hallucination_date,
-              author_name, owner_user_id, anon_public,
-              submitted_at, verified_hits, verified_total, status, transcript_mode
-         FROM submissions
-         WHERE public_id = ?`,
+      `SELECT ${COLS} FROM submissions WHERE public_id = ?`,
       [idParam],
     );
-    // 301 to the canonical A-number URL if we found it the legacy way.
-    if (row && row.status === "published" && row.eah_number !== null) {
+    // 301 to the canonical A-number URL once an entry has one (reproduced tier).
+    if (row && PUBLIC_STATUSES.has(row.status) && row.eah_number !== null) {
       const canonical = `/e/${formatEahId(row.eah_number)}`;
       return new Response(null, { status: 301, headers: { Location: canonical } });
     }
   }
 
-  if (!row || row.status !== "published") {
+  if (!row || !PUBLIC_STATUSES.has(row.status)) {
     return await notFound(req, ctx);
   }
 
@@ -128,15 +127,18 @@ export const entry: RouteHandler = async (req, ctx) => {
     [row.id],
   );
 
-  // Prev/next navigation by A-number within published entries.
-  const prevRow = await queryOne<{ eah_number: number }>(
-    `SELECT eah_number FROM submissions WHERE status='published' AND eah_number < ? ORDER BY eah_number DESC LIMIT 1`,
+  // Prev/next navigation within the numbered canon (reproduced entries only).
+  // Non-numbered tiers (unreviewed / reviewed-not-reproduced) aren't part of the
+  // sequence, so they get no prev/next.
+  const numbered = row.eah_number !== null;
+  const prevRow = numbered ? await queryOne<{ eah_number: number }>(
+    `SELECT eah_number FROM submissions WHERE repro_status='reproduced' AND eah_number < ? ORDER BY eah_number DESC LIMIT 1`,
     [row.eah_number],
-  );
-  const nextRow = await queryOne<{ eah_number: number }>(
-    `SELECT eah_number FROM submissions WHERE status='published' AND eah_number > ? ORDER BY eah_number ASC LIMIT 1`,
+  ) : undefined;
+  const nextRow = numbered ? await queryOne<{ eah_number: number }>(
+    `SELECT eah_number FROM submissions WHERE repro_status='reproduced' AND eah_number > ? ORDER BY eah_number ASC LIMIT 1`,
     [row.eah_number],
-  );
+  ) : undefined;
 
   const tagList = tagRows.length === 0
     ? h`<em>none</em>`
@@ -156,20 +158,49 @@ export const entry: RouteHandler = async (req, ctx) => {
       </section>`
     : raw("");
 
+  const mode = normalizeMode(row.transcript_mode);
+  const isLink = mode === "link";
   // Load the conversation. Legacy/'single' rows have no turn rows, so
   // effectiveTurns() synthesizes a [prompt, output] pair for uniform rendering.
-  const storedTurns = await loadTurns(row.id);
-  const convoTurns = effectiveTurns(
-    normalizeMode(row.transcript_mode),
-    storedTurns,
-    row.prompt,
-    row.output,
-  );
+  // 'link' rows have no conversation at all (source + summary carry the entry).
+  const storedTurns = isLink ? [] : await loadTurns(row.id);
+  const convoTurns = effectiveTurns(mode, storedTurns, row.prompt, row.output);
   // Full conversation, never collapsed at the wrapper level (each long turn
   // still clamps individually via longField).
   const conversation = renderConversation(convoTurns, longField, 0);
 
   const eahId = formatEahId(row.eah_number);
+  const slug = row.public_id;
+  // URL ref: A-number once reproduced, else the public_id slug.
+  const ref = eahId || slug;
+
+  // Source block for link / social-media submissions.
+  const sourceBlock = isLink && row.source_url
+    ? h`<section><h2>Source</h2>
+        <p><a href="${row.source_url}" rel="nofollow noopener noreferrer">${row.source_url}</a></p>
+      </section>`
+    : raw("");
+
+  // Trust-tier banner. Reproduced entries are the canon and get no banner; every
+  // lower tier carries an honest "not fully verified" note.
+  const tierBanner = (() => {
+    if (row.repro_status === "reproduced") return raw("");
+    let msg;
+    if (row.status === "unreviewed") {
+      msg = h`<strong>⚠ Unreviewed.</strong> This submission is public but hasn't
+        been checked by staff yet. Treat it with caution until it's reviewed.`;
+    } else if (row.repro_status === "failed") {
+      msg = h`<strong>⚠ Not reproduced.</strong> Staff reviewed this entry but
+        could <em>not</em> reproduce the behavior. It's kept as a reported sighting.`;
+    } else if (isLink) {
+      msg = h`<strong>Reviewed.</strong> Staff confirmed this is a genuine report.
+        Link submissions aren't eligible for staff reproduction.`;
+    } else {
+      msg = h`<strong>Reviewed, not yet reproduced.</strong> Staff confirmed this is
+        a genuine submission but haven't reproduced it themselves yet.`;
+    }
+    return h`<div class="tier-banner" role="note">${msg}</div>`;
+  })();
 
   // Patched-status banner per the spec.
   const patchedBanner = row.entry_status === "patched"
@@ -191,8 +222,9 @@ export const entry: RouteHandler = async (req, ctx) => {
 
   // Citation block: a copyable line in OEIS style.
   const submittedYmd = ymd(row.submitted_at);
-  const canonicalUrl = `${config.publicBaseUrl}/e/${eahId}`;
-  const citationText = `Encyclopedia of AI Hallucinations, entry ${eahId} (${row.title ?? row.ai_model}), submitted ${submittedYmd}. ${canonicalUrl}`;
+  const citeId = eahId || slug;
+  const canonicalUrl = `${config.publicBaseUrl}/e/${ref}`;
+  const citationText = `Encyclopedia of AI Hallucinations, entry ${citeId} (${row.title ?? row.ai_model}), submitted ${submittedYmd}. ${canonicalUrl}`;
 
   // Colored header bar carrying the title (matches the browse-listing cards).
   // The A-number, model, and category now live in the metadata grid below.
@@ -220,7 +252,7 @@ export const entry: RouteHandler = async (req, ctx) => {
   const complaintForm = h`
     <details class="entry-complaint">
       <summary>Report a problem with this entry</summary>
-      <form method="post" action="/e/${eahId}/complaint">
+      <form method="post" action="/e/${ref}/complaint">
         <input type="hidden" name="_csrf" value="${csrfToken}">
         <p>
           <label for="complaint_type">What's wrong?</label><br>
@@ -238,13 +270,25 @@ export const entry: RouteHandler = async (req, ctx) => {
     </details>
   `;
 
+  const idCell = eahId
+    ? h`<code>${eahId}</code>`
+    : h`<span class="muted">— (no A-number until reproduced)</span>`;
+
+  const conversationSection = isLink
+    ? raw("")
+    : h`<section>
+        <h2>${convoTurns.length > 2 ? raw("Conversation") : raw("Prompt &amp; response")}</h2>
+        ${conversation}
+      </section>`;
+
   const body = h`
     ${pageHeader}
     ${complaintThanks}
+    ${tierBanner}
     ${patchedBanner}
 
     <dl class="entry-meta">
-      <dt>Entry ID</dt><dd><code>${eahId}</code></dd>
+      <dt>Entry ID</dt><dd>${idCell}</dd>
       <dt>Model</dt><dd>${row.ai_model}</dd>
       <dt>Category</dt><dd>${categoryLabel(row.category)}</dd>
       <dt>Author</dt><dd>${authorDisplay}</dd>
@@ -254,10 +298,8 @@ export const entry: RouteHandler = async (req, ctx) => {
       ${verificationLine}
     </dl>
 
-    <section>
-      <h2>${convoTurns.length > 2 ? raw("Conversation") : raw("Prompt &amp; response")}</h2>
-      ${conversation}
-    </section>
+    ${sourceBlock}
+    ${conversationSection}
 
     ${sharedChatBlock}
     ${summaryBlock}
@@ -269,7 +311,7 @@ export const entry: RouteHandler = async (req, ctx) => {
       <p><a href="/browse">Browse all entries</a></p>
     </section>
 
-    <nav class="entry-nav">
+    ${numbered ? h`<nav class="entry-nav">
       ${prevRow
         ? h`<a href="/e/${formatEahId(prevRow.eah_number)}">&larr; ${formatEahId(prevRow.eah_number)}</a>`
         : h`<span class="disabled">&larr; (first)</span>`}
@@ -277,13 +319,13 @@ export const entry: RouteHandler = async (req, ctx) => {
       ${nextRow
         ? h`<a href="/e/${formatEahId(nextRow.eah_number)}">${formatEahId(nextRow.eah_number)} &rarr;</a>`
         : h`<span class="disabled">(last) &rarr;</span>`}
-    </nav>
+    </nav>` : raw("")}
 
     ${complaintForm}
   `;
 
   return pageResponse(req, {
-    title: `${eahId} · ${row.title ?? row.ai_model} · ENAIH`,
+    title: `${citeId} · ${row.title ?? row.ai_model} · ENAIH`,
     bodyClass: "text-page",
     body,
     user: ctx.user,
