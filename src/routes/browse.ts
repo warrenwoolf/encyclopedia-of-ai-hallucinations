@@ -382,14 +382,14 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   // ones as repeated params.
   const categoryNav = h`<div class="sidebar-cats count-list">
     <a href="/browse${raw(buildQs({ ...sharedQs, category: [] }))}" class="cat-link cat-reset ${categories.length === 0 ? "active" : ""}">
-      <span class="cat-name">All Categories</span><span class="cat-count">(${allCatTotal})</span>
+      <span class="cat-name">All Categories</span><span class="cat-count">( ${allCatTotal} )</span>
     </a>
     ${CATEGORIES.map((c) => {
       const checked = categorySet.has(c.key);
       const n = catCounts.get(c.key) ?? 0;
       return h`<label class="cat-link cat-check ${checked ? "active" : ""}">
         <input type="checkbox" name="category" value="${c.key}" ${checked ? raw("checked") : raw("")}>
-        <span class="cat-name">${c.label}</span><span class="cat-count">(${n})</span>
+        <span class="cat-name">${c.label}</span><span class="cat-count">( ${n} )</span>
       </label>`;
     })}
   </div>`;
@@ -406,7 +406,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     const name = active
       ? h`<strong class="cat-name">${label}</strong>`
       : h`<a class="cat-name" href="/browse${raw(buildQs({ ...sharedQs, status: s }))}">${label}</a>`;
-    return h`<div class="filter-row ${active ? "active" : ""}">${name}<span class="cat-count">(${count})</span></div>`;
+    return h`<div class="filter-row ${active ? "active" : ""}">${name}<span class="cat-count">( ${count} )</span></div>`;
   };
 
   // Pagination — spec §5l format: "← prev · showing 26–50 of 1163 entries · next →"

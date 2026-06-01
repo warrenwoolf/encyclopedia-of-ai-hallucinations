@@ -1178,16 +1178,15 @@ body.browse-page { --content-width: 100%; --main-width: 100%; }
      `nav` rule would otherwise impose. */
   text-align: left;
 }
-/* Every filter control — the "All categories" reset, the status rows, and the
-   sort options — reads as plain dark sidebar text (like the category labels),
-   NOT as a blue/purple link. Affordance comes from hover-underline; the active
-   choice is bold. This keeps the whole sidebar one consistent type treatment. */
+/* Sidebar filter links use standard link color so they read as clickable.
+   The active choice is bold + plain text color (not link-blue) to distinguish
+   "this is where you are" from "this is something you can click". */
 .sidebar-cats a,
-.sidebar-links a { text-decoration: none; color: var(--text); }
+.sidebar-links a { text-decoration: none; color: var(--link); }
 .sidebar-cats a:visited,
-.sidebar-links a:visited { color: var(--text); }
+.sidebar-links a:visited { color: var(--link); }
 .sidebar-cats a:hover,
-.sidebar-links a:hover { text-decoration: underline; color: var(--text); }
+.sidebar-links a:hover { text-decoration: underline; color: var(--link-hover); }
 .sidebar-cats a.active { font-weight: bold; color: var(--text); }
 .sidebar-links strong { color: var(--text); }
 
@@ -1231,7 +1230,7 @@ body.browse-page { --content-width: 100%; --main-width: 100%; }
   /* Tint the checkmark to the brand blue (modern browsers honor accent-color). */
   accent-color: var(--entry-head-bg);
 }
-.cat-check .cat-name { flex: 1 1 auto; }
+.cat-check .cat-name { flex: 1 1 auto; color: var(--link); }
 /* Bold + darken a category only when it's selected (its box is checked). The
    `:has()` form reflects the live checkbox state instantly — before the AJAX
    swap, and without JS at all — while `.active` (set server-side) is the
