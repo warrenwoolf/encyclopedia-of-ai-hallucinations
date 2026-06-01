@@ -3,7 +3,7 @@
  *
  * Supported query params:
  *   - category, tag, model, q   (filters)
- *   - status                    (entry_status: 'active' | 'patched')
+ *   - status                    (entry_status: multi-select 'active' | 'patched')
  *   - sort                      ('new' | 'old' | 'verified' | 'id')
  *   - page
  *
@@ -167,9 +167,10 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     `SELECT DISTINCT ai_model FROM submissions WHERE status='published' ORDER BY ai_model ASC`,
   );
 
-  const statusRaw = (sp.get("status") ?? "").trim();
-  const status: "" | "active" | "patched" =
-    statusRaw === "active" || statusRaw === "patched" ? statusRaw : "";
+  const statuses = Array.from(
+    new Set(sp.getAll("status").filter((s): s is "active" | "patched" => s === "active" || s === "patched")),
+  );
+  const statusSet = new Set(statuses);
 
   const sortRaw = (sp.get("sort") ?? "new").trim();
   const sort: SortKey =
@@ -236,6 +237,10 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     ? `s.category IN (${categories.map(() => "?").join(",")})`
     : "";
 
+  const stInClause = statuses.length
+    ? `s.entry_status IN (${statuses.map(() => "?").join(",")})`
+    : "";
+
   // Main listing where: base + the two facet filters when set.
   const where = [...base];
   const params: unknown[] = [...baseParams];
@@ -243,18 +248,18 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     where.push(catInClause);
     params.push(...categories);
   }
-  if (status) {
-    where.push("s.entry_status = ?");
-    params.push(status);
+  if (stInClause) {
+    where.push(stInClause);
+    params.push(...statuses);
   }
   const whereSql = where.join(" AND ");
 
   // Faceted category counts: base + status (category itself varies), grouped.
   const catWhere = [...base];
   const catParams: unknown[] = [...baseParams];
-  if (status) {
-    catWhere.push("s.entry_status = ?");
-    catParams.push(status);
+  if (stInClause) {
+    catWhere.push(stInClause);
+    catParams.push(...statuses);
   }
   const catCountRows = await query<{ category: string; n: number | bigint }>(
     `SELECT s.category, COUNT(DISTINCT s.id) AS n ${from} WHERE ${catWhere.join(" AND ")} GROUP BY s.category`,
@@ -344,10 +349,10 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     }
   }
 
-  const hasFilters = Boolean(categories.length || tagValid || model || q || status);
+  const hasFilters = Boolean(categories.length || tagValid || model || q || statuses.length);
 
-  // `category` is an array here, so buildQs emits one ?category= per selection.
-  const sharedQs = { category: categories, tag: tagValid, model, q, status, sort };
+  // `category` and `status` are arrays; buildQs emits one param per selection.
+  const sharedQs = { category: categories, tag: tagValid, model, q, status: statuses, sort };
 
   // Active-filter chips under the results header are *removal* controls: each is
   // a link to the same view with that one filter dropped (a category chip drops
@@ -364,7 +369,9 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   }
   if (tagValid) filterChips.push(removeChip(`tag: ${tagValid}`, buildQs({ ...sharedQs, tag: "" })));
   if (model) filterChips.push(removeChip(`model: ${model}`, buildQs({ ...sharedQs, model: "" })));
-  if (status) filterChips.push(removeChip(`status: ${status}`, buildQs({ ...sharedQs, status: "" })));
+  for (const s of statuses) {
+    filterChips.push(removeChip(`status: ${s}`, buildQs({ ...sharedQs, status: statuses.filter((x) => x !== s) })));
+  }
   if (q) filterChips.push(removeChip(`search: ${q}`, buildQs({ ...sharedQs, q: "" })));
 
   const filtersBlock = hasFilters
@@ -401,12 +408,12 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     return h`<a href="/browse${raw(qs)}">${label}</a>`;
   };
 
-  const statusRow = (s: "" | "active" | "patched", label: string, count: number) => {
-    const active = s === status;
-    const name = active
-      ? h`<strong class="cat-name">${label}</strong>`
-      : h`<a class="cat-name" href="/browse${raw(buildQs({ ...sharedQs, status: s }))}">${label}</a>`;
-    return h`<div class="filter-row ${active ? "active" : ""}">${name}<span class="cat-count">( ${count} )</span></div>`;
+  const statusCheckRow = (s: "active" | "patched", label: string, count: number) => {
+    const checked = statusSet.has(s);
+    return h`<label class="cat-link cat-check ${checked ? "active" : ""}">
+      <input type="checkbox" name="status" value="${s}" ${checked ? raw("checked") : raw("")}>
+      <span class="cat-name">${label}</span><span class="cat-count">( ${count} )</span>
+    </label>`;
   };
 
   // Pagination — spec §5l format: "← prev · showing 26–50 of 1163 entries · next →"
@@ -506,7 +513,6 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
             </select>
           </div>
           ${tagValid ? h`<input type="hidden" name="tag" value="${tagValid}">` : h``}
-          ${status ? h`<input type="hidden" name="status" value="${status}">` : h``}
           ${sort !== "new" ? h`<input type="hidden" name="sort" value="${sort}">` : h``}
           <div class="sidebar-section">
             <h3 class="sidebar-h">Categories</h3>
@@ -514,10 +520,12 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
           </div>
           <div class="sidebar-section">
             <h3 class="sidebar-h">Status</h3>
-            <div class="sidebar-links count-list">
-              ${statusRow("", "All", allStatusTotal)}
-              ${statusRow("active", "Active", statusCounts.get("active") ?? 0)}
-              ${statusRow("patched", "Patched", statusCounts.get("patched") ?? 0)}
+            <div class="sidebar-cats count-list">
+              <a href="/browse${raw(buildQs({ ...sharedQs, status: [] }))}" class="cat-link cat-reset ${statuses.length === 0 ? "active" : ""}">
+                <span class="cat-name">All Statuses</span><span class="cat-count">( ${allStatusTotal} )</span>
+              </a>
+              ${statusCheckRow("active", "Active", statusCounts.get("active") ?? 0)}
+              ${statusCheckRow("patched", "Patched", statusCounts.get("patched") ?? 0)}
             </div>
           </div>
           <div class="sidebar-section">
