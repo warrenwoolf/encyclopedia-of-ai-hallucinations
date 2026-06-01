@@ -35,7 +35,7 @@ import {
   getNewEntry, postNewEntry, getEditEntry, postEditEntry, postEntryStatus, redirectToEntry,
 } from "./routes/admin/entries.ts";
 import { getAll, getDeleteConfirm, postDelete } from "./routes/admin/all.ts";
-import { getCategories, postCategory } from "./routes/admin/categories.ts";
+import { getCategories, postCategory, getDeleteCategory, postDeleteCategory } from "./routes/admin/categories.ts";
 import { getUsers, getStaff, postUserAction } from "./routes/admin/users.ts";
 import {
   mySubmissions, myView, myEditGet, myEditPost, myPropose,
@@ -126,6 +126,8 @@ const ROUTES: RouteDef[] = [
   // Staff-managed category list (add new categories at runtime).
   route("GET", "/admin/categories", getCategories),
   route("POST", "/admin/categories", postCategory),
+  route("GET", "/admin/categories/:key/delete", getDeleteCategory),
+  route("POST", "/admin/categories/:key/delete", postDeleteCategory),
   // Owner-only permanent delete of an entry from the all-submissions view.
   // Two-step: GET confirms, POST deletes.
   route("GET", "/admin/all/:id/delete", getDeleteConfirm),

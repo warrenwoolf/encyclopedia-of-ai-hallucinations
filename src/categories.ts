@@ -14,7 +14,7 @@
  * tiny and rarely changes. A cache refreshed on writes is far cheaper than a
  * query per render, and keeps `categoryLabel`/`isValidCategory` synchronous.
  */
-import { query, execute } from "./db.ts";
+import { query, execute, transaction } from "./db.ts";
 
 export interface Category {
   key: string;
@@ -188,6 +188,36 @@ export async function addCategory(
 
   await loadCategories();
   return { ok: true, category: { key, label: trimmedLabel, description: description.trim() } };
+}
+
+/**
+ * Delete a category and reassign its submissions in one transaction.
+ * `reassignTo` must be "" (uncategorized) or a currently valid category key
+ * that is NOT the category being deleted.
+ */
+export async function deleteCategory(
+  key: string,
+  reassignTo: string,
+): Promise<{ ok: true; affected: number } | { ok: false; error: string }> {
+  if (!CATEGORY_KEYS.has(key)) return { ok: false, error: "Category not found." };
+  if (reassignTo !== "" && !CATEGORY_KEYS.has(reassignTo)) {
+    return { ok: false, error: "Reassign target is not a valid category." };
+  }
+  if (reassignTo === key) {
+    return { ok: false, error: "Cannot reassign to the same category." };
+  }
+
+  const affected = await transaction(async (tx) => {
+    const res = await tx.execute(
+      "UPDATE submissions SET category = ? WHERE category = ?",
+      [reassignTo, key],
+    );
+    await tx.execute("DELETE FROM categories WHERE `key` = ?", [key]);
+    return res.affectedRows;
+  });
+
+  await loadCategories();
+  return { ok: true, affected };
 }
 
 export function isValidCategory(key: string): boolean {
