@@ -97,6 +97,8 @@ interface EditFormValues {
   mode: TranscriptMode;
   turns: Turn[];
   block: string;
+  userDelim: string;
+  assistantDelim: string;
   ai_model: string;
   category: string;
   tags: string;
@@ -193,6 +195,8 @@ function readEditForm(form: URLSearchParams): EditFormValues {
       { role: "assistant", content: "" },
     ],
     block: scrubText(form.get("transcript_block") ?? ""),
+    userDelim: scrubText(form.get("block_user_delim") ?? "").slice(0, 80),
+    assistantDelim: scrubText(form.get("block_assistant_delim") ?? "").slice(0, 80),
     ai_model: scrub("ai_model"),
     category: scrub("category"),
     tags: scrub("tags"),
@@ -285,7 +289,7 @@ function renderEditForm(opts: {
         ${categoryOptions}
       </select>
 
-      ${renderTranscriptFields({ mode: values.mode, turns: values.turns, block: values.block })}
+      ${renderTranscriptFields({ mode: values.mode, turns: values.turns, block: values.block, userDelim: values.userDelim, assistantDelim: values.assistantDelim })}
 
       <label for="summary">Summary <small>(optional)</small></label>
       <textarea id="summary" name="summary" rows="3" maxlength="${LIMITS.summary}"
@@ -687,6 +691,8 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
     block: storedMode === "block"
       ? seedTurns.map((t) => `### ${t.role === "assistant" ? "Assistant" : "User"}\n${t.content}`).join("\n\n")
       : "",
+    userDelim: "",
+    assistantDelim: "",
     ai_model: row.ai_model,
     category: row.category,
     tags: tagRows.map((t) => t.name).join(", "),

@@ -1492,6 +1492,11 @@ details.conversation-more[open] .less { display: inline; }
 .turn-edit textarea { width: 100%; }
 .transcript-turns-actions { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
 .transcript-block textarea { width: 100%; }
+/* Optional custom delimiter overrides for the pasted-block mode. */
+.block-delims { margin-top: 10px; }
+.block-delim-row { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+.block-delim-row label { flex: 1 1 180px; font-family: var(--font-ui); font-size: 0.9em; font-weight: bold; }
+.block-delim-row input { width: 100%; box-sizing: border-box; font-family: var(--font-mono); font-weight: normal; }
 
 /* Single-column on narrow viewports: filters stack above the listing. */
 @media (max-width: 760px) {

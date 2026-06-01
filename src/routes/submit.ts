@@ -51,6 +51,8 @@ interface FormValues {
   mode: TranscriptMode;
   turns: Turn[];
   block: string;
+  userDelim: string;
+  assistantDelim: string;
   ai_model: string;
   category: string;
   tags: string;
@@ -71,6 +73,7 @@ function emptyForm(): FormValues {
       { role: "assistant", content: "" },
     ],
     block: "",
+    userDelim: "", assistantDelim: "",
     ai_model: "", category: "", tags: "",
     summary: "", notes: "", shared_chat_url: "",
     hallucination_date: "", allow_author_edits: false, anon_public: false,
@@ -120,7 +123,7 @@ function renderForm(opts: {
         ${categoryOptions}
       </select>
 
-      ${renderTranscriptFields({ mode: values.mode, turns: values.turns, block: values.block })}
+      ${renderTranscriptFields({ mode: values.mode, turns: values.turns, block: values.block, userDelim: values.userDelim, assistantDelim: values.assistantDelim })}
 
       <label for="summary">Summary <small>(optional, what's wrong about it)</small></label>
       <textarea id="summary" name="summary" rows="3" maxlength="${LIMITS.summary}"
@@ -359,6 +362,8 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     mode: rawMode,
     turns: rawTurns.length > 0 ? rawTurns : emptyForm().turns,
     block: rawBlock,
+    userDelim: scrub("block_user_delim").slice(0, 80),
+    assistantDelim: scrub("block_assistant_delim").slice(0, 80),
     ai_model: scrub("ai_model"),
     category: scrub("category"),
     tags: scrub("tags"),

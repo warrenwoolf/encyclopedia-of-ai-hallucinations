@@ -53,6 +53,40 @@ const DELIM_RE = /^[ \t]*(?:#{1,6}[ \t]*|<<[ \t]*)(user|assistant)(?:[ \t]*>>)?[
 
 export const BLOCK_DELIMITERS_HELP = "### User / ### Assistant";
 
+/** Optional submitter-supplied delimiter overrides for the pasted-block mode. */
+export interface BlockDelimiters {
+  user?: string;
+  assistant?: string;
+}
+
+/** Normalize a delimiter string for comparison: trimmed, lower-cased. */
+function normDelim(s: string | undefined): string {
+  return (s ?? "").trim().toLowerCase();
+}
+
+/**
+ * Build a per-line role matcher. The built-in `### User` / `<<ASSISTANT>>` etc.
+ * markers ALWAYS work (they're the documented standard). When the submitter
+ * supplies custom delimiters, a line that equals one of them (trimmed, case-
+ * insensitive) ALSO starts a turn of that role — additive, never replacing the
+ * defaults.
+ */
+function makeDelimMatcher(custom?: BlockDelimiters): (line: string) => TurnRole | null {
+  const u = normDelim(custom?.user);
+  const a = normDelim(custom?.assistant);
+  return (line: string): TurnRole | null => {
+    if (u || a) {
+      const t = line.trim().toLowerCase();
+      // A custom user delimiter equal to the assistant one is ambiguous; user wins.
+      if (u && t === u) return "user";
+      if (a && t === a) return "assistant";
+    }
+    const m = DELIM_RE.exec(line);
+    if (m) return m[1]!.toLowerCase() === "assistant" ? "assistant" : "user";
+    return null;
+  };
+}
+
 export function normalizeMode(s: string | null | undefined): TranscriptMode {
   return s === "turns" || s === "block" ? s : "single";
 }
@@ -63,11 +97,12 @@ export function normalizeMode(s: string | null | undefined): TranscriptMode {
  * so nothing is lost. If there are no delimiters at all, the entire block
  * becomes a single 'user' turn.
  */
-export function splitBlock(block: string): Turn[] {
+export function splitBlock(block: string, custom?: BlockDelimiters): Turn[] {
   const lines = block.split(/\r?\n/);
   const turns: Turn[] = [];
   let current: Turn | null = null;
   const preamble: string[] = [];
+  const matchDelim = makeDelimMatcher(custom);
 
   const flush = () => {
     if (current) {
@@ -78,10 +113,9 @@ export function splitBlock(block: string): Turn[] {
   };
 
   for (const line of lines) {
-    const m = DELIM_RE.exec(line);
-    if (m) {
+    const role = matchDelim(line);
+    if (role) {
       flush();
-      const role: TurnRole = m[1]!.toLowerCase() === "assistant" ? "assistant" : "user";
       current = { role, content: "" };
       continue;
     }
@@ -170,7 +204,10 @@ export function readTranscriptForm(
     if (block.length > MAX_BLOCK_LENGTH) {
       return { ok: false, error: `The pasted conversation is too long (max ${MAX_BLOCK_LENGTH} characters).` };
     }
-    const split = splitBlock(block);
+    const split = splitBlock(block, {
+      user: scrub(form.get("block_user_delim") ?? "").slice(0, 80),
+      assistant: scrub(form.get("block_assistant_delim") ?? "").slice(0, 80),
+    });
     const v = validateTurns(split);
     if (!v.ok) return v;
     return { ok: true, mode: "block", turns: v.turns };
@@ -234,8 +271,12 @@ export function renderTranscriptFields(opts: {
   mode: TranscriptMode;
   turns: Turn[];
   block: string;
+  userDelim?: string;
+  assistantDelim?: string;
 }): SafeHtml {
   const { mode, block } = opts;
+  const userDelim = opts.userDelim ?? "";
+  const assistantDelim = opts.assistantDelim ?? "";
   // Always render at least one user + one assistant box so the default (no-JS)
   // form looks like the legacy single-turn layout.
   const seed = opts.turns.length > 0
@@ -250,8 +291,8 @@ export function renderTranscriptFields(opts: {
       <div class="turn-edit-head">
         <label>Role
           <select name="turn_role">
-            <option value="user" ${t.role === "user" ? raw("selected") : raw("")}>User (prompt)</option>
-            <option value="assistant" ${t.role === "assistant" ? raw("selected") : raw("")}>Assistant (response)</option>
+            <option value="user" ${t.role === "user" ? raw("selected") : raw("")}>User</option>
+            <option value="assistant" ${t.role === "assistant" ? raw("selected") : raw("")}>AI</option>
           </select>
         </label>
         <button type="submit" name="action" value="remove_turn:${raw(String(i))}"
@@ -298,6 +339,24 @@ export function renderTranscriptFields(opts: {
         <textarea id="transcript_block" name="transcript_block" rows="14"
                   maxlength="${MAX_BLOCK_LENGTH}"
                   placeholder="### User&#10;What's 2+2?&#10;&#10;### Assistant&#10;5">${block}</textarea>
+        <div class="block-delims">
+          <p class="field-hint"><small>Pasting from a tool that uses different markers?
+            Set your own here — the standard <code>### User</code> / <code>### Assistant</code>
+            markers keep working alongside them. Match the marker lines exactly (case
+            doesn't matter).</small></p>
+          <div class="block-delim-row">
+            <label for="block_user_delim">User delimiter
+              <input type="text" id="block_user_delim" name="block_user_delim"
+                     value="${userDelim}" maxlength="80" placeholder="### User"
+                     autocomplete="off" spellcheck="false">
+            </label>
+            <label for="block_assistant_delim">AI delimiter
+              <input type="text" id="block_assistant_delim" name="block_assistant_delim"
+                     value="${assistantDelim}" maxlength="80" placeholder="### Assistant"
+                     autocomplete="off" spellcheck="false">
+            </label>
+          </div>
+        </div>
       </div>
     </fieldset>
   `;
