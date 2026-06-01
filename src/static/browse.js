@@ -68,9 +68,9 @@
     load(formUrl(form), true);
   });
 
-  // Live-apply category checkboxes and the model dropdown the moment they change.
+  // Live-apply category checkboxes, sort radios, and the model dropdown the moment they change.
   document.addEventListener("change", function (e) {
-    if (!e.target.matches('[data-browse-filters] input[type="checkbox"], [data-browse-filters] select')) return;
+    if (!e.target.matches('[data-browse-filters] input[type="checkbox"], [data-browse-filters] input[type="radio"], [data-browse-filters] select')) return;
     var form = e.target.closest("[data-browse-filters]");
     if (form) load(formUrl(form), true);
   });

@@ -1223,11 +1223,12 @@ body.browse-page { --content-width: 100%; --main-width: 100%; }
      checked ones bold (below). */
   font-weight: normal;
 }
-.cat-check input[type="checkbox"] {
+.cat-check input[type="checkbox"],
+.cat-check input[type="radio"] {
   flex: none;
   margin: 0;
   cursor: pointer;
-  /* Tint the checkmark to the brand blue (modern browsers honor accent-color). */
+  /* Tint the checkmark/dot to the brand blue (modern browsers honor accent-color). */
   accent-color: var(--entry-head-bg);
 }
 .cat-check .cat-name { flex: 1 1 auto; color: var(--link); text-decoration: underline; }

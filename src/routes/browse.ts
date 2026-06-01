@@ -401,11 +401,12 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     })}
   </div>`;
 
-  const sortLink = (key: SortKey, label: string) => {
+  const sortRadio = (key: SortKey, label: string) => {
     const active = key === sort;
-    if (active) return h`<strong>${label}</strong>`;
-    const qs = buildQs({ ...sharedQs, sort: key });
-    return h`<a href="/browse${raw(qs)}">${label}</a>`;
+    return h`<label class="cat-link cat-check ${active ? "active" : ""}">
+      <input type="radio" name="sort" value="${key}" ${active ? raw("checked") : raw("")}>
+      <span class="cat-name">${label}</span>
+    </label>`;
   };
 
   const statusCheckRow = (s: "active" | "patched", label: string, count: number) => {
@@ -513,7 +514,6 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
             </select>
           </div>
           ${tagValid ? h`<input type="hidden" name="tag" value="${tagValid}">` : h``}
-          ${sort !== "new" ? h`<input type="hidden" name="sort" value="${sort}">` : h``}
           <div class="sidebar-section">
             <h3 class="sidebar-h">Categories</h3>
             ${categoryNav}
@@ -530,11 +530,11 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
           </div>
           <div class="sidebar-section">
             <h3 class="sidebar-h">Sort</h3>
-            <div class="sidebar-links">
-              ${sortLink("new", "Newest")}
-              ${sortLink("old", "Oldest")}
-              ${sortLink("verified", "Most verified")}
-              ${sortLink("id", "By A-number")}
+            <div class="sidebar-cats">
+              ${sortRadio("new", "Newest")}
+              ${sortRadio("old", "Oldest")}
+              ${sortRadio("verified", "Most verified")}
+              ${sortRadio("id", "By A-number")}
             </div>
           </div>
         </form>
