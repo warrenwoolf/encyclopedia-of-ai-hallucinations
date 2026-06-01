@@ -139,7 +139,7 @@ start_server() {
   ( cd "$ROOT" && exec bun --env-file=.env.smoke src/server.ts ) >"$LOGFILE" 2>&1 &
   echo $! > "$PIDFILE"
   for _ in $(seq 1 30); do
-    if [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$APP_PORT/contact" 2>/dev/null)" == "200" ]]; then
+    if [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$APP_PORT/about" 2>/dev/null)" == "200" ]]; then
       say "server up"
       return 0
     fi

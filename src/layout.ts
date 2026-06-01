@@ -139,7 +139,6 @@ export function layout(opts: LayoutOptions): string {
           <a href="/submit">submit</a>
           <a href="/guide">guide</a>
           <a href="/about">about</a>
-          <a href="/contact">contact</a>
           <a href="/terms">terms</a>
         </div>
         <div class="nav-right">
@@ -168,7 +167,7 @@ export function layout(opts: LayoutOptions): string {
       ${opts.body}
     </main>
     <footer>
-      <p><a href="/about">about</a> · <a href="/guide">guide</a> · <a href="/contact">contact</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a> · <a href="/rss">rss</a></p>
+      <p><a href="/about">about</a> · <a href="/guide">guide</a> · <a href="/about#faq">faq</a> · <a href="/about#contact">contact</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a> · <a href="/rss">rss</a></p>
       <p class="muted">Founded in 2026 by Rudra Jadhav and Warren Woolf.</p>
     </footer>
   </body>

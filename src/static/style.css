@@ -1482,6 +1482,10 @@ details.conversation-more .less { display: none; }
 details.conversation-more[open] .more { display: none; }
 details.conversation-more[open] .less { display: inline; }
 
+/* FAQ list: bold questions, comfortably spaced answers. */
+.faq-list dt { font-weight: bold; margin-top: 1.1em; }
+.faq-list dd { margin: 0.3em 0 0; }
+
 /* === Submit/edit transcript fieldset === */
 .transcript-fields { border: 1px solid var(--border-light); border-radius: 6px; padding: 12px 14px; margin: 12px 0; }
 .transcript-fields legend { font-family: var(--font-ui); font-weight: bold; padding: 0 6px; }

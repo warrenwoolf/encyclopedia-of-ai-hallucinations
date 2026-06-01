@@ -1,11 +1,17 @@
 /**
- * GET /about — who we are, founders, vision, contact.
+ * GET /about — who we are, founders, vision, FAQ, and contact. The former
+ * /faq and /contact pages were folded in here to keep the site to fewer pages.
  */
-import { h, raw } from "../html.ts";
+import { h } from "../html.ts";
 import { pageResponse } from "../layout.ts";
 import { type RouteHandler } from "./types.ts";
 
+const CONTACT_EMAIL = "contact@enaih.org";
+const DISCORD_INVITE = "https://discord.gg/F7g2fqCKyN";
+
 export const about: RouteHandler = (req, ctx) => {
+    const mailto = h`<a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a>`;
+    const discord = h`<a href="${DISCORD_INVITE}" rel="noopener">our Discord server</a>`;
     const body = h`
     <h2>What is ENAIH?</h2>
     <p>The <strong>Encyclopedia of AI Hallucinations</strong> is a
@@ -41,6 +47,75 @@ export const about: RouteHandler = (req, ctx) => {
           at Stanford University.
           <a href="https://www.linkedin.com/in/warren-woolf-049828367/">LinkedIn</a></dd>
     </dl>
+
+    <h2 id="faq">Frequently asked questions</h2>
+    <p>Answers to the questions we hear most often. Still stuck? See the
+       <a href="/guide">submission guide</a> or <a href="#contact">get in touch</a>.</p>
+    <dl class="faq-list">
+      <dt>What counts as an AI hallucination — and what should I submit?</dt>
+      <dd>We use "hallucination" broadly — it covers more than just made-up
+          facts. Anything where a real, named AI system fails in a documentable
+          way is fair game: fabricated citations, confidently wrong facts or math,
+          invented code and APIs, temporal confusion, ignored instructions, and
+          misleading or overconfident answers, as well as adjacent failure modes
+          like spiraling, looping, or thrashing (the model degenerating into
+          repetition or runaway tangents). Browse the
+          <a href="/browse">categories</a> to see the full range. Whatever the
+          type, the best submissions are <strong>reproducible</strong>: include the
+          exact prompt (or full conversation), the model's response, and which AI
+          model and version produced it, so others can verify and cite it. You can
+          capture a single prompt-and-response pair or a multi-turn conversation.
+          See the <a href="/guide">submission guide</a> for the structured fields
+          reviewers look for.</dd>
+
+      <dt>Do I need an account to submit, and can my entry be anonymous?</dt>
+      <dd>Yes, submitting requires an account — it lets you track your submissions,
+          respond to reviewer messages, and edit your entries. You can sign up with
+          an email address (we send a 6-digit verification code) or with Google. If
+          you'd rather not have your name attached publicly, you can mark a
+          submission as anonymous when you submit it; your account stays private and
+          the published entry won't show who filed it.</dd>
+
+      <dt>How are submissions reviewed, and how long does it take?</dt>
+      <dd>Every submission enters a review queue where staff check that it's a
+          genuine, reproducible hallucination, assign a category, and either publish
+          or reject it. You can message reviewers from your dashboard while an entry
+          is pending, and you'll be notified of the decision. We're a small team, so
+          timing varies — there's no fixed turnaround. If an entry is rejected you'll
+          get a reason, and you can revise and resubmit. Published entries receive a
+          permanent A-number (like <code>A000042</code>) you can cite.</dd>
+    </dl>
+
+    <h2 id="contact">Contact</h2>
+    <p>Reach the maintainers at ${mailto}. One inbox covers everything below —
+       just say which it is in the subject line so we can route it quickly.</p>
+    <p>Prefer to chat? Join ${discord} to talk with the maintainers and community.</p>
+    <dl>
+      <dt><strong>Bug reports</strong></dt>
+      <dd>Something on the site is broken, looks wrong, or behaves oddly. Tell us
+          what you did, what you expected, and what happened (a screenshot and the
+          page URL help a lot).</dd>
+
+      <dt><strong>Patches &amp; corrections</strong></dt>
+      <dd>An entry is out of date — the model no longer reproduces the
+          hallucination, or a detail is wrong. Include the entry's A-number and
+          what should change.</dd>
+
+      <dt><strong>Problems with a submission</strong></dt>
+      <dd>An entry looks fabricated, miscategorized, duplicated, or otherwise
+          shouldn't be live. Send the A-number and what's wrong.</dd>
+
+      <dt><strong>Suggestions</strong></dt>
+      <dd>Ideas for features, categories, or anything that would make ENAIH more
+          useful. We read all of them.</dd>
+
+      <dt><strong>Staff applications</strong></dt>
+      <dd>Want to help review the submission queue? Tell us a bit about yourself
+          and why you'd be a good reviewer.</dd>
+    </dl>
+    <p class="muted">For submitting a hallucination, use the
+       <a href="/submit">submission form</a> instead — it captures the structured
+       fields reviewers need.</p>
 
     <h2>Source code</h2>
     <p>The site is open source:

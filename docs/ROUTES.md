@@ -5,7 +5,6 @@
 | GET | `/` | `routes/home.ts` (intro + count + CTA, then `renderBrowseBody` — home *is* browse from the search box down) |
 | GET | `/about` | `routes/about.ts` |
 | GET | `/privacy` | `routes/privacy.ts` |
-| GET | `/contact` | `routes/contact.ts` |
 | GET | `/browse` | `routes/browse.ts` (filters: category, tag, model, status, q; sort: new/old/verified/id). Categories are multi-select (`?category=a&category=b`). Sidebar shows faceted counts. `browse.js` swaps `#browse-root` without a full reload. |
 | GET | `/e/:public_id` | `routes/entry.ts` (accepts A-number OR legacy slug; legacy 301→canonical) |
 | POST | `/e/:public_id/complaint` | `routes/complaint.ts` (reader complaint; public + anon; → `/e/:id?complaint=ok`) |

@@ -25,7 +25,6 @@ import { about } from "./routes/about.ts";
 import { guide } from "./routes/guide.ts";
 import { terms } from "./routes/terms.ts";
 import { privacy } from "./routes/privacy.ts";
-import { contact } from "./routes/contact.ts";
 import { getLogin, postLogin, postLogout } from "./routes/login.ts";
 import { getSignup, postSignup } from "./routes/signup.ts";
 import { getVerify, postVerify, postVerifyResend } from "./routes/verify.ts";
@@ -75,7 +74,6 @@ const ROUTES: RouteDef[] = [
   route("GET", "/guide", guide),
   route("GET", "/terms", terms),
   route("GET", "/privacy", privacy),
-  route("GET", "/contact", contact),
   route("GET", "/browse", browse),
   route("GET", "/e/:public_id", entry),
   route("POST", "/e/:public_id/complaint", postComplaint),
