@@ -130,7 +130,7 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
                 <td>${r.reviewed_by_username ?? "—"}</td>
                 <td>
                   <a href="/admin/queue/${r.id}">view →</a>${
-                    canDelete && r.status === "published"
+                    canDelete
                       ? h` · <a class="del-link" href="/admin/all/${r.id}/delete">delete</a>`
                       : raw("")
                   }
@@ -188,7 +188,7 @@ export async function getAll(req: Request, ctx: RouteContext): Promise<Response>
   return htmlResponse(html, { setCookie });
 }
 
-// ─── owner-only delete of a published entry ──────────────────────────────────
+// ─── owner-only delete of any submission ─────────────────────────────────────
 //
 // Deleting is permanent and OWNER-only (the same trust level as deleting an
 // account). It's two-step: GET renders a confirmation page, POST with confirm=1
