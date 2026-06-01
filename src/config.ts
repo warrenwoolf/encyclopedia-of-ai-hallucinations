@@ -65,7 +65,7 @@ export const config = {
     /** Where bounces / human replies should go. */
     replyTo: optional("EMAIL_REPLY_TO", "noreply@eah.warrenwoolf.com"),
     /** Public-facing address for privacy / data-deletion requests. Shown on /privacy. */
-    privacy: optional("PRIVACY_EMAIL", "privacy@eah.warrenwoolf.com"),
+    privacy: optional("PRIVACY_EMAIL", "privacy@enaih.org"),
     /**
      * Monthly send cap. Free Resend tier is 300/month; we default to 280 to
      * leave headroom for transactional review-decision mail after we hide
@@ -77,7 +77,7 @@ export const config = {
      * to the privacy inbox — a real, monitored address — but can be pointed at
      * a dedicated contact/abuse mailbox via CONTACT_EMAIL.
      */
-    contact: optional("CONTACT_EMAIL", optional("PRIVACY_EMAIL", "privacy@eah.warrenwoolf.com")),
+    contact: optional("CONTACT_EMAIL", optional("PRIVACY_EMAIL", "privacy@enaih.org")),
   },
 
   /**
