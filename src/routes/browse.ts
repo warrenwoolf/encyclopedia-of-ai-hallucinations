@@ -382,7 +382,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   // ones as repeated params.
   const categoryNav = h`<div class="sidebar-cats count-list">
     <a href="/browse${raw(buildQs({ ...sharedQs, category: [] }))}" class="cat-link cat-reset ${categories.length === 0 ? "active" : ""}">
-      <span class="cat-name">All categories</span><span class="cat-count">(${allCatTotal})</span>
+      <span class="cat-name">All Categories</span><span class="cat-count">(${allCatTotal})</span>
     </a>
     ${CATEGORIES.map((c) => {
       const checked = categorySet.has(c.key);
@@ -494,13 +494,13 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
     <div class="browse-layout" id="browse-root">
       <aside class="browse-sidebar">
         <form action="/browse" method="get" class="filter-form" data-browse-filters>
-          <h2 class="sidebar-title">Refine Your Search</h2>
+          <h2 class="sidebar-title">Refine your search</h2>
           <div class="search-row">
             <input type="search" name="q" value="${q}" placeholder="search title, prompt, output…" maxlength="200">
             <button type="submit" class="search-go" aria-label="Search">${raw(SEARCH_ICON)}</button>
           </div>
           <div class="search-model">
-            <label for="model-filter">Custom Model:</label>
+            <label for="model-filter">Model</label>
             <select id="model-filter" name="model">
               ${modelOptions}
             </select>

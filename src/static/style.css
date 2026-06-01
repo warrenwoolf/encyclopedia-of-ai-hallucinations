@@ -269,7 +269,9 @@ header .site-header-top {
   /* Nudge left (~5px) so the glyphs sit centered under the strawberry. The
      trailing letter-spacing pushes the visual block right; this pulls it back. */
   margin-left: -0.2em;
-  font-family: var(--font-ui);
+  /* Match the title face (Georgia) so the wordmark reads as one type family,
+     not a sans caption under a serif title. Stays black via inherited --text. */
+  font-family: var(--font-body);
 }
 
 /* Full title text beside the logo block.
@@ -1130,35 +1132,40 @@ body.browse-page { --content-width: 100%; --main-width: 100%; }
   border-radius: 6px;
 }
 .search-model {
-  margin-top: 8px;
+  margin-top: 10px;
+  /* Consistent gap before the first filter section (Categories), matching the
+     rhythm between sections below. */
+  margin-bottom: 20px;
   font-size: 0.9em;
   font-family: var(--font-ui);
 }
-.search-model label { display: block; }
+.search-model label { display: block; margin-bottom: 3px; }
 
-/* Master sidebar heading ("Refine Your Search") */
+/* Master sidebar heading ("Refine your search"). Sized + bordered to match
+   .browse-title in the main column so their underlines sit at the same height
+   (both columns start at the grid top). */
 .sidebar-title {
   font-family: var(--font-ui);
-  font-size: 1.2em;
+  font-size: 1.4em;
   font-weight: bold;
   color: var(--text);
-  /* Extra bottom gap so the search box top lines up with the first entry card
-     in the main column (the main title is taller, so its content sits lower). */
-  margin: 0 0 27px;
+  margin: 0 0 14px;
 }
 
 /* Sidebar filter sections */
-.sidebar-section { margin-bottom: 18px; }
+.sidebar-section { margin-bottom: 20px; }
 .sidebar-h {
   font-family: var(--font-ui);
-  font-size: 0.8em;
+  /* Same size as the filter rows beneath it — distinguished as a header by the
+     uppercase + letter-spacing + underline, not by being smaller. */
+  font-size: 0.9em;
   font-weight: bold;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--text-muted);
   border-bottom: 1px solid var(--border);
-  padding-bottom: 3px;
-  margin: 0 0 6px;
+  padding-bottom: 4px;
+  margin: 0 0 8px;
 }
 .sidebar-cats,
 .sidebar-links {
@@ -1171,10 +1178,16 @@ body.browse-page { --content-width: 100%; --main-width: 100%; }
      `nav` rule would otherwise impose. */
   text-align: left;
 }
+/* Every filter control — the "All categories" reset, the status rows, and the
+   sort options — reads as plain dark sidebar text (like the category labels),
+   NOT as a blue/purple link. Affordance comes from hover-underline; the active
+   choice is bold. This keeps the whole sidebar one consistent type treatment. */
 .sidebar-cats a,
-.sidebar-links a { text-decoration: none; }
+.sidebar-links a { text-decoration: none; color: var(--text); }
+.sidebar-cats a:visited,
+.sidebar-links a:visited { color: var(--text); }
 .sidebar-cats a:hover,
-.sidebar-links a:hover { text-decoration: underline; }
+.sidebar-links a:hover { text-decoration: underline; color: var(--text); }
 .sidebar-cats a.active { font-weight: bold; color: var(--text); }
 .sidebar-links strong { color: var(--text); }
 
