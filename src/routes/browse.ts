@@ -598,6 +598,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
         </div>
         ${list}
         ${pagination}
+        <p class="field-hint"><small>The AI responses shown are just single samples. Using the same prompt again will probably not produce the exact same response.</small></p>
       </div>
     </div>
   `;
