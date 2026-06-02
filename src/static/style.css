@@ -1856,3 +1856,54 @@ pre.tracking-code {
   width: 100%;
   box-sizing: border-box;
 }
+
+/* === Mobile tap affordances ===
+   On phones, controls that otherwise render as bare text or a thin outline read
+   as "not tappable" under a thumb. Give those a subtle capsule fill so they look
+   like the buttons they are: the hamburger, the sidebar "Search" disclosure, the
+   "show all"/"show less" summaries, the prev/next pagers (browse + entry page),
+   and the theme/password toggles. Buttons that already carry the --accent fill
+   (submit / .btn-prominent / .btn-danger / .btn-secondary) are intentionally
+   untouched. Body page-navigation links are excluded — only the prev/next pagers,
+   which act as controls, get the treatment. Scoped ≤760px; desktop stays spare.
+   Uses existing --bg-banner / --border vars (in parity across all three theme
+   blocks), so no new theme color is introduced. */
+@media (max-width: 760px) {
+  .nav-hamburger,
+  .sidebar-title,
+  .theme-toggle,
+  #theme-toggle.theme-toggle,
+  details.longtext > summary,
+  details.conversation-more > summary,
+  .entry-complaint > summary,
+  .pw-toggle,
+  .pagination a,
+  .pagination .disabled,
+  .entry-nav a,
+  .entry-nav .disabled {
+    display: inline-block;
+    background: var(--bg-banner);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 14px;
+    line-height: 1;
+    text-decoration: none;
+  }
+
+  /* Drop the native disclosure triangle so the summary capsules read as buttons,
+     not as expandable list rows. */
+  details.longtext > summary,
+  details.conversation-more > summary,
+  .entry-complaint > summary { list-style: none; }
+  details.longtext > summary::-webkit-details-marker,
+  details.conversation-more > summary::-webkit-details-marker,
+  .entry-complaint > summary::-webkit-details-marker { display: none; }
+
+  /* The dead ends of a pager (no newer/older page) read as disabled buttons:
+     muted text in a dashed capsule rather than a solid, tappable-looking one. */
+  .pagination .disabled,
+  .entry-nav .disabled {
+    color: var(--text-muted);
+    border-style: dashed;
+  }
+}
