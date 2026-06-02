@@ -16,23 +16,29 @@ export const privacy: RouteHandler = (req, ctx) => {
 
     <h2>What we collect</h2>
 
+    <p><strong>When you create an account</strong> — submission requires an
+       account. We store a username and an email address (from the signup form or
+       from Google sign-in). Passwords are stored only as an argon2id hash, never
+       in plaintext; if you sign in with Google we store your Google account
+       identifier instead of a password. Your email address is stored in plaintext
+       so we can send the messages described under "How we use it" below; it is
+       visible only to the site owner, never shown publicly, and never to other
+       users.</p>
+
     <p><strong>On submission</strong> — when you fill out the submit form, we
        store:</p>
     <ul>
       <li><em>Required:</em> the prompt text, the model output, and the AI model
-          name.</li>
-      <li><em>Required:</em> a category and at least one tag.</li>
-      <li><em>Optional:</em> a short summary, additional notes, your name (shown
-          publicly on the entry if provided), a link to a shared chat session
-          (shown publicly if provided), and your email address.</li>
+          name (or, for a link submission, the source URL and a summary).</li>
+      <li><em>Optional:</em> a category, tags, a short summary, additional notes,
+          and a link to a shared chat session (shown publicly on the entry if
+          provided).</li>
+      <li>Whether the entry should be attributed to your username publicly or
+          posted anonymously.</li>
     </ul>
-    <p>The email address, if given, is stored in plaintext and is used only to
-       (a) send you a confirmation email immediately after submission, with a
-       link to track or withdraw it; (b) notify you when staff accept or
-       reject your submission, including any reviewer notes; and (c) email
-       you tracking links for your submissions when you request them via
-       <a href="/lookup">/lookup</a>. It is not used for any other purpose
-       and is not shown publicly.</p>
+    <p>By default your username is shown as the author of an entry you submit. If
+       you mark a submission anonymous, your username is hidden from the public
+       entry and only the site owner can see that you filed it.</p>
 
     <p><strong>Automatically:</strong> we store a salted SHA-256 hash of your
        IP address (salted with a server-side secret). We do not store your raw
@@ -42,24 +48,25 @@ export const privacy: RouteHandler = (req, ctx) => {
     <h2>How we use it</h2>
     <ul>
       <li>Submission content (prompt, output, model, category, tags, summary,
-          notes, public name, shared-chat URL) is reviewed by staff and, if
-          accepted, published on the site.</li>
-      <li>If you provided an email address, we send transactional email via
-          Resend (see "Third parties" below): a confirmation when you
-          submit, a decision email when staff review your submission, and a
-          digest of your submissions' tracking links if you request one at
-          <a href="/lookup">/lookup</a>. We do not send marketing email and
-          we do not maintain a mailing list.</li>
-      <li>The IP hash is available to admins for spam and abuse triage only.
+          notes, shared-chat URL) is published on the site. Submitting for review
+          makes an entry public immediately as <em>unreviewed</em>; staff then vet
+          it and it moves up the trust ladder (see the
+          <a href="/guide">submission guide</a>). Drafts stay private to you.</li>
+      <li>We send transactional email to your account address via Resend (see
+          "Third parties" below): a verification code when you sign up, messages
+          from reviewers about your submissions, and a notification when a
+          submission's status changes. We do not send marketing email and we do
+          not maintain a mailing list.</li>
+      <li>The IP hash is available to site staff for spam and abuse triage only.
           It is never exported or sold.</li>
     </ul>
 
     <h2>Cookies</h2>
     <p>ENAIH sets two cookies:</p>
     <ul>
-      <li><strong>eah_session</strong> — set only when an admin logs in.
-          HttpOnly, Secure, SameSite=Lax, 7-day expiry. Not set for regular
-          visitors.</li>
+      <li><strong>eah_session</strong> — set when you log in (with any account,
+          not just staff). HttpOnly, Secure, SameSite=Lax, 7-day expiry. Holds a
+          random session token; not set for logged-out visitors.</li>
       <li><strong>eah_csrf</strong> — set on pages that contain forms. It
           holds an HMAC-signed token used to prevent cross-site request
           forgery. It is not a tracker; it contains no personal information
@@ -75,9 +82,10 @@ export const privacy: RouteHandler = (req, ctx) => {
           network-level data (IP addresses, request metadata) as part of
           providing that service. See
           <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener">Cloudflare's privacy policy</a>.</li>
-      <li><strong>Resend</strong> — if you provide an email address, your
-          address and the notification email content are processed by Resend
-          as a transactional email service provider. See
+      <li><strong>Resend</strong> — your account email address and the
+          transactional email content (verification codes, reviewer messages,
+          status notifications) are processed by Resend as our transactional
+          email service provider. See
           <a href="https://resend.com/legal/privacy-policy" rel="noopener">Resend's privacy policy</a>.</li>
     </ul>
     <p>There are no other third-party services. The Content Security Policy
@@ -89,13 +97,15 @@ export const privacy: RouteHandler = (req, ctx) => {
        records.</p>
 
     <h2>Your choices</h2>
-    <p><strong>Pending submissions</strong> can be withdrawn at any time from
-       your drafts page or from the link in any email we sent you (if you
-       provided an email address).</p>
-    <p><strong>Published or rejected submissions,</strong> or requests to
-       delete a stored email address, must be handled manually. Email the
-       maintainer at the address in the "Contact" section below with the entry
-       ID or a description of your submission.</p>
+    <p><strong>Drafts</strong> are private and can be edited or deleted at any
+       time from your <a href="/my/submissions">submissions page</a>.
+       <strong>Unreviewed submissions</strong> can be withdrawn back to a draft
+       from the same page.</p>
+    <p><strong>Reviewed (publicly listed) entries,</strong> or requests to delete
+       your account and the email address attached to it, must be handled
+       manually. Email the maintainer at the address in the "Contact" section
+       below with the entry's A-number or URL, or a description of your
+       submission.</p>
 
     <h2>Contact</h2>
     <p>Privacy-related requests: <a href="mailto:${privacyEmail}">${privacyEmail}</a>.</p>
@@ -104,7 +114,7 @@ export const privacy: RouteHandler = (req, ctx) => {
     <p>If we make material changes to data practices, we will update this page.
        The date below reflects the last revision.</p>
 
-    <p class="muted">Last updated: 2026-05-20.</p>
+    <p class="muted">Last updated: 2026-06-01.</p>
   `;
   return pageResponse(req, {
     title: "Privacy · ENAIH",

@@ -19,9 +19,10 @@ export const terms: RouteHandler = (req, ctx) => {
        (spam, deliberate misinformation) will result in account suspension.</p>
 
     <h2>Accuracy</h2>
-    <p>ENAIH makes no guarantee that every published entry is reproducible in
-       current model versions. Entry status ("active" or "patched") reflects
-       community and staff reports but may lag reality. Always verify
+    <p>ENAIH makes no guarantee that every entry is reproducible in current model
+       versions. Entries carry a trust tier (unreviewed, reviewed, reproduced, or
+       failed to reproduce) and an entry status ("active" or "patched") that
+       reflect community and staff reports but may lag reality. Always verify
        independently for critical use.</p>
 
     <h2>Intellectual property</h2>

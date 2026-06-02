@@ -74,16 +74,23 @@ export const about: RouteHandler = (req, ctx) => {
           an email address (we send a 6-digit verification code) or with Google. If
           you'd rather not have your name attached publicly, you can mark a
           submission as anonymous when you submit it; your account stays private and
-          the published entry won't show who filed it.</dd>
+          the public entry won't show who filed it.</dd>
 
       <dt>How are submissions reviewed, and how long does it take?</dt>
-      <dd>Every submission enters a review queue where staff check that it's a
-          genuine, reproducible hallucination, assign a category, and either publish
-          or reject it. You can message reviewers from your dashboard while an entry
-          is pending, and you'll be notified of the decision. We're a small team, so
-          timing varies — there's no fixed turnaround. If an entry is rejected you'll
-          get a reason, and you can revise and resubmit. Published entries receive a
-          permanent A-number (like <code>A000042</code>) you can cite.</dd>
+      <dd>When you submit, your entry goes public right away as <em>unreviewed</em> —
+          reachable by its link but hidden from the default listings until staff vet
+          it. From there it climbs a trust ladder. Staff first <em>confirm</em> it's a
+          genuine, reproducible hallucination and give it a category; it then appears
+          in the normal listings as <em>reviewed</em>. Next they try to reproduce it
+          themselves: if they succeed it becomes <em>reproduced</em> — the top tier —
+          and receives a permanent A-number (like <code>A000042</code>) you can cite;
+          if they can't, it's kept as a reported sighting marked <em>failed to
+          reproduce</em>. (Link submissions stop at <em>reviewed</em>, since staff
+          can't re-run someone else's session.) You can message reviewers from your
+          dashboard at any stage, and you'll be notified when the status changes.
+          We're a small team, so timing varies — there's no fixed turnaround.
+          Submissions that aren't genuine are rejected with a reason, and you can
+          revise and resubmit.</dd>
     </dl>
 
     <h2 id="contact">Contact</h2>
@@ -98,12 +105,12 @@ export const about: RouteHandler = (req, ctx) => {
 
       <dt><strong>Patches &amp; corrections</strong></dt>
       <dd>An entry is out of date — the model no longer reproduces the
-          hallucination, or a detail is wrong. Include the entry's A-number and
-          what should change.</dd>
+          hallucination, or a detail is wrong. Include the entry's A-number (or
+          its URL, if it doesn't have one yet) and what should change.</dd>
 
       <dt><strong>Problems with a submission</strong></dt>
       <dd>An entry looks fabricated, miscategorized, duplicated, or otherwise
-          shouldn't be live. Send the A-number and what's wrong.</dd>
+          shouldn't be live. Send the A-number or entry URL and what's wrong.</dd>
 
       <dt><strong>Suggestions</strong></dt>
       <dd>Ideas for features, categories, or anything that would make ENAIH more

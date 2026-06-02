@@ -1,7 +1,9 @@
 /**
  * GET /submit — show the submission form.
- * POST /submit — validate, rate-limit, allocate the EAH number, insert as
- * `pending`, and return the submission confirmation page or draft redirect.
+ * POST /submit — validate, rate-limit, and insert as `draft` (private) or
+ * `unreviewed` (public immediately, hidden from default lists). No A-number is
+ * allocated here — that happens only when a reviewed entry is reproduced.
+ * Returns the dashboard redirect (proposed) or the draft edit page (draft).
  */
 import { randomBytes, createHash } from "node:crypto";
 import { h, raw, type SafeHtml } from "../html.ts";
@@ -39,7 +41,7 @@ type SubmissionKind = "transcript" | "link";
 
 /**
  * Drafts are unlimited. The cap is on submissions *awaiting review* (status
- * 'pending') per account, so a user can't flood the staff queue. Enforced both
+ * 'unreviewed') per account, so a user can't flood the staff queue. Enforced both
  * here (the "Submit for review" button) and in my.ts (the "propose" action).
  */
 export const MAX_PENDING_PER_USER = 5;
@@ -205,10 +207,13 @@ function renderForm(opts: {
         </label>
       </p>
 
-      <p class="field-hint"><small><strong>Submit for review</strong> sends this
-        to ENAIH staff. <strong>Save as draft</strong> just stores it privately —
-        nothing is sent to staff until you propose it for review (you can do that
-        later from <a href="/my/submissions">/my/submissions</a>).</small></p>
+      <p class="field-hint"><small><strong>Submit for review</strong> publishes
+        this entry right away: it goes live as <em>unreviewed</em> (reachable by
+        link, hidden from the default listings) and enters the staff review queue,
+        where it can climb the trust ladder toward a permanent A-number.
+        <strong>Save as draft</strong> just stores it privately — nothing is
+        published or sent to staff until you propose it later from
+        <a href="/my/submissions">/my/submissions</a>.</small></p>
 
       <div class="form-actions">
         <button type="submit" name="action" value="propose">Submit for review</button>
@@ -216,11 +221,12 @@ function renderForm(opts: {
       </div>
     </form>
 
-    <p><small>Submissions are reviewed by staff before being published. Manage
-    your drafts and chat with reviewers from
+    <p><small>Submitting for review publishes your entry immediately as
+    <em>unreviewed</em>; staff vet it afterward and it climbs the trust ladder.
+    Manage your drafts and chat with reviewers from
     <a href="/my/submissions">/my/submissions</a>. You can keep as many drafts
     as you like; you may have at most ${MAX_PENDING_PER_USER} submissions
-    awaiting review at once.</small></p>
+    in the review queue at once.</small></p>
   `;
 }
 

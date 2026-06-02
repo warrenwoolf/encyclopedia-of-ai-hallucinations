@@ -33,23 +33,40 @@ export const guide: RouteHandler = (req, ctx) => {
           Either there is a clear ground-truth fact against which the output is
           false, OR the output presents contested, subjective claims as settled
           fact.</li>
-      <li><strong>Reviewed.</strong> A human staff member checks every
-          submission before it appears publicly.</li>
     </ul>
     <p>We do not accept fabricated, dramatized, or made-up hallucinations.</p>
 
     <h2>How to submit</h2>
     <p>Go to <a href="/submit">/submit</a>. Paste the prompt, the model's
-       response, the model name, a category, and ideally a shared chat link.
-       You can submit for immediate review or save as a draft and propose later
-       from <a href="/my/submissions">/my/submissions</a>. You may have at most
-       5 submissions awaiting review at once (drafts are unlimited).</p>
+       response, the model name, optionally a category and tags, and ideally a
+       shared chat link. You can <strong>submit for review</strong> — which
+       publishes the entry immediately (see the trust ladder below) — or
+       <strong>save it as a draft</strong> and propose it later from
+       <a href="/my/submissions">/my/submissions</a>. You may have at most 5
+       submissions in the review queue at once (drafts are unlimited).</p>
 
-    <h2>How review works</h2>
-    <p>Each submission is read by a human staff reviewer. Accepted entries are
-       assigned a permanent A-number identifier (e.g. <code>A000123</code>),
-       borrowed from the OEIS numbering scheme. You can chat with the reviewer
-       in a thread attached to your submission.</p>
+    <h2>The trust ladder</h2>
+    <p>Entries don't wait in a private queue before going live — they're public
+       the moment you submit, and earn trust as staff vet them. Each rung is
+       shown as a badge on the entry:</p>
+    <ul>
+      <li><strong>Unreviewed.</strong> Public immediately, but reachable only by
+          its link — hidden from the default listings until staff confirm it.</li>
+      <li><strong>Reviewed.</strong> A human staff member has confirmed it's a
+          genuine, reproducible hallucination and assigned a category. It now
+          shows up in the normal listings.</li>
+      <li><strong>Reproduced.</strong> Staff reproduced the behavior themselves.
+          This is the canonical top tier, and only these entries receive a
+          permanent A-number (e.g. <code>A000123</code>), borrowed from the OEIS
+          numbering scheme.</li>
+      <li><strong>Failed to reproduce.</strong> Staff reviewed it but couldn't
+          reproduce the behavior; it stays as a reported sighting.</li>
+    </ul>
+    <p>Link submissions — a link to a third-party post (Reddit, X, etc.) instead
+       of a pasted transcript — cap at <strong>reviewed</strong> — staff
+       can't re-run someone else's shared session, so they're never reproduced
+       and never get an A-number. You can chat with the reviewer in a thread
+       attached to your submission at any stage.</p>
 
     <h2>Categories</h2>
     ${categoryList}
@@ -80,7 +97,7 @@ export const guide: RouteHandler = (req, ctx) => {
 
     <p><strong>How are duplicates handled?</strong><br>
        First-submitted wins. If two entries have the same prompt and output, the
-       earlier one gets published. The system also flags potential duplicates to
+       earlier one is kept. The system also flags potential duplicates to
        reviewers automatically.</p>
   `;
 
