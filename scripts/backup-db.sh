@@ -91,15 +91,51 @@ log "dump complete ($(du -h "$OUT" | cut -f1))"
 log "pruning local backups older than ${KEEP_DAYS} days"
 find "$BACKUP_DIR" -maxdepth 1 -name 'eah-*.sql.gz' -mtime "+${KEEP_DAYS}" -print -delete || true
 
-# ---- optional off-box upload (Oracle Object Storage PAR) -------------------
+offbox=0
+
+# ---- optional off-box upload #1: Oracle Object Storage PAR -----------------
 if [[ -n "$OBJECT_STORAGE_PAR" ]]; then
   [[ "$OBJECT_STORAGE_PAR" == */ ]] || die "OBJECT_STORAGE_PAR must end in '/'"
-  log "uploading to Object Storage"
+  log "uploading to Object Storage (PAR)"
   curl -fsS --upload-file "$OUT" "${OBJECT_STORAGE_PAR}$(basename "$OUT")" \
-    && log "upload ok" \
-    || die "upload failed (backup is still saved locally at $OUT)"
-else
-  log "OBJECT_STORAGE_PAR unset — local-only backup"
+    && { log "PAR upload ok"; offbox=1; } \
+    || die "PAR upload failed (local copy kept at $OUT)"
 fi
+
+# ---- optional off-box upload #2: DigitalOcean Spaces (S3) via s3cmd --------
+# Creds in their own file (host-side ops secret, not app config), like the PAR.
+# Format, one KEY=value per line, no quotes (provision with provision-spaces.sh):
+#   SPACES_REGION=sfo3
+#   SPACES_BUCKET=enaih-backups
+#   SPACES_KEY=...
+#   SPACES_SECRET=...
+# No Spaces-side rotation: dumps are tiny (~6 KB) and cold-storage charges for
+# frequent list/delete, so we just upload. Set a bucket lifecycle rule in the
+# DO panel if you want server-side expiry.
+SPACES_CREDS_FILE="${SPACES_CREDS_FILE:-$APP_DIR/.spaces}"
+if [[ -r "$SPACES_CREDS_FILE" ]]; then
+  command -v s3cmd >/dev/null || die "s3cmd not installed (apt-get install s3cmd)"
+  sget(){ grep -E "^$1=" "$SPACES_CREDS_FILE" | head -n1 | cut -d= -f2-; }
+  s_region="$(sget SPACES_REGION)"; s_bucket="$(sget SPACES_BUCKET)"
+  s_key="$(sget SPACES_KEY)"; s_secret="$(sget SPACES_SECRET)"
+  [[ -n "$s_region" && -n "$s_bucket" && -n "$s_key" && -n "$s_secret" ]] \
+    || die "$SPACES_CREDS_FILE missing a field (need SPACES_REGION/BUCKET/KEY/SECRET)"
+  S3CFG="$(mktemp)"; chmod 600 "$S3CFG"
+  trap 'rm -f "$CRED_FILE" "$S3CFG"' EXIT   # extend cleanup to the temp s3 config
+  cat > "$S3CFG" <<CFG
+[default]
+access_key = $s_key
+secret_key = $s_secret
+host_base = $s_region.digitaloceanspaces.com
+host_bucket = %(bucket)s.$s_region.digitaloceanspaces.com
+use_https = True
+CFG
+  log "uploading to Spaces (s3://$s_bucket @ $s_region)"
+  s3cmd -c "$S3CFG" put "$OUT" "s3://$s_bucket/$(basename "$OUT")" >/dev/null \
+    && { log "Spaces upload ok"; offbox=1; } \
+    || die "Spaces upload failed (local copy kept at $OUT)"
+fi
+
+[[ "$offbox" == 1 ]] || log "no off-box target configured (.backup-par / .spaces absent) — local-only backup"
 
 log "done"
