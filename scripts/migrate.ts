@@ -386,18 +386,6 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; sql: string }> = 
     column: "is_owner",
     sql: "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_owner TINYINT(1) NOT NULL DEFAULT 0",
   },
-  {
-    // Extend the moderation status enum to include 'draft'. MODIFY COLUMN is
-    // safe here — adding a new enum value does not change existing rows, and
-    // MariaDB can perform it in-place without a table rebuild.
-    //
-    // Default changes from 'pending' to 'draft': logged-in submitters now land
-    // in draft status; anonymous submitters are explicitly set to 'pending' in
-    // submit.ts, so the default is only reached for draft inserts.
-    table: "submissions",
-    column: "status_with_draft",
-    sql: "ALTER TABLE submissions MODIFY COLUMN status ENUM('draft','pending','published','rejected','withdrawn') NOT NULL DEFAULT 'draft'",
-  },
   // ── Tiered-lifecycle overhaul (iNaturalist-style trust ladder) ───────────────
   // The moderation axis becomes draft → unreviewed → reviewed (→ rejected). A
   // second orthogonal axis, repro_status, records the staff reproduction outcome
