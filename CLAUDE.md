@@ -103,6 +103,8 @@ A submission can hold an **optional multi-turn conversation** (up to `MAX_TURNS 
 
 Both `src/email.ts` and `src/discord.ts` share the same contract: **every exported function returns `Promise<void>` and never throws**. Failures log and are discarded — a failed send must not break submit or review. Both no-op when their token env var is unset.
 
+**Debugging silent send failures (e.g. "emails aren't sending"):** because failures are logged-and-discarded, nothing surfaces in the UI — diagnose via the host: `ssh enaih 'cd /root/eah && docker compose logs --tail=200 eah'` and grep for Resend/email errors. As of the DO migration `RESEND_API_KEY`, `GOOGLE_CLIENT_ID`, and `DISCORD_BOT_TOKEN` are all populated on `enaih` (re-entered by hand after `bootstrap.sh` generated a blank `.env`), so a *missing* key is NOT the cause. Most likely suspects instead: (1) the **`EMAIL_FROM` domain `eah.warrenwoolf.com` is not verified in Resend** (SPF/DKIM) — note it differs from the public site domain `enaih.org`, and its DNS now lives wherever `warrenwoolf.com` is managed; (2) the Resend key is valid but scoped to a different/unverified domain; (3) `EMAIL_MONTHLY_CAP` (280) reached. Check the From-domain verification in the Resend dashboard first.
+
 Email triggers: submission received, reviewer message, decision (confirm/reject `sendDecision`; reproduce/fail go out as `sendReviewerMessage`), reader complaint (to staff inbox).
 
 Discord triggers: new submission enters queue → staff channel; entry reaches `reviewed` (becomes publicly listed) → public channel (`notifyPublished`, linked by slug since there's no A-number yet); complaint filed → staff channel. `src/discord-gateway.ts` opens a gateway WebSocket with `intents: 0` solely to keep the bot showing as online; it heartbeats and reconnects silently.
@@ -116,6 +118,21 @@ Discord triggers: new submission enters queue → staff channel; entry reaches `
 Host is SSH alias `randy` (temporary homelab box). Don't hardcode it in source. Public URL: `https://enaih.org`. Internal identifiers stay `EAH`.
 
 **Cloudflare caches `/static/*` aggressively (4h edge TTL).** `deploy.sh` purges static assets automatically after the build. The purge token needs *Zone → Cache Purge* and *Zone Read* on `enaih.org`. Keep the URL list in `deploy.sh` in sync with `STATIC_FILES` in `src/server.ts`.
+
+`deploy.sh` takes `DEPLOY_HOST` (SSH alias, default `randy`): `DEPLOY_HOST=enaih ./deploy.sh`.
+
+## Migrating to a new host
+
+The Pi (`randy`) has been replaced by a cloud VPS — a **DigitalOcean droplet, live as SSH alias `enaih`** (`User root`, app in `/root/eah`); Oracle Ampere was blocked by A1 capacity. Deploy with `DEPLOY_HOST=enaih ./deploy.sh`. The old Pi `randy` is being decommissioned (still powered on as of the migration; its MariaDB is the only remaining copy of a few legacy entries until they're restored — don't wipe it yet). The host layer (Docker, MariaDB, cloudflared) lives **outside** compose — `bootstrap.sh` reproduces it. DO is the credit-funded stopgap (GitHub Student Pack, 1 yr); the long-term home may be a Pi 5 / owned hardware — which is why `bootstrap.sh` (portable to any Ubuntu host) is the durable artifact and `provision-do.sh` (DO-API-specific) is not.
+
+- **`.env` does not transfer between hosts** (deploy excludes it; `bootstrap.sh` generates a fresh one with blank optional-integration keys). After provisioning a new box, the Resend / Google OAuth / Discord secrets must be re-entered by hand in `<APP_DIR>/.env`. On the current `enaih` box they are already populated.
+
+- **`provision-do.sh`** (laptop-side, optional): creates/finds the droplet via the DO API, reads `$DO_API_TOKEN` (use a *scoped* token: droplet:create,droplet:read,ssh_key:read), idempotent by tag, prints the IP. Does not configure the box — hand off to `bootstrap.sh`. **DO Ubuntu images log in as `root`** (not `ubuntu` like Oracle), so the `enaih` SSH alias uses `User root` and `APP_DIR` defaults to `/root/eah`.
+
+- **Networking is cloudflared-tunnel-only.** `cloudflared` dials *out* to Cloudflare on 7844; nothing connects in. **No public IP or open ingress port is needed** — MariaDB stays on `127.0.0.1`, the `eah` container reaches it via `network_mode: host`, and cloudflared is the sole public path. Don't open security-group/firewall ingress. SSH also rides the tunnel (`ssh://localhost:22` route + Cloudflare Access); the `enaih` SSH alias uses `ProxyCommand cloudflared access ssh`. Recovery if the tunnel dies: the provider's web/serial console.
+- **`bootstrap.sh`** (run once on a fresh Ubuntu 24.04 box, arch-agnostic): installs Docker + compose, MariaDB (loopback-bound, creates the `eah` db/user on both `localhost` and `127.0.0.1`), cloudflared (systemd service via `TUNNEL_TOKEN`), and generates `~/eah/.env` with fresh `DB_PASSWORD`/`SESSION_SECRET`. Idempotent: secrets generated once, never rotated on re-run. Don't `source` the generated `.env` in bash — it's docker `env_file` format (unquoted spaces in `EMAIL_FROM` etc.); extract keys with grep instead.
+- **`rsync --delete` blast radius:** `deploy.sh` syncs into `~/eah/` with `--delete`, so anything stateful created there that isn't in git gets wiped. Excluded: `.env`, `backups`, `.backup-par`. Add new host-side state files to the `--exclude` list when you create them.
+- **Backups:** `scripts/backup-db.sh` (cron'd) dumps + gzips + rotates MariaDB locally and optionally uploads to Object Storage via a Pre-Authenticated Request URL. Like the Cloudflare purge token, the PAR is host-side **ops** config, not app config — it lives in `~/eah/.backup-par` (or `OBJECT_STORAGE_PAR_FILE`), never in `.env` (which is container config).
 
 ## Launch state (pre-launch)
 
