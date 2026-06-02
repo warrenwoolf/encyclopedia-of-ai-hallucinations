@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+# Target host: an SSH alias (see ~/.ssh/config). Defaults to the old Pi `randy`;
+# point at the Oracle box with e.g.  DEPLOY_HOST=enaih ./deploy.sh
+# That alias can route over a cloudflared tunnel (ProxyCommand cloudflared
+# access ssh), so no public IP / open SSH port is required on the host.
+DEPLOY_HOST="${DEPLOY_HOST:-randy}"
+
 # Public origin, used to build the static-asset URLs we purge from Cloudflare
 # and to derive the Cloudflare zone (last two labels of the host).
 SITE_URL="${SITE_URL:-https://enaih.org}"
@@ -17,11 +23,13 @@ CF_TOKEN_FILE="${CF_TOKEN_FILE:-$HOME/Credentials/cloudflare-ww-purge-token.txt}
 #   /static/style.css  /static/theme.js  /static/browse.js  /static/turns.js
 #   /static/google.js  /static/robots.txt  /static/logo.svg
 
+echo "deploying to ${DEPLOY_HOST}..."
 rsync -avz --delete \
   --exclude .git --exclude node_modules --exclude .env \
-  ./ randy:~/eah/
+  --exclude backups --exclude .backup-par \
+  ./ "${DEPLOY_HOST}:~/eah/"
 
-ssh randy '
+ssh "${DEPLOY_HOST}" '
     set -euo pipefail
     cd ~/eah
     docker compose up -d --build

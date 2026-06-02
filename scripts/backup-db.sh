@@ -1,0 +1,105 @@
+#!/bin/bash
+set -euo pipefail
+
+# backup-db.sh — dump the EAH MariaDB, gzip it, rotate old copies, and
+# (optionally) push to Oracle Object Storage via a Pre-Authenticated Request.
+#
+# Runs ON the host (where MariaDB lives on 127.0.0.1). Reads DB creds from
+# ~/eah/.env — no secrets on the command line, no `ps` leakage (uses a
+# temp --defaults-extra-file).
+#
+# Object Storage upload uses a PAR (Pre-Authenticated Request) URL: the
+# zero-dependency way to write to a bucket — no OCI CLI, no API keys. Create
+# one in the console (bucket → Pre-Authenticated Requests → Create, "Permit
+# object writes", scope "Bucket", expiry far out).
+#
+# The PAR is a bearer secret and host-side OPS config (the app never reads it),
+# so — like deploy.sh's Cloudflare token — it lives in its own file, NOT in
+# .env (which is app/container config). Default location: ~/eah/.backup-par.
+# Create it once:
+#   umask 077; echo 'https://objectstorage.<region>.oraclecloud.com/p/<token>/n/<ns>/b/<bucket>/o/' > ~/eah/.backup-par
+# The URL MUST end in a trailing slash (we append the filename to it).
+# If absent, the backup stays local-only — still useful, just not off-box.
+#
+# Cron example (daily 03:17 UTC, log to a file cron can mail you on error) —
+# note NO secret on the command line; the script reads the PAR file itself:
+#   17 3 * * *  /home/ubuntu/eah/scripts/backup-db.sh >> /home/ubuntu/eah/backups/backup.log 2>&1
+
+# ---- config (override via env) ---------------------------------------------
+APP_DIR="${APP_DIR:-$HOME/eah}"
+ENV_FILE="${ENV_FILE:-$APP_DIR/.env}"
+BACKUP_DIR="${BACKUP_DIR:-$APP_DIR/backups}"
+KEEP_DAYS="${KEEP_DAYS:-14}"
+# PAR lives in its own file (host-side ops secret, not app config). Env var
+# overrides the file if set, mirroring the *_FILE convention elsewhere.
+OBJECT_STORAGE_PAR="${OBJECT_STORAGE_PAR:-}"
+OBJECT_STORAGE_PAR_FILE="${OBJECT_STORAGE_PAR_FILE:-$APP_DIR/.backup-par}"
+
+log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+[[ -f "$ENV_FILE" ]] || die "no .env at $ENV_FILE"
+
+# Pull just the keys we need — the file is docker env_file format, not bash,
+# so do NOT `source` it (unquoted spaces in e.g. EMAIL_FROM break the parse).
+get_env() { grep -E "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2-; }
+DB_HOST="$(get_env DB_HOST)"; DB_HOST="${DB_HOST:-127.0.0.1}"
+DB_PORT="$(get_env DB_PORT)"; DB_PORT="${DB_PORT:-3306}"
+DB_NAME="$(get_env DB_NAME)"; DB_NAME="${DB_NAME:-eah}"
+DB_USER="$(get_env DB_USER)"; DB_USER="${DB_USER:-eah}"
+DB_PASSWORD="$(get_env DB_PASSWORD)"
+[[ -n "$DB_PASSWORD" ]] || die ".env has no DB_PASSWORD"
+
+# Resolve the PAR from its file unless an env override was given.
+if [[ -z "$OBJECT_STORAGE_PAR" && -r "$OBJECT_STORAGE_PAR_FILE" ]]; then
+  OBJECT_STORAGE_PAR="$(tr -d '[:space:]' < "$OBJECT_STORAGE_PAR_FILE")"
+fi
+
+# Prefer mariadb-dump (Ubuntu 24.04 ships this; mysqldump is a compat symlink).
+if command -v mariadb-dump >/dev/null 2>&1; then DUMP=mariadb-dump
+elif command -v mysqldump >/dev/null 2>&1; then DUMP=mysqldump
+else die "no mariadb-dump / mysqldump found"; fi
+
+mkdir -p "$BACKUP_DIR"
+
+# Credentials file instead of CLI args, so the password never shows in `ps`.
+CRED_FILE="$(mktemp)"
+trap 'rm -f "$CRED_FILE"' EXIT
+chmod 600 "$CRED_FILE"
+cat > "$CRED_FILE" <<EOF
+[client]
+host=$DB_HOST
+port=$DB_PORT
+user=$DB_USER
+password=$DB_PASSWORD
+EOF
+
+STAMP="$(date -u +%Y%m%d-%H%M%S)"
+OUT="$BACKUP_DIR/eah-${STAMP}.sql.gz"
+
+log "dumping ${DB_NAME} -> ${OUT}"
+# --single-transaction: consistent InnoDB snapshot without locking writers.
+# Dump to a .partial first; only rename on success so a failed dump can't be
+# mistaken for a good backup or uploaded.
+"$DUMP" --defaults-extra-file="$CRED_FILE" \
+  --single-transaction --quick --routines --triggers --events \
+  "$DB_NAME" | gzip > "${OUT}.partial"
+mv "${OUT}.partial" "$OUT"
+log "dump complete ($(du -h "$OUT" | cut -f1))"
+
+# ---- rotate local copies ---------------------------------------------------
+log "pruning local backups older than ${KEEP_DAYS} days"
+find "$BACKUP_DIR" -maxdepth 1 -name 'eah-*.sql.gz' -mtime "+${KEEP_DAYS}" -print -delete || true
+
+# ---- optional off-box upload (Oracle Object Storage PAR) -------------------
+if [[ -n "$OBJECT_STORAGE_PAR" ]]; then
+  [[ "$OBJECT_STORAGE_PAR" == */ ]] || die "OBJECT_STORAGE_PAR must end in '/'"
+  log "uploading to Object Storage"
+  curl -fsS --upload-file "$OUT" "${OBJECT_STORAGE_PAR}$(basename "$OUT")" \
+    && log "upload ok" \
+    || die "upload failed (backup is still saved locally at $OUT)"
+else
+  log "OBJECT_STORAGE_PAR unset — local-only backup"
+fi
+
+log "done"
