@@ -46,6 +46,12 @@
         var fresh = new DOMParser().parseFromString(html, "text/html").getElementById("browse-root");
         var current = document.getElementById("browse-root");
         if (!fresh || !current) { window.location.assign(url); return; }
+        // Preserve the mobile filter panel's open/closed state across the swap —
+        // the fresh markup always renders it collapsed, which would snap the
+        // panel shut after every category tick on a phone.
+        var wasOpen = current.querySelector("#filter-toggle");
+        var freshToggle = fresh.querySelector("#filter-toggle");
+        if (wasOpen && freshToggle) freshToggle.checked = wasOpen.checked;
         current.replaceWith(document.importNode(fresh, true));
         if (push) history.pushState({ browse: true }, "", url);
       })

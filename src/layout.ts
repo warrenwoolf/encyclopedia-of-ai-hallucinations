@@ -134,12 +134,15 @@ export function layout(opts: LayoutOptions): string {
     ${banner}
     <div class="topbar">
       <nav class="site-nav">
+        <input type="checkbox" id="nav-toggle" class="nav-toggle-input" autocomplete="off">
+        <label for="nav-toggle" class="nav-hamburger" aria-label="Toggle navigation">
+          <span class="hb-open">&#9776;</span><span class="hb-close">&#10005;</span>
+        </label>
         <div class="nav-links">
           <a href="/browse">browse</a>
           <a href="/submit">submit</a>
           <a href="/guide">guide</a>
           <a href="/about">about</a>
-          <a href="/terms">terms</a>
         </div>
         <div class="nav-right">
           <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">

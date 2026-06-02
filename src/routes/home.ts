@@ -40,6 +40,6 @@ export const home: RouteHandler = async (req, ctx) => {
     title: "Encyclopedia of AI Hallucinations",
     body,
     user: ctx.user,
-    bodyClass: "browse-page",
+    bodyClass: "browse-page home-page",
   });
 };

@@ -455,22 +455,96 @@ nav .nav-sep { color: var(--text-muted); margin-right: 4px; }
 }
 .account-dropdown a:hover { background: var(--bg); text-decoration: underline; }
 
-/* Mobile: stack the bar so each group gets its own line and the theme toggle is
-   off on its own line. The account menu drops its links inline (no hover on
-   touch) so they stay reachable. */
+/* Hamburger / pancake menu — hidden on desktop, shown on mobile. */
+/* The actual checkbox is always hidden — it's only used as CSS toggle state. */
+.nav-toggle-input { display: none !important; }
+/* Hamburger label: hidden on desktop. */
+.nav-hamburger {
+  display: none;
+  cursor: pointer;
+  padding: 6px 4px;
+  font-size: 1.3em;
+  line-height: 1;
+  color: var(--text);
+  user-select: none;
+  font-family: var(--font-ui);
+}
+/* The ✕ close icon is hidden until the menu is open. */
+.hb-close { display: none; }
+/* When the checkbox is checked (menu open), swap icons. */
+.nav-toggle-input:checked ~ .nav-hamburger .hb-open { display: none; }
+.nav-toggle-input:checked ~ .nav-hamburger .hb-close { display: inline; }
+
+/* Mobile: hamburger menu — nav content hidden by default, shown when toggled.
+   The account dropdown expands inline (no hover on touch). */
 @media (max-width: 700px) {
-  .site-nav { flex-direction: column; align-items: flex-start; gap: 6px; }
-  .site-nav .nav-right { flex-direction: column; align-items: flex-start; gap: 8px; }
-  .user-nav { flex-direction: column; align-items: flex-start; gap: 8px; }
-  .account-menu { width: 100%; }
-  .account-dropdown {
-    display: block;
+  /* Hide site header everywhere on mobile — the title is in the header band and
+     takes up too much vertical real estate on small screens. The home page is the
+     exception: it's the identity page and should keep the full title. */
+  header { display: none; }
+  body.home-page header { display: block; }
+
+  /* Stack the bar vertically so the revealed menu reads as one column (hamburger
+     on top, then links, then the theme/user area) instead of the links and the
+     user area sitting side by side. */
+  .site-nav { flex-direction: column; align-items: stretch; gap: 0; }
+
+  /* Show the hamburger toggle button, kept at the left edge. */
+  .nav-hamburger { display: inline-block; align-self: flex-start; }
+
+  /* Nav items default to hidden; the checkbox toggle reveals them. */
+  .site-nav .nav-links { display: none; }
+  .site-nav .nav-right { display: none; }
+
+  /* When hamburger is open: show nav-links vertically. */
+  .nav-toggle-input:checked ~ .nav-links {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 6px 0 8px;
+  }
+  /* When hamburger is open: show nav-right (theme + user) vertically, set off
+     from the page links above by a hairline separator. */
+  .nav-toggle-input:checked ~ .nav-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    margin-top: 4px;
+    padding: 12px 0 8px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Account dropdown expands inline (no hover on touch). The menu becomes a
+     column whose links sit flush-left with the page nav above; the "signed in
+     as" trigger is reordered to the bottom so it sits right above Log out. */
+  .user-nav { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .account-menu {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .account-trigger { order: 1; padding: 0; }
+  /* The dropdown is always expanded inline here, so the desktop hover/focus
+     toggle (which flips it to `display: block` and kills the flex `gap`,
+     collapsing the link spacing on hover) must be overridden back to flex. */
+  .account-dropdown,
+  .account-menu:hover .account-dropdown,
+  .account-menu:focus-within .account-dropdown {
+    order: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     position: static;
     border: none;
     background: transparent;
-    padding: 4px 0 0 12px;
+    padding: 0;
     min-width: 0;
   }
+  .account-dropdown a { padding: 0; }
   .account-caret { display: none; }
 }
 
@@ -1163,15 +1237,47 @@ body.browse-page { --content-width: 100%; --main-width: 100%; }
 }
 .search-model label { display: block; margin-bottom: 3px; }
 
-/* Master sidebar heading ("Refine your search"). Sized + bordered to match
-   .browse-title in the main column so their underlines sit at the same height
-   (both columns start at the grid top). */
+/* Master sidebar heading ("Search"). Sized + bordered to match .browse-title in
+   the main column so their underlines sit at the same height (both columns start
+   at the grid top).
+
+   Collapse mechanism: a checkbox-hack, NOT <details>. A closed <details> hides
+   its content via content-visibility, which `display` overrides can't defeat —
+   so forcing it open on desktop with CSS doesn't actually work (the sidebar ends
+   up unreachable on wide screens). The hidden checkbox + sibling label is fully
+   CSS-controllable: desktop ignores the checkbox and always shows the form;
+   mobile keys the form's visibility off `:checked`. */
+.filter-toggle-input { display: none; }
 .sidebar-title {
+  display: block;
   font-family: var(--font-ui);
   font-size: 1.4em;
   font-weight: bold;
   color: var(--text);
   margin: 0 0 14px;
+}
+
+/* Mobile: the heading becomes a tappable disclosure toggle and the form is
+   hidden until the checkbox is checked. Matches the single-column breakpoint. */
+@media (max-width: 760px) {
+  .sidebar-title {
+    cursor: pointer;
+    user-select: none;
+    /* Tight bottom margin when collapsed — the revealed form adds its own gap. */
+    margin-bottom: 0;
+  }
+  /* Chevron indicator: down when closed, up when open. */
+  .sidebar-title::after {
+    content: ' \25be';
+    font-size: 0.75em;
+    color: var(--text-muted);
+  }
+  .filter-toggle-input:checked ~ .sidebar-title::after { content: ' \25b4'; }
+  /* Collapsed by default; the checkbox reveals it. */
+  .filter-form { display: none; }
+  .filter-toggle-input:checked ~ .filter-form { display: block; }
+  /* Breathing room between the heading and the revealed form. */
+  .filter-toggle-input:checked ~ .sidebar-title { margin-bottom: 12px; }
 }
 
 /* Sidebar filter sections */

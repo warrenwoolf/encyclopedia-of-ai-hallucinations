@@ -541,8 +541,9 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   return h`
     <div class="browse-layout" id="browse-root">
       <aside class="browse-sidebar">
+        <input type="checkbox" id="filter-toggle" class="filter-toggle-input" autocomplete="off">
+        <label for="filter-toggle" class="sidebar-title">Search</label>
         <form action="/browse" method="get" class="filter-form" data-browse-filters>
-          <h2 class="sidebar-title">Refine your search</h2>
           <div class="search-row">
             <input type="search" name="q" value="${q}" placeholder="search title, prompt, output…" maxlength="200">
             <button type="submit" class="search-go" aria-label="Search">${raw(SEARCH_ICON)}</button>

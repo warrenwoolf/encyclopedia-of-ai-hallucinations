@@ -43,7 +43,7 @@ export const about: RouteHandler = (req, ctx) => {
           research program graduate.
           <a href="https://linkedin.com/in/rudra-jadhav-math">LinkedIn</a></dd>
       <dt><strong>Warren Woolf</strong> — Founder</dt>
-      <dd>Leads technical development and infrastructure. Incoming CS student
+      <dd>Leads technical development and infrastructure. Incoming student
           at Stanford University.
           <a href="https://www.linkedin.com/in/warren-woolf-049828367/">LinkedIn</a></dd>
     </dl>
@@ -117,10 +117,13 @@ export const about: RouteHandler = (req, ctx) => {
        <a href="/submit">submission form</a> instead — it captures the structured
        fields reviewers need.</p>
 
+    <h2>Terms and privacy</h2>
+    <p>See our <a href="/terms">terms of service</a> and <a href="/privacy">privacy policy</a>.</p>
+
     <h2>Source code</h2>
     <p>The site is open source:
        <a href="https://github.com/warrenwoolf/encyclopedia-of-ai-hallucinations">github.com/warrenwoolf/encyclopedia-of-ai-hallucinations</a>.</p>
-    <p class="muted">Initial scaffolding written by Claude (Anthropic), May 2026.</p>
+    <p class="muted">Site built primarily by Claude Opus 4.7/4.8.</p>
   `;
     return pageResponse(req, {
         title: "About · ENAIH",
