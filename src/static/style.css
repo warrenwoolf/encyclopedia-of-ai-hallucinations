@@ -351,12 +351,13 @@ nav .nav-sep { color: var(--text-muted); margin-right: 4px; }
 .topbar {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
-  /* Asymmetric top/bottom padding (0 / 8). The row is align-items:center so it's
+  /* Asymmetric top/bottom padding (8 / 8). The row is align-items:center so it's
      already geometrically centered, but system-ui (Ubuntu on the maintainers'
      Linux, and similar faces elsewhere) reserves so much space above the cap
-     height that the glyphs sit visibly low. Dropping the top padding entirely
-     lifts the row to optically center it and makes the bar ~4px shorter. */
-  padding: 0 var(--page-pad) 8px;
+     height that the glyphs sit visibly low. The top padding is kept at 8px
+     (not 0) so the bar has breathing room from the top of the viewport now
+     that the dev banner no longer provides that separation. */
+  padding: 8px var(--page-pad) 8px;
 }
 .site-nav {
   display: flex;
