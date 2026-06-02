@@ -921,6 +921,15 @@ small.field-hint,
 .status-reproduced { color: var(--status-reproduced); font-weight: bold; }
 .status-failed     { color: var(--status-failed); }
 
+/* The same tier badge also rides on the navy entry-card header (browse cards +
+   entry page), where the page-background status hues above are too dark to read.
+   Brighten them for that context only — the navy bar is the same dark blue in
+   both light and dark themes, so one set of values covers both. */
+.entry-card-head .status-reproduced { color: #6ee787; }
+.entry-card-head .status-reviewed   { color: #9ec5fe; }
+.entry-card-head .status-failed     { color: #ff9d9d; }
+.entry-card-head .status-unreviewed { color: #ffce80; }
+
 /* Entry-level (active/patched) status labels */
 .entry-status-active  { color: var(--success); font-size: 0.85em; }
 .entry-status-patched {
@@ -1743,6 +1752,31 @@ pre.tracking-code {
   nav a {
     margin-right: 0.6rem;
     font-size: 1rem;
+  }
+
+  /* In-development banner: trim it so it doesn't eat the first screen. */
+  .banner { font-size: 0.8em; padding: 7px 12px; line-height: 1.4; }
+
+  /* Entry-card header on a phone: the tier badge crowds the title and reads
+     poorly squeezed beside it. Let the title span the full first line so the
+     tier/patched badge wraps onto its own line beneath (at its natural width,
+     where the brightened colors have room), with the collapse chevron pinned to
+     the top-right. Scoped off the entry-page header, which has no chevron. */
+  .entry-card-head:not(.entry-page-head) {
+    flex-wrap: wrap;
+    position: relative;
+    padding-right: 36px;
+  }
+  .entry-card-head:not(.entry-page-head) .entry-card-headings,
+  .entry-card-head:not(.entry-page-head) > .entry-card-title { flex-basis: 100%; }
+  .entry-card-head:not(.entry-page-head) .status-badge,
+  .entry-card-head:not(.entry-page-head) .entry-card-status,
+  .entry-card-head:not(.entry-page-head) .entry-badge-patched { margin-top: 8px; }
+  .entry-card-head:not(.entry-page-head) .entry-card-chevron {
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    margin: 0;
   }
 
   table {
