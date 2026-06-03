@@ -1,9 +1,10 @@
 /**
  * GET /submit — show the submission form.
  * POST /submit — validate, rate-limit, and insert as `draft` (private) or
- * `unreviewed` (public immediately, hidden from default lists). No A-number is
- * allocated here — that happens only when a reviewed entry is reproduced.
- * Returns the dashboard redirect (proposed) or the draft edit page (draft).
+ * `unreviewed` (pending review, hidden from default lists). Proposed rows get
+ * an A-number immediately so later review/acceptance notifications can refer
+ * to the canonical ID. Returns the dashboard redirect (proposed) or the draft
+ * edit page (draft).
  */
 import { randomBytes, createHash } from "node:crypto";
 import { h, raw, type SafeHtml } from "../html.ts";
@@ -147,11 +148,11 @@ function renderForm(opts: {
                  ${values.kind === "link" ? raw("checked") : raw("")}>
           A link to a social-media post (Reddit, X, etc.) showing the failure
         </label>
-        <p class="field-hint"><small>For a <strong>link</strong> submission, fill in
+          <p class="field-hint"><small>For a <strong>link</strong> submission, fill in
           <em>Source URL</em> and <em>Summary</em> below and leave the conversation
           boxes blank. Because links rot, the Summary must quote or describe the
-          failure so the entry stands on its own. Link submissions can be reviewed
-          but are <strong>not eligible for staff reproduction</strong>.</small></p>
+            failure so the entry stands on its own. Link submissions can be reviewed
+            but are <strong>not eligible for staff acceptance</strong>.</small></p>
       </fieldset>
 
       <label for="source_url">Source URL <small>(required for a link submission)</small></label>
@@ -208,25 +209,27 @@ function renderForm(opts: {
         </label>
       </p>
 
-      <p class="field-hint"><small><strong>Publish</strong> puts this entry live
-        right away as <em>unreviewed</em> (reachable by link, hidden from the
-        default listings). Staff vet it afterward, and from there it can climb the
-        trust ladder toward a permanent A-number.
+      <p class="field-hint"><small><strong>Submit for review</strong> makes this entry
+        public right away as <em>pending review</em> — anyone with the link can see it,
+        though it's hidden from the default listings — and assigns its permanent
+        A-number. Staff vet it afterward, and from there it climbs the trust ladder
+        toward becoming <em>active</em> in the public listings.
         <strong>Save as draft</strong> just stores it privately — nothing is
-        published or sent to staff until you publish it later from
+        published or sent to staff until you submit it for review later from
         <a href="/my/submissions">/my/submissions</a>.</small></p>
 
       <div class="form-actions">
-        <button type="submit" name="action" value="propose">Publish</button>
+        <button type="submit" name="action" value="propose">Submit for review</button>
         <button type="submit" name="action" value="draft" class="btn-secondary">Save as draft</button>
       </div>
     </form>
 
-    <p><small>Publishing puts your entry live immediately as <em>unreviewed</em>;
+    <p><small>Submitting for review makes your entry public immediately as <em>pending review</em>
+    (visible to anyone with the link, just not in the default listings yet);
     staff vet it afterward and it climbs the trust ladder. Manage your drafts and
     chat with reviewers from <a href="/my/submissions">/my/submissions</a>. You can
     keep as many drafts as you like; you may have at most ${MAX_PENDING_PER_USER}
-    published submissions still awaiting their first staff review at once.</small></p>
+    submissions still awaiting their first staff review at once.</small></p>
   `;
 }
 
@@ -475,7 +478,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   if (values.ai_model.length > LIMITS.ai_model)
     return showForm(req, ctx, { values, error: `AI model name is too long (max ${LIMITS.ai_model} chars).`, status: 400 });
 
-  // Category is optional; staff assign one before publishing. But if the
+  // Category is optional; staff assign one before acceptance. But if the
   // submitter did pick something, it must be a real category.
   if (values.category && !isValidCategory(values.category))
     return showForm(req, ctx, { values, error: "Please choose a valid category, or leave it blank.", status: 400 });
@@ -509,8 +512,8 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   const tags = tagResult.tags;
 
   // Two submit buttons: "Submit for review" publishes immediately as
-  // 'unreviewed' (public, hidden from default lists); "Save as draft" keeps it
-  // private ('draft'). Anything else defaults to draft.
+  // pending review (public by direct link, hidden from default lists);
+  // "Save as draft" keeps it private ('draft'). Anything else defaults to draft.
   const wantPropose = form.get("action") === "propose";
 
   // Drafts are unlimited. Only the "Submit for review" path is capped, on the
@@ -526,10 +529,9 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     if (pending >= MAX_PENDING_PER_USER) {
       return showForm(req, ctx, {
         values,
-        error: `You already have ${pending} published submissions still awaiting ` +
-          `their first staff review, which is the maximum (${MAX_PENDING_PER_USER}). ` +
+        error: `You already have ${pending} submissions still pending review, which is the maximum (${MAX_PENDING_PER_USER}). ` +
           `You can still save this as a draft — use the “Save as draft” button below. ` +
-          `To publish it later, first wait for staff to review one of your pending ` +
+          `To submit it later, first wait for staff to review one of your pending ` +
           `submissions, or withdraw one back to a draft from your submissions page.`,
         status: 429,
       });
@@ -547,9 +549,9 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   // Submission is account-only now: every row is owned by the submitter, with
   // no submitter_email (notifications go through the account).
   const submitterEmail = null;
-  // Non-draft submissions go public immediately as 'unreviewed' (hidden from
-  // default listings, viewable by link). Proposed rows get their A-number now
-  // so the queue and outbound notifications can refer to the canonical ID.
+  // Non-draft submissions go public immediately as 'pending review' (hidden
+  // from default listings, viewable by link). Proposed rows get their A-number
+  // now so the queue and outbound notifications can refer to the canonical ID.
   const submissionStatus = wantPropose ? "unreviewed" : "draft";
   const ownerUserId = ctx.user.userId;
 
@@ -643,7 +645,6 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   }
 
   // If it went straight into the review queue, ping the staff Discord channel.
-  // No A-number yet (allocated only at reproduction), so we link by public_id.
   if (wantPropose) {
     void notifyNewSubmission({
       submissionId: newSubmissionId,

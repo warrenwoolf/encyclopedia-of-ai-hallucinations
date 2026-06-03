@@ -311,20 +311,20 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
       `
     : raw("");
 
-  // Action buttons depend on the current tier. Unreviewed → confirm/reject;
-  // reviewed-and-pending-repro → reproduce/fail (unless a link) /reject; decided
-  // tiers → reject only.
+  // Action buttons depend on the current tier. pending review → confirm/reject;
+  // pending acceptance → accept (reproduce) / fail (unless a link) / reject;
+  // decided tiers → reject only.
   const reviewActions: SafeHtml = (() => {
     if (row.status === "unreviewed") {
       return h`
-        <button name="action" value="confirm" type="submit">Confirm (mark reviewed)</button>
+        <button name="action" value="confirm" type="submit">Confirm (→ pending acceptance)</button>
         <button name="action" value="reject" type="submit" class="btn-danger">Reject (delete)</button>`;
     }
     if (row.status === "reviewed" && row.repro_status === "pending") {
       const repro = row.transcript_mode === "link"
-        ? h`<span class="muted">Link submission — can't be reproduced (caps at reviewed). </span>`
-        : h`<button name="action" value="reproduce" type="submit">Mark reproduced</button>
-            <button name="action" value="fail" type="submit">Mark failed to reproduce</button>
+        ? h`<span class="muted">Link submission — can't be reproduced (caps at pending acceptance). </span>`
+        : h`<button name="action" value="reproduce" type="submit">Accept (mark active)</button>
+            <button name="action" value="fail" type="submit">Reject (couldn't reproduce)</button>
             `;
       return h`${repro}<button name="action" value="reject" type="submit" class="btn-danger">Reject (delete)</button>`;
     }
@@ -448,7 +448,7 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
           <p>${row.source_url
             ? h`<a href="${row.source_url}" rel="nofollow noopener noreferrer">${row.source_url}</a>`
             : h`<em>(no link)</em>`}</p>
-          <p class="muted"><small>Link submission — caps at the 'reviewed' tier (no reproduction). The submitter's description is in Summary above.</small></p>`
+          <p class="muted"><small>Link submission — caps at pending acceptance (no reproduction). The submitter's description is in Summary above.</small></p>`
       : h`<h3>Prompt</h3>
           <pre class="prompt">${row.prompt}</pre>
           <h3>Output</h3>

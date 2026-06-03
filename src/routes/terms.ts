@@ -20,10 +20,10 @@ export const terms: RouteHandler = (req, ctx) => {
 
     <h2>Accuracy</h2>
     <p>ENAIH makes no guarantee that every entry is reproducible in current model
-       versions. Entries carry a trust tier (unreviewed, reviewed, reproduced, or
-       failed to reproduce) and an entry status ("active" or "patched") that
-       reflect community and staff reports but may lag reality. Always verify
-       independently for critical use.</p>
+       versions. Entries carry a trust tier (pending review, pending acceptance,
+       active, or rejected), and an active entry that a model later stops
+       producing is marked "patched". These reflect community and staff reports
+       but may lag reality. Always verify independently for critical use.</p>
 
     <h2>Intellectual property</h2>
     <p>Submitted prompts and outputs are documented for research and educational

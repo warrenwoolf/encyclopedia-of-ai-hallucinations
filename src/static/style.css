@@ -34,6 +34,9 @@
   --status-published: #006600;
   --status-rejected: #cc0000;
   --status-withdrawn: #888888;
+  --status-pending-review: #cc6600;
+  --status-pending-acceptance: #336699;
+  --status-active: #006600;
   --status-unreviewed: #cc6600;
   --status-reviewed: #336699;
   --status-reproduced: #006600;
@@ -133,6 +136,9 @@
   --status-published: #006600;
   --status-rejected: #cc0000;
   --status-withdrawn: #888888;
+  --status-pending-review: #cc6600;
+  --status-pending-acceptance: #336699;
+  --status-active: #006600;
   --status-unreviewed: #cc6600;
   --status-reviewed: #336699;
   --status-reproduced: #006600;
@@ -917,6 +923,9 @@ small.field-hint,
 .status-published { color: var(--status-published); }
 .status-rejected  { color: var(--status-rejected); }
 .status-withdrawn { color: var(--status-withdrawn); font-style: italic; }
+.status-pending-review { color: var(--status-pending-review); }
+.status-pending-acceptance { color: var(--status-pending-acceptance); }
+.status-active { color: var(--status-active); font-weight: bold; }
 .status-unreviewed { color: var(--status-unreviewed); }
 .status-reviewed   { color: var(--status-reviewed); }
 .status-reproduced { color: var(--status-reproduced); font-weight: bold; }
@@ -927,8 +936,12 @@ small.field-hint,
    Brighten them for that context only — the navy bar is the same dark blue in
    both light and dark themes, so one set of values covers both. */
 .entry-card-head .status-reproduced { color: #6ee787; }
+.entry-card-head .status-active     { color: #6ee787; }
+.entry-card-head .status-pending-acceptance { color: #9ec5fe; }
 .entry-card-head .status-reviewed   { color: #9ec5fe; }
 .entry-card-head .status-failed     { color: #ff9d9d; }
+.entry-card-head .status-rejected   { color: #ff9d9d; }
+.entry-card-head .status-pending-review { color: #ffce80; }
 .entry-card-head .status-unreviewed { color: #ffce80; }
 
 /* Entry-level (active/patched) status labels */

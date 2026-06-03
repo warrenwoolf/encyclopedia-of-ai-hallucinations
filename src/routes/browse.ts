@@ -184,14 +184,13 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   }
   const categorySet = new Set(categories);
 
-  // Opt-in: include 'unreviewed' (public but unvetted) submissions in the
-  // listing. Default off — they're hidden from the default browse but reachable
-  // by direct link and via this toggle.
-  const showUnreviewed = sp.get("unreviewed") === "1";
+  // Opt-in: include the hidden pending tiers (pending review and pending
+  // acceptance). Default off — only active entries are shown by default.
+  const showPending = sp.get("pending") === "1" || sp.get("unreviewed") === "1";
 
   // Fetch all distinct model names for the model filter dropdown.
   const allModels = await query<{ ai_model: string }>(
-    `SELECT DISTINCT ai_model FROM submissions WHERE status='reviewed' ORDER BY ai_model ASC`,
+    `SELECT DISTINCT ai_model FROM submissions WHERE status='reviewed' AND repro_status='reproduced' ORDER BY ai_model ASC`,
   );
 
   const statuses = Array.from(
@@ -212,11 +211,14 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   // applied on top per-query so the sidebar can show *faceted* counts — i.e. how
   // many entries each category / status would yield given the other active
   // filters, not a flat global tally.
-  // Moderation-visibility gate: reviewed entries always; unreviewed only when
-  // the visitor opts in. (This is the trust-tier axis, distinct from the
-  // entry_status active/patched facet handled below.)
+  // Moderation-visibility gate: active entries always; pending review and
+  // pending acceptance only when the visitor opts in. (This is the trust-tier
+  // axis, distinct from the entry_status active/patched facet handled below.)
+  const visibleClause = showPending
+    ? "(s.status = 'reviewed' AND s.repro_status = 'reproduced' OR s.status = 'unreviewed' OR (s.status = 'reviewed' AND s.repro_status = 'pending'))"
+    : "s.status = 'reviewed' AND s.repro_status = 'reproduced'";
   const base: string[] = [
-    showUnreviewed ? "s.status IN ('reviewed','unreviewed')" : "s.status = 'reviewed'",
+    visibleClause,
   ];
   const baseParams: unknown[] = [];
   let join = "";
@@ -390,7 +392,7 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
   // `unreviewed` rides along (as "1"/"") so toggling other filters preserves it.
   const sharedQs = {
     category: categories, tag: tagValid, model, q, status: statuses, sort,
-    unreviewed: showUnreviewed ? "1" : "",
+    pending: showPending ? "1" : "",
   };
 
   // Active-filter chips under the results header are *removal* controls: each is
@@ -581,12 +583,13 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
           <div class="sidebar-section">
             <h3 class="sidebar-h">Trust tier</h3>
             <label class="checkbox-label sidebar-toggle">
-              <input type="checkbox" name="unreviewed" value="1"
-                     ${showUnreviewed ? raw("checked") : raw("")}>
-              Include unreviewed submissions
+              <input type="checkbox" name="pending" value="1"
+                     ${showPending ? raw("checked") : raw("")}>
+              Include pending review and pending acceptance
             </label>
-            <p class="field-hint"><small>Off by default. Unreviewed entries are
-              public but haven't been checked by staff.</small></p>
+            <p class="field-hint"><small>Off by default. Pending entries are
+              public by direct link, but they stay out of the default listing
+              until they become active.</small></p>
           </div>
         </form>
       </aside>

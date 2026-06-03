@@ -237,7 +237,7 @@ export async function sendDecision(opts: {
 
   const lines: string[] = [];
   if (decision === "approved") {
-    lines.push(`Your submission to the Encyclopedia of AI Hallucinations was reviewed by staff and is now publicly listed as ${ref}.`);
+    lines.push(`Your submission to the Encyclopedia of AI Hallucinations passed staff review (${ref}). It's now pending acceptance — staff will try to reproduce it before it becomes active and appears in the public listings.`);
     lines.push(``);
     lines.push(`Model: ${modelLabel}`);
     lines.push(`View it: ${entryUrl(ref)}`);
@@ -264,7 +264,7 @@ export async function sendDecision(opts: {
 
   const htmlParts: string[] = [];
   if (decision === "approved") {
-    htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was reviewed by staff and is now publicly listed as <strong>${escape(ref)}</strong>.</p>`);
+    htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> passed staff review (<strong>${escape(ref)}</strong>). It's now <strong>pending acceptance</strong> — staff will try to reproduce it before it becomes active and appears in the public listings.</p>`);
     htmlParts.push(`<p><strong>Model:</strong> ${escape(modelLabel)}</p>`);
     htmlParts.push(`<p><a href="${escape(entryUrl(ref))}">View the entry</a></p>`);
   } else {

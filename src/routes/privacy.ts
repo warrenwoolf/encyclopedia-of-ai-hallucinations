@@ -126,9 +126,10 @@ export const privacy: RouteHandler = (req, ctx) => {
     <h2>Your choices</h2>
     <p><strong>Drafts</strong> are private and can be edited or deleted at any
        time from your <a href="/my/submissions">submissions page</a>.
-       <strong>Unreviewed submissions</strong> can be withdrawn back to a draft
-       from the same page.</p>
-    <p><strong>Reviewed (publicly listed) entries,</strong> or requests to delete
+       <strong>Pending-review submissions</strong> can be withdrawn back to a
+       draft from the same page.</p>
+    <p><strong>Entries that have advanced past pending review</strong> (pending
+       acceptance or active), or requests to delete
        your account and the email address attached to it, must be handled
        manually. Email the maintainer at the address in the "Contact" section
        below with the entry's A-number or URL, or a description of your

@@ -39,35 +39,38 @@ export const guide: RouteHandler = (req, ctx) => {
     <h2>How to submit</h2>
     <p>Go to <a href="/submit">/submit</a>. Paste the prompt, the model's
        response, the model name, optionally a category and tags, and ideally a
-       shared chat link. You can <strong>publish</strong> it — which puts the
-       entry live immediately (see the trust ladder below) — or
-       <strong>save it as a draft</strong> and publish it later from
+       shared chat link. You can <strong>submit it for review</strong> — which
+       puts the entry live immediately (see the trust ladder below) — or
+       <strong>save it as a draft</strong> and submit it later from
        <a href="/my/submissions">/my/submissions</a>. You may have at most 5
-       published submissions still awaiting their first staff review at once
-       (drafts are unlimited).</p>
+       submissions still pending review at once (drafts are unlimited).</p>
 
     <h2>The trust ladder</h2>
-    <p>Entries don't wait in a private queue before going live — they're public
-       the moment you submit, and earn trust as staff vet them. Each rung is
-       shown as a badge on the entry:</p>
+    <p>Entries climb a trust ladder as staff vet them. Each rung is shown as a
+       badge on the entry. Every submission gets its permanent A-number (e.g.
+       <code>A000123</code>, borrowed from the OEIS numbering scheme) the moment
+       you submit it for review — but only <strong>active</strong> entries
+       appear in the default listings:</p>
     <ul>
-      <li><strong>Unreviewed.</strong> Public immediately, but reachable only by
-          its link — hidden from the default listings until staff confirm it.</li>
-      <li><strong>Reviewed.</strong> A human staff member has confirmed it's a
-          genuine, reproducible hallucination and assigned a category. It now
-          shows up in the normal listings.</li>
-      <li><strong>Reproduced.</strong> Staff reproduced the behavior themselves.
-          This is the canonical top tier, and only these entries receive a
-          permanent A-number (e.g. <code>A000123</code>), borrowed from the OEIS
-          numbering scheme.</li>
-      <li><strong>Failed to reproduce.</strong> Staff reviewed it but couldn't
-          reproduce the behavior; it stays as a reported sighting.</li>
+      <li><strong>Pending review.</strong> Public immediately, but reachable
+          only by its link or A-number — hidden from the default listings until
+          staff confirm it.</li>
+      <li><strong>Pending acceptance.</strong> A human staff member has confirmed
+          it's a genuine, reproducible hallucination and assigned a category.
+          Still hidden from the default listings while staff work to reproduce
+          and accept it.</li>
+      <li><strong>Active.</strong> Staff reproduced the behavior themselves and
+          accepted it into the canon. This is the top tier, and the only one
+          shown in the normal listings.</li>
+      <li><strong>Rejected.</strong> Staff reviewed it but rejected it (including
+          entries they couldn't reproduce); it stays addressable as a reported
+          sighting.</li>
     </ul>
     <p>Link submissions — a link to a third-party post (Reddit, X, etc.) instead
-       of a pasted transcript — cap at <strong>reviewed</strong> — staff
-       can't re-run someone else's shared session, so they're never reproduced
-       and never get an A-number. You can chat with the reviewer in a thread
-       attached to your submission at any stage.</p>
+       of a pasted transcript — cap at <strong>pending acceptance</strong>:
+       staff can't re-run someone else's shared session, so they're never
+       reproduced and never become active. You can chat with the reviewer in a
+       thread attached to your submission at any stage.</p>
 
     <h2>Categories</h2>
     ${categoryList}

@@ -24,12 +24,12 @@ Co-founders: **Rudra Jadhav** and **Warren Woolf** (`warrenwoolf` on GitHub).
 
 ## The A-number system
 
-`submissions.eah_number` (nullable INT) is displayed as `A######` (6-digit zero-padded). **A-numbers are the canon: they are allocated ONLY when a `reviewed` entry is marked `reproduced`** (the top tier — see "Submission & review flow"). Everything below that tier (draft / unreviewed / reviewed-not-reproduced / failed) has `eah_number = NULL` and is addressed by its `public_id` slug. Helpers in `src/eah-id.ts`:
+`submissions.eah_number` (nullable INT) is displayed as `A######` (6-digit zero-padded). **A-numbers are allocated when a submission is first proposed for review** (the draft→pending-review transition), so EVERY non-draft row (pending review / pending acceptance / active / failed) carries one. Only drafts have `eah_number = NULL`. The number is the stable citable ID from the moment of submission; the trust tier (see "Submission & review flow") then governs whether the entry is publicly *listed*. Helpers in `src/eah-id.ts`:
 
-- `allocateEahNumber(tx)` — pops MIN from `freed_eah_numbers` if any, else `MAX+1`. Called in the **reproduce** transition (`src/routes/admin/review.ts`), inside the same tx as the `repro_status='reproduced'` flip. Re-read the row `FOR UPDATE` and check eligibility (status `reviewed`, not `link` mode, `eah_number IS NULL`) **before** allocating, so an ineligible action doesn't leak a number.
-- `freeEahNumber(tx, submissionId)` — NULLs the number and returns it to the pool. Called when a reproduced entry is demoted or rejected. Must be in the same tx as the status flip. A no-op (safe) for rows that never had a number.
-- Owner-deleting a *reproduced* (canonical) entry from `/admin/all` **retires** the number (not recycled into pool).
-- `GET /e/:id` accepts A-numbers or the `public_id` slug (10-char base64url). A slug for a reproduced entry 301s to the canonical A-number URL; slugs for lower tiers serve directly (they have no A-number).
+- `allocateEahNumber(tx)` — pops MIN from `freed_eah_numbers` if any, else `MAX+1`. Called in the **propose** transition (`src/routes/my.ts` `myPropose`, and `src/routes/submit.ts` when submitting straight for review), inside the insert/update tx. The **reproduce** transition (`src/routes/admin/review.ts`) keeps a `FOR UPDATE` eligibility re-check and a fallback allocation only to backfill legacy rows that reached that step without a number.
+- `freeEahNumber(tx, submissionId)` — NULLs the number and returns it to the pool. Called when a submission is **withdrawn** back to draft, or rejected/demoted. Must be in the same tx as the status flip. A no-op (safe) for rows that never had a number.
+- Owner-deleting an *active* (canonical) entry from `/admin/all` **retires** the number (not recycled into pool).
+- `GET /e/:id` accepts A-numbers or the `public_id` slug (10-char base64url). Because every non-draft now has a number, a slug for any public entry 301s to its canonical A-number URL.
 
 **Owner routes are slug-addressed.** Because most submissions have no A-number, the `/my/submissions/:id/*` family resolves `ctx.params.eahId` as a `public_id` (the param name is legacy; `fetchOwned` queries `WHERE public_id = ?`). Don't assume a row has an A-number when building owner-facing URLs.
 
@@ -46,22 +46,24 @@ Co-founders: **Rudra Jadhav** and **Warren Woolf** (`warrenwoolf` on GitHub).
 
 Submission is account-only. `/submit` redirects anonymous users to `/login`.
 
-**Tiered trust ladder (iNaturalist-style).** Two orthogonal columns: `status` (moderation axis) and `repro_status` (reproduction axis, only meaningful once `reviewed`). The tiers:
+**Tiered trust ladder (iNaturalist-style).** Two orthogonal columns: `status` (moderation axis) and `repro_status` (reproduction axis, only meaningful once `reviewed`). The DB column *values* are unchanged; the **display names** were renamed (lifecycle `draft → pending review → pending acceptance → active`, with `rejected` off either review step). The tiers:
 
-| Tier | `status` | `repro_status` | A-number | Public? |
+| Display tier | `status` | `repro_status` | A-number | Listed by default? |
 |---|---|---|---|---|
 | Private draft | `draft` | `pending` | no | owner only |
-| Unreviewed | `unreviewed` | `pending` | no | yes, but hidden from default lists (link + opt-in toggle) |
-| Reviewed, not reproduced | `reviewed` | `pending` | no | yes (default lists) |
-| **Reproduced (canon)** | `reviewed` | `reproduced` | **yes** | yes |
-| Failed to reproduce | `reviewed` | `failed` | no | yes |
+| **Pending review** | `unreviewed` | `pending` | yes | no — hidden, reachable by link/A-number + opt-in `?pending=1` |
+| **Pending acceptance** | `reviewed` | `pending` | yes | no — hidden, same opt-in |
+| **Active (canon)** | `reviewed` | `reproduced` | yes | **yes** |
+| Rejected (couldn't reproduce) | `reviewed` | `failed` | yes | no — reachable by link only |
 
-`entry_status` (`active`/`patched`) is a *third*, independent axis (does the model still do it).
+Only `active` (`reviewed`+`reproduced`) appears in the default public listings. Every non-draft has an A-number regardless of tier.
 
-- **Lifecycle:** submit → `draft` (private) or `unreviewed` (public). Staff **confirm** (`unreviewed→reviewed`, requires a category) or **reject** (hard-deletes the row). Then staff attempt reproduction: **reproduce** (`→reproduced`, allocates the A-number) or **fail** (`→failed`). Link/social-media submissions **cap at `reviewed`** (can't be reproduced).
+`entry_status` (`active`/`patched`) is a *third*, independent axis (does the model still do it). Note the name overlap: the trust-tier display name "active" (= `reviewed`+`reproduced`) is distinct from the `entry_status='active'` column value; a top-tier entry whose behavior later stops reproducing is shown as **patched**.
+
+- **Lifecycle:** submit → `draft` (private) or `unreviewed` = *pending review* (public by link, allocates the A-number). Staff **confirm** (`unreviewed→reviewed` = *pending acceptance*, requires a category) or **reject** (hard-deletes the row). Then staff attempt reproduction: **reproduce** (`→reproduced` = *active*; the public listing + Discord announcement fire here, NOT at confirm) or **fail** (`→failed`, shown as *rejected* but row kept). Link/social-media submissions **cap at pending acceptance** (can't be reproduced).
 - **Legacy enum values** `pending`/`published` are kept in the `status` ENUM only so the one-shot data migration can read old rows; no live row should reference them. `withdrawn` survives as a back-compat value.
-- **Visibility = `reviewed`+** everywhere public (browse default `status='reviewed'`, opt-in `?unreviewed=1` widens to include `unreviewed`; entry page 404s only for `draft`; RSS/sitemap = reproduced canon only). Grep for `status = 'reviewed'` before adding a public listing.
-- **Cap:** `MAX_PENDING_PER_USER = 5` on `unreviewed` submissions per user. Drafts unlimited.
+- **Visibility = active only** in default listings (browse default `status='reviewed' AND repro_status='reproduced'`, opt-in `?pending=1` widens to include pending review + pending acceptance; entry page 404s only for `draft`/rejected-deleted; RSS/sitemap/home-count/suggestions = active canon only). Grep for `repro_status='reproduced'` before adding a public listing.
+- **Cap:** `MAX_PENDING_PER_USER = 5` on `unreviewed` (pending-review) submissions per user. Drafts unlimited.
 - **Two submit buttons:** "Save as draft" (→ slug edit page) and "Submit for review" (→ dashboard, lands `unreviewed`). A submission is either a pasted transcript or a **link** (`submission_kind=link` → `transcript_mode='link'` + `source_url`; requires a `summary` for link-rot insurance; link entries aren't editable via the transcript editor).
 - **Withdraw:** `unreviewed→draft`, keeps discussion. **Delete:** draft-only, hard-deletes row.
 - **Staff editing** requires `allow_author_edits = 1`. Reviewed entries are owner-editable only for content; staff can still flip `active`/`patched` via the status endpoint (A-number-addressed, so reproduced entries only).
@@ -109,7 +111,7 @@ Both `src/email.ts` and `src/discord.ts` share the same contract: **every export
 
 Email triggers: submission received, reviewer message, decision (confirm/reject `sendDecision`; reproduce/fail go out as `sendReviewerMessage`), reader complaint (to staff inbox).
 
-Discord triggers: new submission enters queue → staff channel; entry reaches `reviewed` (becomes publicly listed) → public channel (`notifyPublished`, linked by slug since there's no A-number yet); complaint filed → staff channel. `src/discord-gateway.ts` opens a gateway WebSocket with `intents: 0` solely to keep the bot showing as online; it heartbeats and reconnects silently.
+Discord triggers: new submission enters queue → staff channel; entry becomes `active` (reproduced — the point it enters the public listings) → public channel (`notifyPublished`, fired in the **reproduce** transition, linked by its A-number); complaint filed → staff channel. `src/discord-gateway.ts` opens a gateway WebSocket with `intents: 0` solely to keep the bot showing as online; it heartbeats and reconnects silently.
 
 ## Deploy
 

@@ -7,13 +7,13 @@ import { h, type SafeHtml } from "../html.ts";
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "draft",
-  unreviewed: "unreviewed",
+  pending: "pending acceptance",
+  published: "active",
+  unreviewed: "pending review",
   reviewed: "reviewed",
   rejected: "rejected",
   withdrawn: "withdrawn",
   // legacy values (no live rows after the tier migration, kept for safety)
-  pending: "proposed",
-  published: "published",
 };
 
 /** Human-facing label for a moderation status (submitter vocabulary). */
@@ -25,26 +25,48 @@ export function statusBadge(status: string): SafeHtml {
   return h`<span class="status-badge status-${status}">${statusLabel(status)}</span>`;
 }
 
+/** True for the hidden pre-review tier. */
+export function isPendingReview(status: string): boolean {
+  return status === "unreviewed" || status === "pending";
+}
+
+/** True for the hidden post-review, pre-acceptance tier. */
+export function isPendingAcceptance(status: string, reproStatus: string): boolean {
+  return status === "reviewed" && reproStatus === "pending";
+}
+
+/** True for the public canonical tier. */
+export function isPublicByDefault(status: string, reproStatus: string): boolean {
+  return status === "reviewed" && reproStatus === "reproduced";
+}
+
+function tierClass(status: string, reproStatus: string): string {
+  if (status === "draft") return "draft";
+  if (status === "withdrawn") return "withdrawn";
+  if (status === "rejected" || reproStatus === "failed") return "rejected";
+  if (isPendingReview(status)) return "pending-review";
+  if (isPendingAcceptance(status, reproStatus)) return "pending-acceptance";
+  if (isPublicByDefault(status, reproStatus) || status === "published") return "active";
+  return status;
+}
+
 /**
  * Combined tier label across both axes (status + repro_status), the submitter-
- * facing name for the trust ladder. Only meaningful for reviewed rows; below
- * review it's just the status label.
+ * facing name for the trust ladder.
  */
 export function tierLabel(status: string, reproStatus: string): string {
-  if (status === "reviewed") {
-    if (reproStatus === "reproduced") return "reproduced";
-    if (reproStatus === "failed") return "failed to reproduce";
-    return "reviewed";
-  }
+  if (status === "draft") return "draft";
+  if (status === "withdrawn") return "withdrawn";
+  if (isPendingReview(status)) return "pending review";
+  if (isPendingAcceptance(status, reproStatus)) return "pending acceptance";
+  if (isPublicByDefault(status, reproStatus) || status === "published") return "active";
+  if (status === "rejected" || reproStatus === "failed") return "rejected";
   return statusLabel(status);
 }
 
 /** Badge variant of {@link tierLabel}; CSS class keys off the combined tier. */
 export function tierBadge(status: string, reproStatus: string): SafeHtml {
-  const tier =
-    status === "reviewed" && reproStatus === "reproduced" ? "reproduced"
-    : status === "reviewed" && reproStatus === "failed" ? "failed"
-    : status;
+  const tier = tierClass(status, reproStatus);
   return h`<span class="status-badge status-${tier}">${tierLabel(status, reproStatus)}</span>`;
 }
 
@@ -59,9 +81,9 @@ export function tierBadge(status: string, reproStatus: string): SafeHtml {
  * isn't dropped inside another form element.
  *
  * Actions by status (the tiered flow):
- *   - draft      → propose (draft→unreviewed), delete (removes it)
- *   - unreviewed → withdraw (unreviewed→draft)
- *   - reviewed   → view public entry (read-only here)
+ *   - draft      → submit for review (draft→pending review), delete (removes it)
+ *   - unreviewed → withdraw (pending review→draft)
+ *   - reviewed   → view entry (read-only here)
  * To both leave the queue and discard, a user withdraws then deletes (two steps).
  *
  * `slug` is the submission's public_id (owner routes are addressed by slug now,
@@ -79,7 +101,7 @@ export function actionBar(slug: string, status: string, token: string, eahId = "
   if (status === "draft") {
     const propose = h`<form class="inline-form" method="post" action="/my/submissions/${slug}/propose">
         <input type="hidden" name="_csrf" value="${token}">
-        <button class="linkbutton" type="submit">publish</button>
+        <button class="linkbutton" type="submit">submit for review</button>
       </form>`;
     const del = h`<a class="del-link" href="/my/submissions/${slug}/delete">delete</a>`;
     return h`<p class="action-bar">${overview} · ${edit} · ${discussion} · ${history} · ${propose} · ${del} · ${mySubs}</p>`;
@@ -89,7 +111,7 @@ export function actionBar(slug: string, status: string, token: string, eahId = "
     return h`<p class="action-bar">${overview} · ${edit} · ${discussion} · ${history} · ${withdraw} · ${mySubs}</p>`;
   }
   if (status === "reviewed") {
-    return h`<p class="action-bar"><a href="/e/${eahId || slug}">view public entry</a> · ${overview} · ${history} · ${mySubs}</p>`;
+    return h`<p class="action-bar"><a href="/e/${eahId || slug}">view entry</a> · ${overview} · ${history} · ${mySubs}</p>`;
   }
   // rejected / withdrawn — terminal, just a way back.
   return h`<p class="action-bar">${mySubs}</p>`;

@@ -46,7 +46,8 @@ interface SubmissionRow {
   transcript_mode: string;
 }
 
-/** Public entry tiers (everything else — draft/rejected/withdrawn — 404s). */
+/** Public entry tiers (everything else — draft/rejected/withdrawn — 404s).
+ * `unreviewed` = pending review; `reviewed` = pending acceptance or active. */
 const PUBLIC_STATUSES = new Set(["unreviewed", "reviewed"]);
 
 function ymd(d: Date | string): string {
@@ -92,7 +93,8 @@ export const entry: RouteHandler = async (req, ctx) => {
       `SELECT ${COLS} FROM submissions WHERE public_id = ?`,
       [idParam],
     );
-    // 301 to the canonical A-number URL once an entry has one (reproduced tier).
+    // 301 to the canonical A-number URL. Every non-draft entry now has one
+    // (allocated at submit-for-review), so the slug always redirects to it.
     if (row && PUBLIC_STATUSES.has(row.status) && row.eah_number !== null) {
       const canonical = `/e/${formatEahId(row.eah_number)}`;
       return new Response(null, { status: 301, headers: { Location: canonical } });
@@ -127,10 +129,10 @@ export const entry: RouteHandler = async (req, ctx) => {
     [row.id],
   );
 
-  // Prev/next navigation within the numbered canon (reproduced entries only).
-  // Non-numbered tiers (unreviewed / reviewed-not-reproduced) aren't part of the
-  // sequence, so they get no prev/next.
-  const numbered = row.eah_number !== null;
+  // Prev/next navigation within the active canon only. Every non-draft now
+  // carries an A-number, but the pending tiers (pending review / pending
+  // acceptance) aren't part of the public sequence, so they get no prev/next.
+  const numbered = row.repro_status === "reproduced" && row.eah_number !== null;
   const prevRow = numbered ? await queryOne<{ eah_number: number }>(
     `SELECT eah_number FROM submissions WHERE repro_status='reproduced' AND eah_number < ? ORDER BY eah_number DESC LIMIT 1`,
     [row.eah_number],
@@ -171,7 +173,7 @@ export const entry: RouteHandler = async (req, ctx) => {
 
   const eahId = formatEahId(row.eah_number);
   const slug = row.public_id;
-  // URL ref: A-number once reproduced, else the public_id slug.
+  // URL ref: A-number (every non-draft has one), else the public_id slug.
   const ref = eahId || slug;
 
   // Source block for link / social-media submissions.
@@ -181,23 +183,26 @@ export const entry: RouteHandler = async (req, ctx) => {
       </section>`
     : raw("");
 
-  // Trust-tier banner. Reproduced entries are the canon and get no banner; every
+  // Trust-tier banner. Active entries are the canon and get no banner; every
   // lower tier carries an honest "not fully verified" note.
   const tierBanner = (() => {
     if (row.repro_status === "reproduced") return raw("");
     let msg;
     if (row.status === "unreviewed") {
-      msg = h`<strong>⚠ Unreviewed.</strong> This submission is public but hasn't
-        been checked by staff yet. Treat it with caution until it's reviewed.`;
+      msg = h`<strong>⚠ Pending review.</strong> This submission is public but
+        hasn't been checked by staff yet. Treat it with caution until it's
+        reviewed.`;
     } else if (row.repro_status === "failed") {
-      msg = h`<strong>⚠ Not reproduced.</strong> Staff reviewed this entry but
+      msg = h`<strong>⚠ Not accepted.</strong> Staff reviewed this entry but
         could <em>not</em> reproduce the behavior. It's kept as a reported sighting.`;
     } else if (isLink) {
-      msg = h`<strong>Reviewed.</strong> Staff confirmed this is a genuine report.
-        Link submissions aren't eligible for staff reproduction.`;
+      msg = h`<strong>Pending acceptance.</strong> Staff confirmed this is a
+        genuine report. Link submissions can't be staff-reproduced, so they
+        aren't promoted to active.`;
     } else {
-      msg = h`<strong>Reviewed, not yet reproduced.</strong> Staff confirmed this is
-        a genuine submission but haven't reproduced it themselves yet.`;
+      msg = h`<strong>Pending acceptance.</strong> Staff confirmed this is a
+        genuine submission but haven't reproduced it themselves yet, so it isn't
+        active in the canon.`;
     }
     return h`<div class="tier-banner" role="note">${msg}</div>`;
   })();
@@ -272,7 +277,7 @@ export const entry: RouteHandler = async (req, ctx) => {
 
   const idCell = eahId
     ? h`<code>${eahId}</code>`
-    : h`<span class="muted">— (no A-number until reproduced)</span>`;
+    : h`<span class="muted">— (no A-number)</span>`;
 
   const conversationSection = isLink
     ? raw("")

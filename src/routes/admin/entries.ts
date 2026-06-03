@@ -435,10 +435,11 @@ export function mayEdit(
   );
 }
 
-// The edit form is reachable two ways: by A-number (/admin/entries/:eahId/edit,
-// for reproduced canon) and by submission id (/admin/queue/:id/edit, for queue
-// entries that have no A-number yet). Both share the render/save logic below;
-// only the loader, the form action, and the heading differ.
+// The edit form is reachable two ways: by A-number (/admin/entries/:eahId/edit)
+// and by submission id (/admin/queue/:id/edit, the fallback for drafts, which
+// have no A-number). Both share the render/save logic below; only the loader,
+// the form action, and the heading differ. Since every non-draft now carries an
+// A-number, numbered rows always use the A-number action.
 function editFormAction(row: EditRow): string {
   return row.eah_number !== null
     ? `/admin/entries/${formatEahId(row.eah_number)}/edit`

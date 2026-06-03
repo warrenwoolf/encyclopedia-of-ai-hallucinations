@@ -77,20 +77,22 @@ export const about: RouteHandler = (req, ctx) => {
           the public entry won't show who filed it.</dd>
 
       <dt>How are submissions reviewed, and how long does it take?</dt>
-      <dd>When you submit, your entry goes public right away as <em>unreviewed</em> —
-          reachable by its link but hidden from the default listings until staff vet
-          it. From there it climbs a trust ladder. Staff first <em>confirm</em> it's a
-          genuine, reproducible hallucination and give it a category; it then appears
-          in the normal listings as <em>reviewed</em>. Next they try to reproduce it
-          themselves: if they succeed it becomes <em>reproduced</em> — the top tier —
-          and receives a permanent A-number (like <code>A000042</code>) you can cite;
-          if they can't, it's kept as a reported sighting marked <em>failed to
-          reproduce</em>. (Link submissions stop at <em>reviewed</em>, since staff
-          can't re-run someone else's session.) You can message reviewers from your
-          dashboard at any stage, and you'll be notified when the status changes.
-          We're a small team, so timing varies — there's no fixed turnaround.
-          Submissions that aren't genuine are rejected with a reason, and you can
-          revise and resubmit.</dd>
+      <dd>When you submit, your entry goes public right away as <em>pending
+          review</em> — reachable by its link or A-number but hidden from the
+          default listings until staff vet it. Every submission gets its permanent
+          A-number (like <code>A000042</code>) at this point, so you can cite it
+          immediately. From there it climbs a trust ladder. Staff first
+          <em>confirm</em> it's a genuine, reproducible hallucination and give it a
+          category; it becomes <em>pending acceptance</em> — still hidden from the
+          default listings. Next they try to reproduce it themselves: if they
+          succeed it becomes <em>active</em> — the top tier — and appears in the
+          normal listings; if they can't, it's rejected and kept as a reported
+          sighting. (Link submissions stop at <em>pending acceptance</em>, since
+          staff can't re-run someone else's session.) You can message reviewers
+          from your dashboard at any stage, and you'll be notified when the status
+          changes. We're a small team, so timing varies — there's no fixed
+          turnaround. Submissions that aren't genuine are rejected with a reason,
+          and you can revise and resubmit.</dd>
     </dl>
 
     <h2 id="contact">Contact</h2>

@@ -94,8 +94,8 @@ export async function notifyNewSubmission(opts: {
 }
 
 /**
- * Fire when an entry is approved + published. Goes to the public channel and
- * links to the public entry page.
+ * Fire when an entry becomes active (reproduced) and enters the public
+ * listings. Goes to the public channel and links to the public entry page.
  */
 export async function notifyPublished(opts: {
   eahId: string;
@@ -109,7 +109,7 @@ export async function notifyPublished(opts: {
   const link = `${config.publicBaseUrl}/e/${slugForLink}`;
   const title = opts.title && opts.title.length > 0 ? opts.title : "(untitled)";
   const content =
-    `✅ **New entry published** — ${ref}\n` +
+    `✅ **New entry now active** — ${ref}\n` +
     `**${title}**\n` +
     `Model: ${opts.modelLabel} · ${opts.categoryLabel}\n` +
     `${link}`;

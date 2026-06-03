@@ -83,10 +83,11 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   if (!verifyCsrf(req, form.get("_csrf"))) return await csrfErrorResponse();
 
   // Tiered review actions:
-  //   confirm   — unreviewed → reviewed (entry becomes a default-listed entry)
-  //   reproduce — reviewed → reproduced (allocates the canonical A-number)
-  //   fail      — reviewed → repro_status='failed' (reviewed but not reproducible)
-  //   reject    — hard-delete the submission (used at the unreviewed stage)
+  //   confirm   — pending review → pending acceptance (still hidden from listings)
+  //   reproduce — pending acceptance → active (publicly listed; A-number already
+  //               allocated at submit-for-review, backfilled here for legacy rows)
+  //   fail      — pending acceptance → repro_status='failed' (reviewed, not reproducible)
+  //   reject    — hard-delete the submission
   const action = form.get("action");
   if (action !== "confirm" && action !== "reproduce" && action !== "fail" && action !== "reject") {
     return await badRequest("Unknown review action.");
@@ -170,7 +171,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   }
 
   // Category is optional for submitters but required before an entry is confirmed
-  // into the default-listed 'reviewed' tier. Staff pick one in the review form.
+  // into the pending-acceptance tier. Staff pick one in the review form.
   if (action === "confirm" && !effectiveCategory) {
     return await badRequest(
       "This submission has no category. Choose one from the category dropdown in the review form before confirming.",
@@ -210,19 +211,20 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
           await tx.execute(
             `INSERT INTO submission_messages (submission_id, sender_type, body)
              VALUES (?, 'system', ?)`,
-            [id, `Reviewed by staff — confirmed as a genuine submission and now publicly listed${staffReviewMessage ? ` (see reviewer note below)` : ``}.`],
+            [id, `Reviewed by staff — confirmed as a genuine submission. Now pending acceptance, awaiting staff reproduction before it becomes active${staffReviewMessage ? ` (see reviewer note below)` : ``}.`],
           );
         }
       } else if (action === "reproduce") {
-        // reviewed → reproduced. Normal rows already have their A-number by the
-        // time they reach this step; the lock check prevents accidental fallback
-        // allocation on legacy rows that still need backfilling.
-        const cur = await tx.queryOne<{ status: string; transcript_mode: string; eah_number: number | null }>(
-          "SELECT status, transcript_mode, eah_number FROM submissions WHERE id = ? FOR UPDATE",
+        // pending acceptance → active. Normal rows already hold their A-number
+        // (allocated at propose), so reuse it; only allocate as a fallback for
+        // legacy rows that reached this step without one. Re-read under a lock
+        // and gate on the eligible tier (reviewed + still pending, non-link).
+        const cur = await tx.queryOne<{ status: string; repro_status: string; transcript_mode: string; eah_number: number | null }>(
+          "SELECT status, repro_status, transcript_mode, eah_number FROM submissions WHERE id = ? FOR UPDATE",
           [id],
         );
-        if (cur && cur.status === "reviewed" && cur.transcript_mode !== "link" && cur.eah_number === null) {
-          const n = await allocateEahNumber(tx);
+        if (cur && cur.status === "reviewed" && cur.repro_status === "pending" && cur.transcript_mode !== "link") {
+          const n = cur.eah_number ?? await allocateEahNumber(tx);
           await tx.execute(
             `UPDATE submissions
                 SET repro_status = 'reproduced',
@@ -240,7 +242,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
           await tx.execute(
             `INSERT INTO submission_messages (submission_id, sender_type, body)
              VALUES (?, 'system', ?)`,
-            [id, `Reproduced by staff and assigned canonical number ${reproducedEahId}.`],
+            [id, `Reproduced by staff — your entry is now active and publicly listed as ${reproducedEahId}.`],
           );
         }
       } else if (action === "fail") {
@@ -278,39 +280,41 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
 
   const notifyTo = exists.owner_email ?? exists.submitter_email;
 
-  // An entry becomes publicly listed at the 'reviewed' tier — announce it on the
-  // public Discord channel then (it has no A-number yet, so link by slug).
-  if (didReview) {
-    void notifyPublished({
+  // Confirm (→ pending acceptance): the entry is vetted but still hidden from
+  // the default listings, so only the submitter is notified — no public
+  // announcement until it becomes active.
+  if (didReview && notifyTo) {
+    void sendDecision({
+      to: notifyTo,
+      publicId: exists.public_id,
       eahId: formatEahId(exists.eah_number),
+      modelLabel: exists.ai_model ?? "(unknown)",
+      decision: "approved",
+      staffReviewMessage,
+      rejectionReason: null,
+    });
+  }
+
+  // Reproduction: the entry becomes active and publicly listed — announce it on
+  // the public Discord channel and notify the submitter.
+  if (didReproduce) {
+    void notifyPublished({
+      eahId: reproducedEahId,
       publicId: exists.public_id,
       title: exists.title,
       modelLabel: exists.ai_model ?? "(unknown)",
       categoryLabel: categoryLabel(effectiveCategory),
     });
     if (notifyTo) {
-      void sendDecision({
+      void sendReviewerMessage({
         to: notifyTo,
         publicId: exists.public_id,
-        eahId: formatEahId(exists.eah_number),
+        eahId: reproducedEahId,
         modelLabel: exists.ai_model ?? "(unknown)",
-        decision: "approved",
-        staffReviewMessage,
-        rejectionReason: null,
+        reviewerName: ctx.admin.username,
+        bodyPreview: `Your entry was reproduced by staff and is now active and publicly listed as ${reproducedEahId}.`,
       });
     }
-  }
-
-  // Reproduction / failed-reproduction: notify the submitter by reviewer message.
-  if (didReproduce && notifyTo) {
-    void sendReviewerMessage({
-      to: notifyTo,
-      publicId: exists.public_id,
-      eahId: reproducedEahId,
-      modelLabel: exists.ai_model ?? "(unknown)",
-      reviewerName: ctx.admin.username,
-      bodyPreview: `Your entry was reproduced by staff and assigned the canonical number ${reproducedEahId}.`,
-    });
   }
   if (didFail && notifyTo) {
     void sendReviewerMessage({
@@ -318,7 +322,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
       publicId: exists.public_id,
       modelLabel: exists.ai_model ?? "(unknown)",
       reviewerName: ctx.admin.username,
-      bodyPreview: `Staff reviewed your entry but could not reproduce it. It stays public as a reported, unreproduced sighting.`,
+      bodyPreview: `Staff reviewed your entry but could not reproduce it, so it won't become active. It stays reachable by its link as a reported, unreproduced sighting.`,
     });
   }
 

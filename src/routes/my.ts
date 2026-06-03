@@ -31,7 +31,7 @@ import {
   readTranscriptForm, applyTurnAction, deriveLegacyPair, serializeTranscript,
 } from "../turns.ts";
 import { loadTurns, replaceTurns } from "../turns-db.ts";
-import { statusBadge, statusLabel, tierBadge, tierLabel, actionBar } from "./my-shared.ts";
+import { statusBadge, tierBadge, tierLabel, actionBar } from "./my-shared.ts";
 import { longField, renderCardConversation } from "./browse.ts";
 import { renderNote, type MessageRow } from "./my-discussion.ts";
 import { MAX_PENDING_PER_USER } from "./submit.ts";
@@ -53,9 +53,33 @@ const LIMITS = {
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-// Statuses shown on the dashboard, in display order (withdrawn is excluded
-// everywhere — it's a terminal back-to-draft transition with no overview page).
-const DASHBOARD_STATUSES = ["draft", "unreviewed", "reviewed", "rejected"];
+type DashboardTier = "draft" | "pending-review" | "pending-acceptance" | "active" | "rejected";
+
+const DASHBOARD_TIERS: Array<{ key: DashboardTier; label: string }> = [
+  { key: "draft", label: "Draft" },
+  { key: "pending-review", label: "Pending review" },
+  { key: "pending-acceptance", label: "Pending acceptance" },
+  { key: "active", label: "Active" },
+  { key: "rejected", label: "Rejected" },
+];
+
+function dashboardTierForRow(status: string, reproStatus: string): DashboardTier {
+  if (status === "draft") return "draft";
+  if (status === "unreviewed" || status === "pending") return "pending-review";
+  if (status === "reviewed" && reproStatus === "pending") return "pending-acceptance";
+  if (status === "reviewed" && reproStatus === "reproduced") return "active";
+  return "rejected";
+}
+
+function dashboardTierWhere(tier: DashboardTier): string {
+  switch (tier) {
+    case "draft": return "status = 'draft'";
+    case "pending-review": return "status = 'unreviewed'";
+    case "pending-acceptance": return "status = 'reviewed' AND repro_status = 'pending'";
+    case "active": return "status = 'reviewed' AND repro_status = 'reproduced'";
+    case "rejected": return "status = 'reviewed' AND repro_status = 'failed'";
+  }
+}
 
 // Inline magnifier for the dashboard search box (same glyph as browse).
 const MY_SEARCH_ICON =
@@ -450,16 +474,16 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
 
   const sp = ctx.url.searchParams;
 
-  // Status filter (one of the dashboard-visible statuses; withdrawn is always
+  // Status filter (one of the dashboard-visible tiers; withdrawn is always
   // excluded). An unrecognized value falls back to "all".
   const statusRaw = (sp.get("status") ?? "").trim();
-  const statusFilter = DASHBOARD_STATUSES.includes(statusRaw) ? statusRaw : "";
+  const statusFilter = DASHBOARD_TIERS.some((t) => t.key === statusRaw) ? statusRaw : "";
 
   // Free-text search across the user's own submissions.
   const q = (sp.get("q") ?? "").trim().slice(0, 200);
 
   // Shared WHERE (everything except the status filter) + params, reused for the
-  // faceted per-status counts so each count reflects the active search.
+  // faceted per-tier counts so each count reflects the active search.
   const baseWhere: string[] = ["owner_user_id = ?", "status != 'withdrawn'"];
   const baseParams: unknown[] = [ctx.user.userId];
   if (q) {
@@ -470,16 +494,17 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
     baseParams.push(like, like, like, like);
   }
 
-  // Per-status counts for the filter bar (honor search, ignore active status).
-  const countRows = await query<{ status: string; n: number | bigint }>(
-    `SELECT status, COUNT(*) AS n FROM submissions WHERE ${baseWhere.join(" AND ")} GROUP BY status`,
+  // Per-tier counts for the filter bar (honor search, ignore active filter).
+  const countRows = await query<{ status: string; repro_status: string; n: number | bigint }>(
+    `SELECT status, repro_status, COUNT(*) AS n FROM submissions WHERE ${baseWhere.join(" AND ")} GROUP BY status, repro_status`,
     baseParams,
   );
   const statusCounts = new Map<string, number>();
   let allCount = 0;
   for (const r of countRows) {
     const n = Number(r.n);
-    statusCounts.set(r.status, n);
+    const tier = dashboardTierForRow(r.status, r.repro_status);
+    statusCounts.set(tier, n);
     allCount += n;
   }
 
@@ -494,8 +519,7 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
   const listWhere = [...baseWhere];
   const listParams = [...baseParams];
   if (statusFilter) {
-    listWhere.push("status = ?");
-    listParams.push(statusFilter);
+    listWhere.push(dashboardTierWhere(statusFilter as DashboardTier));
   }
 
   const rows = await query<{
@@ -539,7 +563,7 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
   const filterBar = h`<div class="my-filter-bar">
     <div class="filter-bar">
       ${statusFilterLink("", "All", allCount)}
-      ${DASHBOARD_STATUSES.map((s) => statusFilterLink(s, statusLabel(s), statusCounts.get(s) ?? 0))}
+      ${DASHBOARD_TIERS.map((s) => statusFilterLink(s.key, s.label, statusCounts.get(s.key) ?? 0))}
     </div>
     <form action="/my/submissions" method="get" class="my-search-form">
       ${statusFilter ? h`<input type="hidden" name="status" value="${statusFilter}">` : h``}
@@ -580,11 +604,11 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
     const slug = row.public_id;
     const submittedDate = new Date(row.submitted_at).toISOString().slice(0, 10);
 
-    // Overview is addressed by slug (every row has one). The A-number only
-    // exists once an entry is reproduced — show it when present, else a dash.
+    // Overview is addressed by slug (every row has one). Only drafts lack an
+    // A-number now — show it when present, else a dash.
     const idCell = eahId
       ? h`<a href="/my/submissions/${slug}"><code>${eahId}</code></a>`
-      : h`<span class="muted">— (no A-number until reproduced)</span>`;
+      : h`<span class="muted">— (drafts do not get an A-number)</span>`;
 
     const titleInner = row.title ?? h`<em>(untitled)</em>`;
     const titleEl = h`<a class="entry-card-title" href="/my/submissions/${slug}">${titleInner}</a>`;
@@ -611,10 +635,10 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
   });
 
   const rule = h`<p class="field-hint"><small>Drafts are unlimited. You may have at
-    most ${MAX_PENDING_PER_USER} published submissions <strong>still awaiting their
-    first staff review</strong> at once — publish a draft to put it live. If you run
-    out of room, you can just wait for staff to review one of them, or withdraw a
-    published one back to a draft to free up a slot.</small></p>`;
+    most ${MAX_PENDING_PER_USER} submissions <strong>still pending review</strong> at
+    once — submit a draft for review to put it live. If you run out of room, you can
+    just wait for staff to review one of them, or withdraw a pending one back to a
+    draft to free up a slot.</small></p>`;
 
   const body = totalOwned === 0
     ? h`${rule}<p>No submissions yet. <a href="/submit">Submit one</a>.</p>`
@@ -660,7 +684,7 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
   const slug = row.public_id;
   const dispId = eahId || row.title || slug;
 
-  // Only drafts and unreviewed submissions are editable here. Reviewed/rejected
+  // Only drafts and pending review submissions are editable here. Later tiers
   // are read-only — send them to the overview.
   if (row.status !== "draft" && row.status !== "unreviewed") {
     return new Response(null, { status: 303, headers: { Location: `/my/submissions/${slug}` } });
@@ -766,7 +790,7 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
   }
 
   const row = await fetchOwned(eahIdStr, ctx.user.userId);
-  // Drafts and unreviewed submissions are both editable.
+  // Drafts and pending review submissions are both editable.
   if (!row || (row.status !== "draft" && row.status !== "unreviewed")) {
     return pageResponse(req, {
       title: "Not found · ENAIH",
@@ -997,11 +1021,10 @@ export const myPropose: RouteHandler = async (req, ctx) => {
     return pageResponse(req, {
       title: "Too many awaiting review · ENAIH",
       heading: "Too many submissions awaiting review",
-      body: h`<p>You already have ${pending} published submissions still awaiting their
-        first staff review, which is the maximum (${MAX_PENDING_PER_USER}). This one
+      body: h`<p>You already have ${pending} submissions still pending review, which is the maximum (${MAX_PENDING_PER_USER}). This one
         stays a draft for now.</p>
         <p>To free up a slot, wait for staff to review one of them, or withdraw one back
-        to a draft from your submissions page. Then you can publish this one.</p>
+        to a draft from your submissions page. Then you can submit this one for review.</p>
         <p><a href="/my/submissions/${slug}">Back to ${dispId}</a> ·
            <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
@@ -1022,7 +1045,7 @@ export const myPropose: RouteHandler = async (req, ctx) => {
       );
       await tx.execute(
         `INSERT INTO submission_messages (submission_id, sender_type, body) VALUES (?, 'system', ?)`,
-        [row.id, `Submission published by ${username}.`],
+        [row.id, `Submission submitted for review by ${username}.`],
       );
     });
   } catch (err) {
@@ -1064,7 +1087,7 @@ export const myWithdrawConfirm: RouteHandler = async (req, ctx) => {
     return pageResponse(req, {
       title: "Not found · ENAIH",
       heading: "Not found",
-      body: h`<p>No unreviewed submission with that ID. <a href="/my/submissions">My submissions</a></p>`,
+      body: h`<p>No pending review submission with that ID. <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
     }, { status: 404 });
   }
@@ -1073,7 +1096,7 @@ export const myWithdrawConfirm: RouteHandler = async (req, ctx) => {
   const { token, setCookie } = tokenForRequest(req);
   const body = h`
     <p>Withdraw <strong>${dispId}</strong>? It moves back to your private drafts so you
-    can keep editing and publish it again later. The discussion with reviewers is kept.</p>
+    can keep editing and submit it for review again later. The discussion with reviewers is kept.</p>
     <form method="post" action="/my/submissions/${slug}/withdraw">
       <input type="hidden" name="_csrf" value="${token}">
       <input type="hidden" name="confirm" value="1">
