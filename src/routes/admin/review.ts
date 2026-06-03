@@ -214,9 +214,9 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
           );
         }
       } else if (action === "reproduce") {
-        // reviewed → reproduced. Allocate the canonical A-number here. Re-read
-        // the row under a lock first so we never allocate against an ineligible
-        // row (wrong status, link mode, or one that already has a number).
+        // reviewed → reproduced. Normal rows already have their A-number by the
+        // time they reach this step; the lock check prevents accidental fallback
+        // allocation on legacy rows that still need backfilling.
         const cur = await tx.queryOne<{ status: string; transcript_mode: string; eah_number: number | null }>(
           "SELECT status, transcript_mode, eah_number FROM submissions WHERE id = ? FOR UPDATE",
           [id],
@@ -282,7 +282,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   // public Discord channel then (it has no A-number yet, so link by slug).
   if (didReview) {
     void notifyPublished({
-      eahId: "",
+      eahId: formatEahId(exists.eah_number),
       publicId: exists.public_id,
       title: exists.title,
       modelLabel: exists.ai_model ?? "(unknown)",
@@ -292,6 +292,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
       void sendDecision({
         to: notifyTo,
         publicId: exists.public_id,
+        eahId: formatEahId(exists.eah_number),
         modelLabel: exists.ai_model ?? "(unknown)",
         decision: "approved",
         staffReviewMessage,

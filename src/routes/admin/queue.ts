@@ -323,7 +323,7 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
     if (row.status === "reviewed" && row.repro_status === "pending") {
       const repro = row.transcript_mode === "link"
         ? h`<span class="muted">Link submission — can't be reproduced (caps at reviewed). </span>`
-        : h`<button name="action" value="reproduce" type="submit">Mark reproduced (assign A-number)</button>
+        : h`<button name="action" value="reproduce" type="submit">Mark reproduced</button>
             <button name="action" value="fail" type="submit">Mark failed to reproduce</button>
             `;
       return h`${repro}<button name="action" value="reject" type="submit" class="btn-danger">Reject (delete)</button>`;

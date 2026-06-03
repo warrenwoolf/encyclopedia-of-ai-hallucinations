@@ -84,7 +84,6 @@ export async function notifyNewSubmission(opts: {
   const link = `${config.publicBaseUrl}/admin/queue/${opts.submissionId}`;
   const author = opts.anon ? "anonymous" : opts.username;
   const title = opts.title && opts.title.length > 0 ? opts.title : "(untitled)";
-  // No A-number until reproduced, so fall back to the public_id slug as a ref.
   const ref = opts.eahId || (opts.publicId ? `#${opts.publicId}` : "(unreviewed)");
   const content =
     `🆕 **New submission for review** — ${ref}\n` +
@@ -105,8 +104,6 @@ export async function notifyPublished(opts: {
   modelLabel: string;
   categoryLabel: string;
 }): Promise<void> {
-  // An entry becomes public at the 'reviewed' tier (before it has an A-number),
-  // so link by the slug when there's no number yet. The header notes the tier.
   const ref = opts.eahId || (opts.publicId ? `#${opts.publicId}` : "");
   const slugForLink = opts.eahId || opts.publicId || "";
   const link = `${config.publicBaseUrl}/e/${slugForLink}`;

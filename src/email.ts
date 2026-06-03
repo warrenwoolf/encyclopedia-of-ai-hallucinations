@@ -189,11 +189,8 @@ export async function sendReviewerMessage(opts: {
   bodyPreview: string;
 }): Promise<void> {
   const { to, publicId, eahId, modelLabel, reviewerName, bodyPreview } = opts;
-  // Owner routes are slug-addressed; lower tiers have no A-number, so always
-  // link by public_id. Reference the entry by A-number when it has one, else
-  // by model so the subject is never a bare "( )".
   const link = `${config.publicBaseUrl}/my/submissions/${encodeURIComponent(publicId)}/discussion`;
-  const ref = eahId && eahId.length > 0 ? eahId : modelLabel;
+  const ref = eahId && eahId.length > 0 ? eahId : publicId;
   const subject = `ENAIH: a reviewer commented on your submission (${ref})`;
   const preview = bodyPreview.length > 600 ? bodyPreview.slice(0, 600) + "…" : bodyPreview;
 
@@ -224,26 +221,26 @@ export async function sendReviewerMessage(opts: {
 export async function sendDecision(opts: {
   to: string;
   publicId: string;
+  eahId?: string;
   modelLabel: string;
   decision: "approved" | "rejected";
   staffReviewMessage: string | null;
   rejectionReason: string | null;
 }): Promise<void> {
-  const { to, publicId, modelLabel, decision, staffReviewMessage, rejectionReason } = opts;
+  const { to, publicId, eahId, modelLabel, decision, staffReviewMessage, rejectionReason } = opts;
+  const ref = eahId && eahId.length > 0 ? eahId : publicId;
 
-  // A confirmed entry reaches the 'reviewed' tier — public, but it has no
-  // A-number until staff reproduce it, so address it by its public_id slug.
   const subject =
     decision === "approved"
-      ? `ENAIH: your submission passed staff review (${modelLabel})`
+      ? `ENAIH: your submission passed staff review (${ref})`
       : `ENAIH: your submission was not accepted`;
 
   const lines: string[] = [];
   if (decision === "approved") {
-    lines.push(`Your submission to the Encyclopedia of AI Hallucinations was reviewed by staff and is now publicly listed.`);
+    lines.push(`Your submission to the Encyclopedia of AI Hallucinations was reviewed by staff and is now publicly listed as ${ref}.`);
     lines.push(``);
     lines.push(`Model: ${modelLabel}`);
-    lines.push(`View it: ${entryUrl(publicId)}`);
+    lines.push(`View it: ${entryUrl(ref)}`);
   } else {
     lines.push(`Your submission to the Encyclopedia of AI Hallucinations was not accepted.`);
     lines.push(``);
@@ -267,9 +264,9 @@ export async function sendDecision(opts: {
 
   const htmlParts: string[] = [];
   if (decision === "approved") {
-    htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was reviewed by staff and is now publicly listed.</p>`);
+    htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was reviewed by staff and is now publicly listed as <strong>${escape(ref)}</strong>.</p>`);
     htmlParts.push(`<p><strong>Model:</strong> ${escape(modelLabel)}</p>`);
-    htmlParts.push(`<p><a href="${escape(entryUrl(publicId))}">View the entry</a></p>`);
+    htmlParts.push(`<p><a href="${escape(entryUrl(ref))}">View the entry</a></p>`);
   } else {
     htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was not accepted.</p>`);
     htmlParts.push(`<p><strong>Model:</strong> ${escape(modelLabel)}</p>`);

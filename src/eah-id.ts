@@ -1,14 +1,16 @@
 /**
  * EAH A-number allocation and formatting.
  *
- * Every accepted-or-pending submission has a sequential integer (`eah_number`)
- * displayed everywhere as `A` + 6-digit zero-padded (`A000001`, `A123456`).
+ * Every numbered submission has a sequential integer (`eah_number`) displayed
+ * everywhere as `A` + 6-digit zero-padded (`A000001`, `A123456`).
  *
- * Allocation policy (matches OEIS):
- *   - Assigned at DRAFT creation (in submit.ts, inside the insert transaction).
- *   - FREED when a draft is rejected or withdrawn. The integer goes into
- *     `freed_eah_numbers` and is reassigned to the next incoming draft.
- *   - LOCKED once a submission is published. Never recycled after publication.
+ * Allocation policy:
+ *   - Assigned when a submission is proposed for review (in submit.ts/my.ts,
+ *     inside the insert/update transaction).
+ *   - FREED when a submission is withdrawn back to draft or deleted before it
+ *     is decided. The integer goes into `freed_eah_numbers` and is reassigned
+ *     to the next incoming submission that needs a number.
+ *   - LOCKED once a submission is decided. Never recycled after publication.
  *
  * All functions here operate on a transaction handle so callers can compose
  * allocation with the rest of an insert/update in a single atomic block.

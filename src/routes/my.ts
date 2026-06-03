@@ -22,7 +22,7 @@ import { isSuspended } from "../auth.ts";
 import { query, queryOne, transaction } from "../db.ts";
 import { tokenForRequest, verifyCsrf } from "../csrf.ts";
 import { CATEGORIES, categoryLabel, isValidCategory } from "../categories.ts";
-import { formatEahId, freeEahNumber } from "../eah-id.ts";
+import { allocateEahNumber, formatEahId, freeEahNumber } from "../eah-id.ts";
 import { recordVersionDiffs, type TrackedValues } from "../versions.ts";
 import { notifyNewSubmission } from "../discord.ts";
 import {
@@ -1009,12 +1009,16 @@ export const myPropose: RouteHandler = async (req, ctx) => {
   }
 
   const username = ctx.user.username;
+  let proposedEahId = row.eah_number;
 
   try {
     await transaction(async (tx) => {
+      if (proposedEahId === null) {
+        proposedEahId = await allocateEahNumber(tx);
+      }
       await tx.execute(
-        "UPDATE submissions SET status = 'unreviewed' WHERE id = ? AND owner_user_id = ? AND status = 'draft'",
-        [row.id, ctx.user!.userId],
+        "UPDATE submissions SET status = 'unreviewed', eah_number = ? WHERE id = ? AND owner_user_id = ? AND status = 'draft'",
+        [proposedEahId, row.id, ctx.user!.userId],
       );
       await tx.execute(
         `INSERT INTO submission_messages (submission_id, sender_type, body) VALUES (?, 'system', ?)`,
@@ -1034,7 +1038,7 @@ export const myPropose: RouteHandler = async (req, ctx) => {
   // Ping the staff Discord channel: this draft just entered the review queue.
   void notifyNewSubmission({
     submissionId: row.id,
-    eahId: formatEahId(row.eah_number),
+    eahId: formatEahId(proposedEahId),
     title: row.title,
     modelLabel: row.ai_model,
     username,
@@ -1049,9 +1053,9 @@ export const myPropose: RouteHandler = async (req, ctx) => {
 /**
  * GET confirmation page for withdrawing a proposed submission back to draft.
  * Withdraw is the inverse of propose: it pulls the submission out of the review
- * queue and back into your drafts (keeping the A-number, edit history, AND the
- * discussion thread — unlike the old "unpropose", nothing reviewer-side is
- * wiped). To actually discard the submission, withdraw then delete.
+ * queue and back into your drafts, freeing the A-number while keeping the edit
+ * history AND the discussion thread — unlike the old "unpropose", nothing
+ * reviewer-side is wiped. To actually discard the submission, withdraw then delete.
  */
 export const myWithdrawConfirm: RouteHandler = async (req, ctx) => {
   if (!ctx.user) return new Response(null, { status: 303, headers: { Location: "/login" } });
@@ -1110,6 +1114,7 @@ export const myWithdraw: RouteHandler = async (req, ctx) => {
 
   try {
     await transaction(async (tx) => {
+      await freeEahNumber(tx, row.id);
       await tx.execute(
         "UPDATE submissions SET status = 'draft' WHERE id = ? AND owner_user_id = ? AND status = 'unreviewed'",
         [row.id, ctx.user!.userId],

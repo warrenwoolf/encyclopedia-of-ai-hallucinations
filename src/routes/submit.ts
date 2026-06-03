@@ -15,7 +15,7 @@ import { CATEGORIES, isValidCategory } from "../categories.ts";
 import { config } from "../config.ts";
 import { isSuspended } from "../auth.ts";
 import { notifyNewSubmission } from "../discord.ts";
-import { formatEahId } from "../eah-id.ts";
+import { allocateEahNumber, formatEahId } from "../eah-id.ts";
 import {
   type TranscriptMode, type Turn,
   renderTranscriptFields, readTranscriptForm, applyTurnAction,
@@ -548,15 +548,17 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   // no submitter_email (notifications go through the account).
   const submitterEmail = null;
   // Non-draft submissions go public immediately as 'unreviewed' (hidden from
-  // default listings, viewable by link). A-numbers are NOT allocated here — they
-  // come only when a reviewed entry is marked 'reproduced' (see admin/review.ts).
+  // default listings, viewable by link). Proposed rows get their A-number now
+  // so the queue and outbound notifications can refer to the canonical ID.
   const submissionStatus = wantPropose ? "unreviewed" : "draft";
   const ownerUserId = ctx.user.userId;
 
   let newSubmissionId: number;
+  let newEahId = "";
   // Insert in a single transaction so partial inserts don't leak orphan tag rows.
   try {
     const result = await transaction(async (tx) => {
+      const allocatedEahNumber = wantPropose ? await allocateEahNumber(tx) : null;
       // REVIEWER NOTE: Verify all mathematical claims, code, and factual content
       // before approving. AI-assisted submissions have historically included wrong
       // factorizations, hallucinated citations, and incorrect proofs.
@@ -565,8 +567,8 @@ export const submitPost: RouteHandler = async (req, ctx) => {
           (public_id, title, tracking_hash, prompt, output, ai_model, summary, notes,
            shared_chat_url, source_url, category, author_name, submitted_at, status, ip_hash,
            submitter_email, hallucination_date, allow_author_edits, owner_user_id, anon_public,
-           transcript_mode)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?)`,
+           transcript_mode, eah_number)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           publicId,
           values.title,
@@ -593,10 +595,14 @@ export const submitPost: RouteHandler = async (req, ctx) => {
           ownerUserId,
           values.anon_public ? 1 : 0,
           storedMode,
+          allocatedEahNumber,
         ],
       );
       const submissionId = ins.insertId;
       if (!submissionId) throw new Error("insert returned no id");
+      if (allocatedEahNumber !== null) {
+        newEahId = formatEahId(allocatedEahNumber);
+      }
 
       // Multi-turn rows (none for 'single' or 'link').
       await replaceTurns(tx, submissionId, storedTurns);
@@ -641,7 +647,7 @@ export const submitPost: RouteHandler = async (req, ctx) => {
   if (wantPropose) {
     void notifyNewSubmission({
       submissionId: newSubmissionId,
-      eahId: "",
+      eahId: newEahId,
       publicId,
       title: values.title,
       modelLabel: values.ai_model,
