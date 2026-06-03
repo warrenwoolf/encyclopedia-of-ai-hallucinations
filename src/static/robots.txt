@@ -1,4 +1,5 @@
 User-agent: *
-Disallow: /
+Disallow: /admin/
+Allow: /
 
 Sitemap: https://enaih.org/sitemap.xml
