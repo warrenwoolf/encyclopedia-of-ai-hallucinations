@@ -332,8 +332,9 @@ function renderEditForm(opts: {
         <label class="checkbox-label">
           <input type="checkbox" name="allow_author_edits" value="1"
                  ${values.allow_author_edits ? raw("checked") : raw("")}>
-          Allow ENAIH staff to edit this submission. You can always edit it
-          yourself regardless of this setting.
+          Allow ENAIH staff to edit this submission's content. Staff can always
+          update its active/patched status regardless of this setting, and you can
+          always edit it yourself.
         </label>
       </p>
 
@@ -610,10 +611,10 @@ export const mySubmissions: RouteHandler = async (req, ctx) => {
   });
 
   const rule = h`<p class="field-hint"><small>Drafts are unlimited. You may have at
-    most ${MAX_PENDING_PER_USER} submissions <strong>awaiting review</strong> at once —
-    propose a draft to send it for review. If you run out of room, you can just wait
-    for one of your proposals to be accepted, or withdraw a proposed one back to a
-    draft to free up a slot.</small></p>`;
+    most ${MAX_PENDING_PER_USER} published submissions <strong>still awaiting their
+    first staff review</strong> at once — publish a draft to put it live. If you run
+    out of room, you can just wait for staff to review one of them, or withdraw a
+    published one back to a draft to free up a slot.</small></p>`;
 
   const body = totalOwned === 0
     ? h`${rule}<p>No submissions yet. <a href="/submit">Submit one</a>.</p>`
@@ -969,7 +970,7 @@ export const myPropose: RouteHandler = async (req, ctx) => {
     return pageResponse(req, {
       title: "Timed out · ENAIH",
       heading: "You're timed out",
-      body: h`<p>You can't propose a submission for review while your account is
+      body: h`<p>You can't publish a submission while your account is
         timed out${ctx.user.suspendedReason ? h`: <em>${ctx.user.suspendedReason}</em>` : raw("")}.
         You can still edit or withdraw your drafts.</p>
         <p><a href="/my/submissions">My submissions</a></p>`,
@@ -994,12 +995,13 @@ export const myPropose: RouteHandler = async (req, ctx) => {
   if (pending >= MAX_PENDING_PER_USER) {
     const dispId = row.title ?? slug;
     return pageResponse(req, {
-      title: "Too many in review · ENAIH",
-      heading: "Too many submissions in review",
-      body: h`<p>You already have ${pending} submissions awaiting review, which is the
-        maximum (${MAX_PENDING_PER_USER}). This one stays a draft for now.</p>
-        <p>To free up a slot, wait for a decision on an unreviewed submission, or withdraw
-        one back to a draft from your submissions page. Then you can propose this one.</p>
+      title: "Too many awaiting review · ENAIH",
+      heading: "Too many submissions awaiting review",
+      body: h`<p>You already have ${pending} published submissions still awaiting their
+        first staff review, which is the maximum (${MAX_PENDING_PER_USER}). This one
+        stays a draft for now.</p>
+        <p>To free up a slot, wait for staff to review one of them, or withdraw one back
+        to a draft from your submissions page. Then you can publish this one.</p>
         <p><a href="/my/submissions/${slug}">Back to ${dispId}</a> ·
            <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
@@ -1016,7 +1018,7 @@ export const myPropose: RouteHandler = async (req, ctx) => {
       );
       await tx.execute(
         `INSERT INTO submission_messages (submission_id, sender_type, body) VALUES (?, 'system', ?)`,
-        [row.id, `Submission proposed for review by ${username}.`],
+        [row.id, `Submission published by ${username}.`],
       );
     });
   } catch (err) {
@@ -1066,12 +1068,12 @@ export const myWithdrawConfirm: RouteHandler = async (req, ctx) => {
   const dispId = row.title ?? slug;
   const { token, setCookie } = tokenForRequest(req);
   const body = h`
-    <p>Withdraw <strong>${dispId}</strong> from review? It moves back to your private drafts so you
-    can keep editing and propose it again later. The discussion with reviewers is kept.</p>
+    <p>Withdraw <strong>${dispId}</strong>? It moves back to your private drafts so you
+    can keep editing and publish it again later. The discussion with reviewers is kept.</p>
     <form method="post" action="/my/submissions/${slug}/withdraw">
       <input type="hidden" name="_csrf" value="${token}">
       <input type="hidden" name="confirm" value="1">
-      <button type="submit" class="btn-secondary">Withdraw from review</button>
+      <button type="submit" class="btn-secondary">Withdraw</button>
     </form>
     <p><a href="/my/submissions/${slug}">Cancel</a></p>
   `;

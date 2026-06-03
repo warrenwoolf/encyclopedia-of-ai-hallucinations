@@ -44,7 +44,9 @@ log "host arch: $(dpkg --print-architecture)"  # amd64 (DO) or arm64 (Oracle) bo
 # ---- 1. base packages ------------------------------------------------------
 log "apt update + base packages"
 sudo apt-get update -y
-sudo apt-get install -y ca-certificates curl gnupg openssl
+# age: encrypts DB backups at creation (scripts/backup-db.sh). s3cmd: off-box
+# Spaces upload. Both are host-side ops tooling, not app/container deps.
+sudo apt-get install -y ca-certificates curl gnupg openssl age s3cmd
 
 # ---- 2. Docker Engine + compose plugin (official repo) ---------------------
 if ! command -v docker >/dev/null 2>&1; then

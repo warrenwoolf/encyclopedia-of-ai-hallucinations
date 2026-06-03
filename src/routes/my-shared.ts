@@ -79,13 +79,13 @@ export function actionBar(slug: string, status: string, token: string, eahId = "
   if (status === "draft") {
     const propose = h`<form class="inline-form" method="post" action="/my/submissions/${slug}/propose">
         <input type="hidden" name="_csrf" value="${token}">
-        <button class="linkbutton" type="submit">propose for review</button>
+        <button class="linkbutton" type="submit">publish</button>
       </form>`;
     const del = h`<a class="del-link" href="/my/submissions/${slug}/delete">delete</a>`;
     return h`<p class="action-bar">${overview} · ${edit} · ${discussion} · ${history} · ${propose} · ${del} · ${mySubs}</p>`;
   }
   if (status === "unreviewed") {
-    const withdraw = h`<a href="/my/submissions/${slug}/withdraw">withdraw from review</a>`;
+    const withdraw = h`<a href="/my/submissions/${slug}/withdraw">withdraw</a>`;
     return h`<p class="action-bar">${overview} · ${edit} · ${discussion} · ${history} · ${withdraw} · ${mySubs}</p>`;
   }
   if (status === "reviewed") {

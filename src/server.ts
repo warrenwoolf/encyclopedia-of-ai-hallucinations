@@ -32,7 +32,8 @@ import { postGisVerify, getChooseUsername, postChooseUsername } from "./routes/o
 import { getQueue, getQueueDetail } from "./routes/admin/queue.ts";
 import { postReview, postReviewMessage } from "./routes/admin/review.ts";
 import {
-  getNewEntry, postNewEntry, getEditEntry, postEditEntry, postEntryStatus, redirectToEntry,
+  getNewEntry, postNewEntry, getEditEntry, postEditEntry, getQueueEdit, postQueueEdit,
+  postEntryStatus, redirectToEntry,
 } from "./routes/admin/entries.ts";
 import { getAll, getDeleteConfirm, postDelete } from "./routes/admin/all.ts";
 import { getCategories, postCategory, getDeleteCategory, postDeleteCategory } from "./routes/admin/categories.ts";
@@ -119,6 +120,8 @@ const ROUTES: RouteDef[] = [
   route("GET", "/admin/queue", getQueue),
   route("GET", "/admin/queue/:id", getQueueDetail),
   route("POST", "/admin/queue/:id", postReview),
+  route("GET", "/admin/queue/:id/edit", getQueueEdit),
+  route("POST", "/admin/queue/:id/edit", postQueueEdit),
   route("POST", "/admin/queue/:id/message", postReviewMessage),
   route("GET", "/admin/all", getAll),
   // Read-only list of open entry complaints (staff + owner).

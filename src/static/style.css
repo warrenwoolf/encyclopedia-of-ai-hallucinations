@@ -1055,6 +1055,9 @@ pre.citation {
 /* Trust-tier banner (unreviewed / reviewed-not-reproduced / failed) */
 .tier-banner {
   background: #fff8e6;
+  /* Fixed cream background in both themes, so pin the text dark too — otherwise
+     dark-theme inherits white body text and the banner is white-on-cream. */
+  color: #1a1a1a;
   border: 1px solid var(--warning);
   border-left-width: 4px;
   padding: 8px;

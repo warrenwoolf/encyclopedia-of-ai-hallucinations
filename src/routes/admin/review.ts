@@ -291,7 +291,6 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     if (notifyTo) {
       void sendDecision({
         to: notifyTo,
-        eahId: "",
         publicId: exists.public_id,
         modelLabel: exists.ai_model ?? "(unknown)",
         decision: "approved",
@@ -305,6 +304,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   if (didReproduce && notifyTo) {
     void sendReviewerMessage({
       to: notifyTo,
+      publicId: exists.public_id,
       eahId: reproducedEahId,
       modelLabel: exists.ai_model ?? "(unknown)",
       reviewerName: ctx.admin.username,
@@ -314,7 +314,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   if (didFail && notifyTo) {
     void sendReviewerMessage({
       to: notifyTo,
-      eahId: formatEahId(exists.eah_number),
+      publicId: exists.public_id,
       modelLabel: exists.ai_model ?? "(unknown)",
       reviewerName: ctx.admin.username,
       bodyPreview: `Staff reviewed your entry but could not reproduce it. It stays public as a reported, unreproduced sighting.`,
@@ -325,7 +325,6 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   if (didReject && notifyTo) {
     void sendDecision({
       to: notifyTo,
-      eahId: "",
       publicId: exists.public_id,
       modelLabel: exists.ai_model ?? "(unknown)",
       decision: "rejected",
@@ -374,12 +373,13 @@ export async function postReviewMessage(req: Request, ctx: RouteContext): Promis
 
   const exists = await queryOne<{
     id: number;
+    public_id: string;
     eah_number: number | null;
     ai_model: string | null;
     submitter_email: string | null;
     owner_email: string | null;
   }>(
-    `SELECT s.id, s.eah_number, s.ai_model, s.submitter_email, u.email AS owner_email
+    `SELECT s.id, s.public_id, s.eah_number, s.ai_model, s.submitter_email, u.email AS owner_email
        FROM submissions s
        LEFT JOIN users u ON u.id = s.owner_user_id
       WHERE s.id = ?`,
@@ -398,6 +398,7 @@ export async function postReviewMessage(req: Request, ctx: RouteContext): Promis
   if (messageTo) {
     void sendReviewerMessage({
       to: messageTo,
+      publicId: exists.public_id,
       eahId: formatEahId(exists.eah_number),
       modelLabel: exists.ai_model ?? "(unknown)",
       reviewerName: ctx.admin.username,

@@ -12,6 +12,7 @@ import { tokenForRequest } from "../../csrf.ts";
 import { formatEahId } from "../../eah-id.ts";
 import { htmlResponse, type RouteContext } from "../types.ts";
 import { findSimilar } from "../../similarity.ts";
+import { mayEdit } from "./entries.ts";
 
 /** Jump-to-entry form used in both queue list and detail views. */
 const jumpToForm: SafeHtml = h`
@@ -248,19 +249,18 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
 
   const eahId = formatEahId(row.eah_number);
 
-  // Staff may edit a submission they don't own only if the submitter allowed
-  // it (allow_author_edits) — owners can always edit, and anyone can edit
-  // owner-less (legacy / direct) entries or their own.
-  const canStaffEdit = eahId !== "" && (
-    !!ctx.owner ||
-    row.owner_user_id == null ||
-    row.owner_user_id === ctx.admin!.userId ||
-    row.allow_author_edits === 1
-  );
-  const editLink: SafeHtml = eahId === ""
-    ? raw("")
-    : canStaffEdit
-      ? h`<p><a href="/admin/entries/${eahId}/edit">✎ edit this submission's content →</a></p>`
+  // Edit affordance follows the same policy the edit handler enforces (mayEdit):
+  // owners can always edit; reviewed entries are owner-only; otherwise staff may
+  // edit owner-less entries, their own, or ones whose submitter opted in. Queue
+  // entries have no A-number, so address the editor by submission id; reproduced
+  // canon is addressed by its A-number.
+  const editHref = eahId !== ""
+    ? `/admin/entries/${eahId}/edit`
+    : `/admin/queue/${row.id}/edit`;
+  const editLink: SafeHtml = mayEdit(row, ctx)
+    ? h`<p><a href="${editHref}">✎ edit this submission's content →</a></p>`
+    : row.status === "reviewed"
+      ? h`<p class="muted">Reviewed entries can only be edited by an owner.</p>`
       : h`<p class="muted">The submitter hasn't allowed staff to edit this submission.</p>`;
 
   const chatBlock: SafeHtml = h`
@@ -414,7 +414,7 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
         ownerUsername ? h`${ownerUsername}` : (row.author_name ? h`${row.author_name}` : h`<em>none</em>`)
       }${row.anon_public ? raw(' <small>(anonymous to public)</small>') : raw("")}</dd>
       <dt>staff edits</dt><dd>${row.allow_author_edits ? "allowed by submitter" : "not allowed by submitter"}</dd>
-      <dt>email</dt><dd>${row.submitter_email ? h`<code>${row.submitter_email}</code>` : h`<em>none</em>`}</dd>
+      ${ctx.owner ? h`<dt>email</dt><dd>${row.submitter_email ? h`<code>${row.submitter_email}</code>` : h`<em>none</em>`}</dd>` : raw("")}
       <dt>submitted</dt><dd>${fmtDate(row.submitted_at)}</dd>
       <dt>hallucination date</dt><dd>${row.hallucination_date ?? h`<em>(unspecified)</em>`}</dd>
       <dt>tags</dt><dd>${tagsHtml}</dd>

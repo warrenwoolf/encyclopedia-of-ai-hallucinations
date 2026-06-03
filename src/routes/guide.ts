@@ -39,11 +39,12 @@ export const guide: RouteHandler = (req, ctx) => {
     <h2>How to submit</h2>
     <p>Go to <a href="/submit">/submit</a>. Paste the prompt, the model's
        response, the model name, optionally a category and tags, and ideally a
-       shared chat link. You can <strong>submit for review</strong> — which
-       publishes the entry immediately (see the trust ladder below) — or
-       <strong>save it as a draft</strong> and propose it later from
+       shared chat link. You can <strong>publish</strong> it — which puts the
+       entry live immediately (see the trust ladder below) — or
+       <strong>save it as a draft</strong> and publish it later from
        <a href="/my/submissions">/my/submissions</a>. You may have at most 5
-       submissions in the review queue at once (drafts are unlimited).</p>
+       published submissions still awaiting their first staff review at once
+       (drafts are unlimited).</p>
 
     <h2>The trust ladder</h2>
     <p>Entries don't wait in a private queue before going live — they're public

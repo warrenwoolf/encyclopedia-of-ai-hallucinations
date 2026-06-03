@@ -143,6 +143,11 @@ function renderSignupPage(opts: {
     ${googleButton(opts.csrfToken)}
     ${dividerWord}
     ${passwordForm}
+    <p class="muted">By creating an account you agree to our
+       <a href="/terms">terms</a> and confirm you've read our
+       <a href="/privacy">privacy policy</a>. We store your email address to run
+       your account and to send verification and submission-related messages —
+       we never send marketing email.</p>
     <p>Already have an account? <a href="/login">Sign in</a>.</p>
   `;
   return htmlResponse(

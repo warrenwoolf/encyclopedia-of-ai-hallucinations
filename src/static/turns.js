@@ -93,3 +93,27 @@
 
   applyMode();
 })();
+
+/* Live "N / MAX chars" counters. Each textarea with data-char-count="<id>"
+ * points at a <small id="<id>"> readout whose initial text is "0 / MAX chars".
+ * Server-rendered text stays correct with JS off; this just keeps it live. */
+(function () {
+  "use strict";
+  var fields = document.querySelectorAll("textarea[data-char-count]");
+  if (!fields.length) return;
+
+  function update(ta, out) {
+    var max = parseInt(ta.getAttribute("maxlength"), 10);
+    var n = ta.value.length;
+    out.textContent = max > 0 ? n + " / " + max + " chars" : n + " chars";
+  }
+
+  for (var i = 0; i < fields.length; i++) {
+    (function (ta) {
+      var out = document.getElementById(ta.getAttribute("data-char-count"));
+      if (!out) return;
+      update(ta, out);
+      ta.addEventListener("input", function () { update(ta, out); });
+    })(fields[i]);
+  }
+})();

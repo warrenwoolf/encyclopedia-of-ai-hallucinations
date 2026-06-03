@@ -121,13 +121,13 @@ function renderForm(opts: {
              required value="${values.title}"
              placeholder="e.g. Savanna H-count error">
 
-      <label for="ai_model">AI model <small>(or service + date if exact model unknown)</small></label>
+      <label for="ai_model">AI model <small>(or service name if exact model unknown)</small></label>
       <input id="ai_model" name="ai_model" type="text" maxlength="${LIMITS.ai_model}"
              required value="${values.ai_model}"
-             placeholder="e.g. GPT-4o, Claude 3.5 Sonnet, or 'Google AI Overview (accessed 2026-05-19)'">
+             placeholder="e.g. GPT-4o, Claude 3.5 Sonnet, or 'Google AI Overview'">
       <p class="field-hint"><small>For products that don't expose their exact model
-        (e.g. Google's AI Overview, Bing search summaries), write the service name
-        and the date you accessed it.</small></p>
+        (e.g. Google's AI Overview, Bing search summaries), write the service name.
+        Use the date field below to record when you saw it.</small></p>
 
       <label for="category">Category <small>(optional — leave blank and our reviewers will categorize it)</small></label>
       <select id="category" name="category">
@@ -201,32 +201,32 @@ function renderForm(opts: {
         <label class="checkbox-label">
           <input type="checkbox" name="allow_author_edits" value="1"
                  ${values.allow_author_edits ? raw('checked') : raw('')}>
-          Allow ENAIH staff to edit this submission (e.g. to add reproduction
-          notes, fix typos, or update the patched status). You can always edit
-          your own submission regardless.
+          Allow ENAIH staff to edit this submission's content (e.g. to add
+          reproduction notes or fix typos). Staff can always update its
+          active/patched status regardless of this setting, and you can always
+          edit your own submission.
         </label>
       </p>
 
-      <p class="field-hint"><small><strong>Submit for review</strong> publishes
-        this entry right away: it goes live as <em>unreviewed</em> (reachable by
-        link, hidden from the default listings) and enters the staff review queue,
-        where it can climb the trust ladder toward a permanent A-number.
+      <p class="field-hint"><small><strong>Publish</strong> puts this entry live
+        right away as <em>unreviewed</em> (reachable by link, hidden from the
+        default listings). Staff vet it afterward, and from there it can climb the
+        trust ladder toward a permanent A-number.
         <strong>Save as draft</strong> just stores it privately — nothing is
-        published or sent to staff until you propose it later from
+        published or sent to staff until you publish it later from
         <a href="/my/submissions">/my/submissions</a>.</small></p>
 
       <div class="form-actions">
-        <button type="submit" name="action" value="propose">Submit for review</button>
+        <button type="submit" name="action" value="propose">Publish</button>
         <button type="submit" name="action" value="draft" class="btn-secondary">Save as draft</button>
       </div>
     </form>
 
-    <p><small>Submitting for review publishes your entry immediately as
-    <em>unreviewed</em>; staff vet it afterward and it climbs the trust ladder.
-    Manage your drafts and chat with reviewers from
-    <a href="/my/submissions">/my/submissions</a>. You can keep as many drafts
-    as you like; you may have at most ${MAX_PENDING_PER_USER} submissions
-    in the review queue at once.</small></p>
+    <p><small>Publishing puts your entry live immediately as <em>unreviewed</em>;
+    staff vet it afterward and it climbs the trust ladder. Manage your drafts and
+    chat with reviewers from <a href="/my/submissions">/my/submissions</a>. You can
+    keep as many drafts as you like; you may have at most ${MAX_PENDING_PER_USER}
+    published submissions still awaiting their first staff review at once.</small></p>
   `;
 }
 
@@ -526,11 +526,11 @@ export const submitPost: RouteHandler = async (req, ctx) => {
     if (pending >= MAX_PENDING_PER_USER) {
       return showForm(req, ctx, {
         values,
-        error: `You already have ${pending} submissions awaiting review, which is ` +
-          `the maximum (${MAX_PENDING_PER_USER}). You can still save this as a draft — ` +
-          `use the “Save as draft” button below. To submit it for review later, first ` +
-          `wait for a decision on one of your pending submissions, or withdraw one back ` +
-          `to a draft from your submissions page.`,
+        error: `You already have ${pending} published submissions still awaiting ` +
+          `their first staff review, which is the maximum (${MAX_PENDING_PER_USER}). ` +
+          `You can still save this as a draft — use the “Save as draft” button below. ` +
+          `To publish it later, first wait for staff to review one of your pending ` +
+          `submissions, or withdraw one back to a draft from your submissions page.`,
         status: 429,
       });
     }

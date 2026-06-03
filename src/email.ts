@@ -182,29 +182,37 @@ function htmlWrap(body: string): string {
  */
 export async function sendReviewerMessage(opts: {
   to: string;
-  eahId: string;
+  publicId: string;
+  eahId?: string; // A-number, only once reproduced; "" / omitted otherwise
   modelLabel: string;
   reviewerName: string;
   bodyPreview: string;
 }): Promise<void> {
-  const { to, eahId, modelLabel, reviewerName, bodyPreview } = opts;
-  const link = `${config.publicBaseUrl}/my/submissions/${eahId}/discussion`;
-  const subject = `ENAIH: a reviewer commented on your submission (${eahId})`;
+  const { to, publicId, eahId, modelLabel, reviewerName, bodyPreview } = opts;
+  // Owner routes are slug-addressed; lower tiers have no A-number, so always
+  // link by public_id. Reference the entry by A-number when it has one, else
+  // by model so the subject is never a bare "( )".
+  const link = `${config.publicBaseUrl}/my/submissions/${encodeURIComponent(publicId)}/discussion`;
+  const ref = eahId && eahId.length > 0 ? eahId : modelLabel;
+  const subject = `ENAIH: a reviewer commented on your submission (${ref})`;
   const preview = bodyPreview.length > 600 ? bodyPreview.slice(0, 600) + "…" : bodyPreview;
 
+  const idLineText = eahId && eahId.length > 0 ? `ENAIH ID: ${eahId}\n` : ``;
   const text =
     `A staff reviewer (${reviewerName}) posted a comment on your submission ` +
     `to the Encyclopedia of AI Hallucinations.\n\n` +
-    `ENAIH ID: ${eahId}\n` +
+    idLineText +
     `Model: ${modelLabel}\n\n` +
     `> ${preview.split("\n").join("\n> ")}\n\n` +
     `Read the full thread and reply:\n${link}\n`;
 
+  const idLineHtml = eahId && eahId.length > 0
+    ? `<strong>ENAIH ID:</strong> <code>${escape(eahId)}</code><br>`
+    : ``;
   const html = htmlWrap(
     `<p>A staff reviewer (<strong>${escape(reviewerName)}</strong>) posted a comment on your ` +
       `submission to the <strong>Encyclopedia of AI Hallucinations</strong>.</p>` +
-      `<p><strong>ENAIH ID:</strong> <code>${escape(eahId)}</code><br>` +
-      `<strong>Model:</strong> ${escape(modelLabel)}</p>` +
+      `<p>${idLineHtml}<strong>Model:</strong> ${escape(modelLabel)}</p>` +
       `<blockquote style="border-left:3px solid #ccc;padding-left:0.8em;color:#444;white-space:pre-wrap">${escape(preview)}</blockquote>` +
       `<p><a href="${escape(link)}">Read the full thread and reply</a></p>`,
   );
@@ -215,27 +223,27 @@ export async function sendReviewerMessage(opts: {
 /** Sent after admin accept/reject when submitter_email is present. */
 export async function sendDecision(opts: {
   to: string;
-  eahId: string;
   publicId: string;
   modelLabel: string;
   decision: "approved" | "rejected";
   staffReviewMessage: string | null;
   rejectionReason: string | null;
 }): Promise<void> {
-  const { to, eahId, modelLabel, decision, staffReviewMessage, rejectionReason } = opts;
+  const { to, publicId, modelLabel, decision, staffReviewMessage, rejectionReason } = opts;
 
+  // A confirmed entry reaches the 'reviewed' tier — public, but it has no
+  // A-number until staff reproduce it, so address it by its public_id slug.
   const subject =
     decision === "approved"
-      ? `ENAIH: your submission was published (${eahId})`
+      ? `ENAIH: your submission passed staff review (${modelLabel})`
       : `ENAIH: your submission was not accepted`;
 
   const lines: string[] = [];
   if (decision === "approved") {
-    lines.push(`Your submission to the Encyclopedia of AI Hallucinations was approved and is now public.`);
+    lines.push(`Your submission to the Encyclopedia of AI Hallucinations was reviewed by staff and is now publicly listed.`);
     lines.push(``);
-    lines.push(`ENAIH ID: ${eahId}`);
     lines.push(`Model: ${modelLabel}`);
-    lines.push(`View it: ${entryUrl(eahId)}`);
+    lines.push(`View it: ${entryUrl(publicId)}`);
   } else {
     lines.push(`Your submission to the Encyclopedia of AI Hallucinations was not accepted.`);
     lines.push(``);
@@ -259,10 +267,9 @@ export async function sendDecision(opts: {
 
   const htmlParts: string[] = [];
   if (decision === "approved") {
-    htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was approved and is now public.</p>`);
-    htmlParts.push(`<p><strong>ENAIH ID:</strong> <code>${escape(eahId)}</code><br>` +
-      `<strong>Model:</strong> ${escape(modelLabel)}</p>`);
-    htmlParts.push(`<p><a href="${escape(entryUrl(eahId))}">View the published entry</a></p>`);
+    htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was reviewed by staff and is now publicly listed.</p>`);
+    htmlParts.push(`<p><strong>Model:</strong> ${escape(modelLabel)}</p>`);
+    htmlParts.push(`<p><a href="${escape(entryUrl(publicId))}">View the entry</a></p>`);
   } else {
     htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was not accepted.</p>`);
     htmlParts.push(`<p><strong>Model:</strong> ${escape(modelLabel)}</p>`);

@@ -17,7 +17,6 @@ describe("send* never throw (best-effort side channel)", () => {
     await expect(
       sendDecision({
         to: "user@example.com",
-        eahId: "A000001",
         publicId: "abc",
         modelLabel: "GPT-4o",
         decision: "approved",
@@ -31,7 +30,6 @@ describe("send* never throw (best-effort side channel)", () => {
     await expect(
       sendDecision({
         to: "user@example.com",
-        eahId: "",
         publicId: "abc",
         modelLabel: "GPT-4o",
         decision: "rejected",
@@ -45,6 +43,7 @@ describe("send* never throw (best-effort side channel)", () => {
     await expect(
       sendReviewerMessage({
         to: "user@example.com",
+        publicId: "abc",
         eahId: "A000001",
         modelLabel: "Claude",
         reviewerName: "rudra",

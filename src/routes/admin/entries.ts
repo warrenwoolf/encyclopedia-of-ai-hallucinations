@@ -79,13 +79,12 @@ async function badRequest(message: string, status = 400): Promise<Response> {
 
 function renderForm(opts: {
   mode: "new" | "edit";
-  eahId?: string;
+  action: string;
   values: FormValues;
   csrf: string;
   error: string | null;
 }): SafeHtml {
-  const { mode, eahId, values, csrf, error } = opts;
-  const action = mode === "new" ? "/admin/entries/new" : `/admin/entries/${eahId}/edit`;
+  const { mode, action, values, csrf, error } = opts;
 
   const errBlock = error
     ? h`<div class="form-error" role="alert"><strong>Error:</strong> ${error}</div>`
@@ -282,7 +281,7 @@ async function syncTags(tx: any, submissionId: number, tags: string[]): Promise<
 export async function getNewEntry(req: Request, ctx: RouteContext): Promise<Response> {
   if (!ctx.admin) return authRedirect();
   const { token, setCookie } = tokenForRequest(req);
-  const body = renderForm({ mode: "new", values: emptyForm(), csrf: token, error: null });
+  const body = renderForm({ mode: "new", action: "/admin/entries/new", values: emptyForm(), csrf: token, error: null });
   return htmlResponse(
     await layout({ title: "Add entry · ENAIH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
     { setCookie },
@@ -304,7 +303,7 @@ export async function postNewEntry(req: Request, ctx: RouteContext): Promise<Res
   const v = validate(values);
   if (!v.ok) {
     const { token, setCookie } = tokenForRequest(req);
-    const body = renderForm({ mode: "new", values, csrf: token, error: v.error });
+    const body = renderForm({ mode: "new", action: "/admin/entries/new", values, csrf: token, error: v.error });
     return htmlResponse(
       await layout({ title: "Add entry · ENAIH admin", heading: "Add a new published entry", body, user: ctx.user, csrfToken: token }),
       { status: 400, setCookie },
@@ -368,9 +367,10 @@ export async function postNewEntry(req: Request, ctx: RouteContext): Promise<Res
 
 // ─── edit entry ─────────────────────────────────────────────────────────────
 
-async function loadByEahId(eahIdParam: string): Promise<{
+interface EditRow {
   id: number;
-  eah_number: number;
+  eah_number: number | null;
+  public_id: string;
   title: string | null;
   prompt: string;
   output: string;
@@ -387,16 +387,27 @@ async function loadByEahId(eahIdParam: string): Promise<{
   verified_hits: number | null;
   verified_total: number | null;
   status: string;
-} | null> {
+}
+
+const EDIT_COLUMNS = `id, eah_number, public_id, title, prompt, output, ai_model, summary, notes,
+  shared_chat_url, category, author_name, owner_user_id, allow_author_edits, hallucination_date,
+  entry_status, verified_hits, verified_total, status`;
+
+async function loadByEahId(eahIdParam: string): Promise<EditRow | null> {
   const n = parseEahId(eahIdParam);
   if (n === null) return null;
-  const row = await queryOne<any>(
-    `SELECT id, eah_number, title, prompt, output, ai_model, summary, notes, shared_chat_url,
-            category, author_name, owner_user_id, allow_author_edits, hallucination_date,
-            entry_status, verified_hits, verified_total, status
-       FROM submissions
-       WHERE eah_number = ?`,
+  const row = await queryOne<EditRow>(
+    `SELECT ${EDIT_COLUMNS} FROM submissions WHERE eah_number = ?`,
     [n],
+  );
+  return row ?? null;
+}
+
+async function loadById(idParam: string): Promise<EditRow | null> {
+  if (!/^\d+$/.test(idParam)) return null;
+  const row = await queryOne<EditRow>(
+    `SELECT ${EDIT_COLUMNS} FROM submissions WHERE id = ?`,
+    [parseInt(idParam, 10)],
   );
   return row ?? null;
 }
@@ -411,7 +422,7 @@ async function loadByEahId(eahIdParam: string): Promise<{
  * (allow_author_edits); owners can edit anything; owner-less (legacy /
  * staff-created direct) entries are freely editable.
  */
-function mayEdit(
+export function mayEdit(
   row: { owner_user_id: number | null; allow_author_edits: number; status: string },
   ctx: RouteContext,
 ): boolean {
@@ -424,19 +435,30 @@ function mayEdit(
   );
 }
 
-export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Response> {
-  if (!ctx.admin) return authRedirect();
-  const row = await loadByEahId(ctx.params.eahId ?? "");
-  if (!row) return await badRequest("No entry with that A-number.", 404);
-  if (!mayEdit(row, ctx)) {
-    return await badRequest(
-      row.status === "reviewed"
-        ? "Reviewed entries can only be edited by an owner."
-        : "The submitter hasn't allowed staff to edit this submission.",
-      403,
-    );
-  }
+// The edit form is reachable two ways: by A-number (/admin/entries/:eahId/edit,
+// for reproduced canon) and by submission id (/admin/queue/:id/edit, for queue
+// entries that have no A-number yet). Both share the render/save logic below;
+// only the loader, the form action, and the heading differ.
+function editFormAction(row: EditRow): string {
+  return row.eah_number !== null
+    ? `/admin/entries/${formatEahId(row.eah_number)}/edit`
+    : `/admin/queue/${row.id}/edit`;
+}
 
+function editHeading(row: EditRow): string {
+  return formatEahId(row.eah_number) || `submission #${row.id}`;
+}
+
+function editForbidden(row: EditRow): Promise<Response> {
+  return badRequest(
+    row.status === "reviewed"
+      ? "Reviewed entries can only be edited by an owner."
+      : "The submitter hasn't allowed staff to edit this submission.",
+    403,
+  );
+}
+
+async function renderEditPage(req: Request, ctx: RouteContext, row: EditRow): Promise<Response> {
   const tagRows = await query<{ name: string }>(
     `SELECT t.name FROM submission_tags st JOIN tags t ON t.id = st.tag_id
      WHERE st.submission_id = ? ORDER BY t.name ASC`,
@@ -460,13 +482,13 @@ export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Res
     verified_total: row.verified_total !== null ? String(row.verified_total) : "",
   };
 
-  const eahId = formatEahId(row.eah_number);
+  const heading = editHeading(row);
   const { token, setCookie } = tokenForRequest(req);
-  const body = renderForm({ mode: "edit", eahId, values, csrf: token, error: null });
+  const body = renderForm({ mode: "edit", action: editFormAction(row), values, csrf: token, error: null });
   return htmlResponse(
     await layout({
-      title: `Edit ${eahId} · ENAIH admin`,
-      heading: `Edit ${eahId}`,
+      title: `Edit ${heading} · ENAIH admin`,
+      heading: `Edit ${heading}`,
       body,
       user: ctx.user, csrfToken: token,
     }),
@@ -474,21 +496,7 @@ export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Res
   );
 }
 
-export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Response> {
-  if (!ctx.admin) return authRedirect();
-
-  const eahIdParam = ctx.params.eahId ?? "";
-  const row = await loadByEahId(eahIdParam);
-  if (!row) return await badRequest("No entry with that A-number.", 404);
-  if (!mayEdit(row, ctx)) {
-    return await badRequest(
-      row.status === "reviewed"
-        ? "Reviewed entries can only be edited by an owner."
-        : "The submitter hasn't allowed staff to edit this submission.",
-      403,
-    );
-  }
-
+async function saveEditPage(req: Request, ctx: RouteContext, row: EditRow): Promise<Response> {
   let form: URLSearchParams;
   try {
     form = await parseForm(req, 128 * 1024);
@@ -500,12 +508,13 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
   const values = readForm(form);
   const v = validate(values);
   if (!v.ok) {
+    const heading = editHeading(row);
     const { token, setCookie } = tokenForRequest(req);
-    const body = renderForm({ mode: "edit", eahId: formatEahId(row.eah_number), values, csrf: token, error: v.error });
+    const body = renderForm({ mode: "edit", action: editFormAction(row), values, csrf: token, error: v.error });
     return htmlResponse(
       await layout({
-        title: `Edit ${formatEahId(row.eah_number)} · ENAIH admin`,
-        heading: `Edit ${formatEahId(row.eah_number)}`,
+        title: `Edit ${heading} · ENAIH admin`,
+        heading: `Edit ${heading}`,
         body,
         user: ctx.user, csrfToken: token,
       }),
@@ -587,12 +596,46 @@ export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Re
     return await badRequest("Could not save changes.", 500);
   }
 
-  // Published entries have a public page; drafts/pending/etc. don't, so send
-  // staff back to the queue detail for those instead of a 404'ing /e/ URL.
+  // Published entries have a public page (A-number if reproduced, else the slug);
+  // drafts/pending/etc. don't, so send staff back to the queue detail for those.
   const dest = row.status === "reviewed"
-    ? `/e/${formatEahId(row.eah_number)}`
+    ? `/e/${formatEahId(row.eah_number) || row.public_id}`
     : `/admin/queue/${row.id}`;
   return new Response(null, { status: 303, headers: { Location: dest } });
+}
+
+// ─── route wrappers: by A-number and by submission id ───────────────────────
+
+export async function getEditEntry(req: Request, ctx: RouteContext): Promise<Response> {
+  if (!ctx.admin) return authRedirect();
+  const row = await loadByEahId(ctx.params.eahId ?? "");
+  if (!row) return await badRequest("No entry with that A-number.", 404);
+  if (!mayEdit(row, ctx)) return await editForbidden(row);
+  return renderEditPage(req, ctx, row);
+}
+
+export async function postEditEntry(req: Request, ctx: RouteContext): Promise<Response> {
+  if (!ctx.admin) return authRedirect();
+  const row = await loadByEahId(ctx.params.eahId ?? "");
+  if (!row) return await badRequest("No entry with that A-number.", 404);
+  if (!mayEdit(row, ctx)) return await editForbidden(row);
+  return saveEditPage(req, ctx, row);
+}
+
+export async function getQueueEdit(req: Request, ctx: RouteContext): Promise<Response> {
+  if (!ctx.admin) return authRedirect();
+  const row = await loadById(ctx.params.id ?? "");
+  if (!row) return await badRequest("No submission with that id.", 404);
+  if (!mayEdit(row, ctx)) return await editForbidden(row);
+  return renderEditPage(req, ctx, row);
+}
+
+export async function postQueueEdit(req: Request, ctx: RouteContext): Promise<Response> {
+  if (!ctx.admin) return authRedirect();
+  const row = await loadById(ctx.params.id ?? "");
+  if (!row) return await badRequest("No submission with that id.", 404);
+  if (!mayEdit(row, ctx)) return await editForbidden(row);
+  return saveEditPage(req, ctx, row);
 }
 
 // ─── flip active/patched ────────────────────────────────────────────────────

@@ -48,8 +48,8 @@ export const privacy: RouteHandler = (req, ctx) => {
     <h2>How we use it</h2>
     <ul>
       <li>Submission content (prompt, output, model, category, tags, summary,
-          notes, shared-chat URL) is published on the site. Submitting for review
-          makes an entry public immediately as <em>unreviewed</em>; staff then vet
+          notes, shared-chat URL) is published on the site. Publishing an entry
+          makes it public immediately as <em>unreviewed</em>; staff then vet
           it and it moves up the trust ladder (see the
           <a href="/guide">submission guide</a>). Drafts stay private to you.</li>
       <li>We send transactional email to your account address via Resend (see
@@ -59,6 +59,24 @@ export const privacy: RouteHandler = (req, ctx) => {
           not maintain a mailing list.</li>
       <li>The IP hash is available to site staff for spam and abuse triage only.
           It is never exported or sold.</li>
+    </ul>
+
+    <h2>Legal bases (EU/UK users)</h2>
+    <p>If you are in the European Economic Area or the United Kingdom, we process
+       your personal data under the following bases:</p>
+    <ul>
+      <li><strong>Performance of a contract</strong> (GDPR Art. 6(1)(b)) — your
+          email address, username, and password hash, used to create and operate
+          your account and to send the transactional messages described above. We
+          cannot run an account without these.</li>
+      <li><strong>Legitimate interests</strong> (GDPR Art. 6(1)(f)) — the salted
+          IP-address hash, used solely to prevent spam and abuse. We consider this
+          minimal and unlikely to override your rights, as we never store raw IPs
+          and never use the hash to profile or track you.</li>
+      <li><strong>Consent</strong> (GDPR Art. 6(1)(a)) — when you choose to publish
+          a submission, you are asking us to make that content public. You can
+          withdraw drafts and unreviewed submissions yourself, or request removal
+          of published entries (see "Your choices").</li>
     </ul>
 
     <h2>Cookies</h2>
@@ -90,11 +108,20 @@ export const privacy: RouteHandler = (req, ctx) => {
     </ul>
     <p>There are no other third-party services. The Content Security Policy
        forbids third-party scripts and resources.</p>
+    <p><strong>International transfers.</strong> Cloudflare and Resend are
+       US-based providers, so if you are in the EEA or UK your data is transferred
+       to and processed in the United States. These providers offer transfer
+       safeguards (Standard Contractual Clauses and, where applicable, the EU–US
+       Data Privacy Framework) as described in their privacy policies linked
+       above.</p>
 
     <h2>Data retention</h2>
     <p>Submissions are kept indefinitely unless you withdraw them (see "Your
        choices" below) or request deletion. We do not automatically purge old
-       records.</p>
+       records. Encrypted database backups are retained on a short rotation and
+       age out automatically; when you request deletion we remove your data from
+       the live database immediately, and any copy still present in a backup is
+       not restored to live use and expires with that backup's rotation.</p>
 
     <h2>Your choices</h2>
     <p><strong>Drafts</strong> are private and can be edited or deleted at any
@@ -107,6 +134,14 @@ export const privacy: RouteHandler = (req, ctx) => {
        below with the entry's A-number or URL, or a description of your
        submission.</p>
 
+    <p><strong>Your rights.</strong> If you are in the EEA or UK, you have the
+       right to access, correct, export, or delete your personal data, to object
+       to or restrict processing, and to withdraw consent for anything based on
+       it. To exercise any of these, email the address in "Contact" below. You
+       also have the right to lodge a complaint with your local data-protection
+       supervisory authority. California residents may likewise request access to,
+       or deletion of, the personal information we hold about them.</p>
+
     <h2>Contact</h2>
     <p>Privacy-related requests: <a href="mailto:${privacyEmail}">${privacyEmail}</a>.</p>
 
@@ -114,7 +149,7 @@ export const privacy: RouteHandler = (req, ctx) => {
     <p>If we make material changes to data practices, we will update this page.
        The date below reflects the last revision.</p>
 
-    <p class="muted">Last updated: 2026-06-01.</p>
+    <p class="muted">Last updated: 2026-06-02.</p>
   `;
   return pageResponse(req, {
     title: "Privacy · ENAIH",

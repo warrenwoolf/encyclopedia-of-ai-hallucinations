@@ -34,6 +34,14 @@ KEEP_DAYS="${KEEP_DAYS:-14}"
 # overrides the file if set, mirroring the *_FILE convention elsewhere.
 OBJECT_STORAGE_PAR="${OBJECT_STORAGE_PAR:-}"
 OBJECT_STORAGE_PAR_FILE="${OBJECT_STORAGE_PAR_FILE:-$APP_DIR/.backup-par}"
+# age PUBLIC key (recipient). Encrypts every backup artifact at creation, so the
+# only plaintext copy of the data anywhere is the live MariaDB. A public key is
+# NOT a secret — it cannot decrypt anything — so it may sit on the box (or in
+# git). The matching PRIVATE key MUST live OFF this box (password manager +
+# encrypted laptop), never here, so a host compromise can't read the off-box
+# backup history. If unset, backups are written UNENCRYPTED (with a warning).
+AGE_RECIPIENT="${AGE_RECIPIENT:-}"
+AGE_RECIPIENT_FILE="${AGE_RECIPIENT_FILE:-$APP_DIR/.backup-age-pub}"
 
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -53,6 +61,11 @@ DB_PASSWORD="$(get_env DB_PASSWORD)"
 # Resolve the PAR from its file unless an env override was given.
 if [[ -z "$OBJECT_STORAGE_PAR" && -r "$OBJECT_STORAGE_PAR_FILE" ]]; then
   OBJECT_STORAGE_PAR="$(tr -d '[:space:]' < "$OBJECT_STORAGE_PAR_FILE")"
+fi
+
+# Resolve the age recipient (public key) from its file unless overridden.
+if [[ -z "$AGE_RECIPIENT" && -r "$AGE_RECIPIENT_FILE" ]]; then
+  AGE_RECIPIENT="$(grep -E '^age1' "$AGE_RECIPIENT_FILE" | head -n1)"
 fi
 
 # Prefer mariadb-dump (Ubuntu 24.04 ships this; mysqldump is a compat symlink).
@@ -75,21 +88,35 @@ password=$DB_PASSWORD
 EOF
 
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
-OUT="$BACKUP_DIR/eah-${STAMP}.sql.gz"
+
+# Encrypt at creation when a recipient is configured: the artifact is sealed
+# everywhere it lands (on-box, PAR, Spaces, any copy pulled to a laptop), and
+# the only plaintext is the live DB. age can't decrypt with the public key, so
+# even this host can't read its own backup history.
+if [[ -n "$AGE_RECIPIENT" ]]; then
+  command -v age >/dev/null 2>&1 || die "AGE_RECIPIENT set but 'age' not installed (apt-get install age)"
+  OUT="$BACKUP_DIR/eah-${STAMP}.sql.gz.age"
+  ENCRYPT=(age -r "$AGE_RECIPIENT")
+else
+  log "WARNING: no AGE_RECIPIENT (.backup-age-pub absent) — writing UNENCRYPTED backup"
+  OUT="$BACKUP_DIR/eah-${STAMP}.sql.gz"
+  ENCRYPT=(cat)
+fi
 
 log "dumping ${DB_NAME} -> ${OUT}"
 # --single-transaction: consistent InnoDB snapshot without locking writers.
 # Dump to a .partial first; only rename on success so a failed dump can't be
-# mistaken for a good backup or uploaded.
+# mistaken for a good backup or uploaded. set -o pipefail makes a failure in
+# the dump or age stage abort the rename.
 "$DUMP" --defaults-extra-file="$CRED_FILE" \
   --single-transaction --quick --routines --triggers --events \
-  "$DB_NAME" | gzip > "${OUT}.partial"
+  "$DB_NAME" | gzip | "${ENCRYPT[@]}" > "${OUT}.partial"
 mv "${OUT}.partial" "$OUT"
 log "dump complete ($(du -h "$OUT" | cut -f1))"
 
 # ---- rotate local copies ---------------------------------------------------
 log "pruning local backups older than ${KEEP_DAYS} days"
-find "$BACKUP_DIR" -maxdepth 1 -name 'eah-*.sql.gz' -mtime "+${KEEP_DAYS}" -print -delete || true
+find "$BACKUP_DIR" -maxdepth 1 -name 'eah-*.sql.gz*' -mtime "+${KEEP_DAYS}" -print -delete || true
 
 offbox=0
 

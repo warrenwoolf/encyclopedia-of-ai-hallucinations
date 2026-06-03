@@ -26,7 +26,7 @@ CF_TOKEN_FILE="${CF_TOKEN_FILE:-$HOME/Credentials/cloudflare-ww-purge-token.txt}
 echo "deploying to ${DEPLOY_HOST}..."
 rsync -avz --delete \
   --exclude .git --exclude node_modules --exclude .env \
-  --exclude backups --exclude .backup-par --exclude .spaces \
+  --exclude backups --exclude .backup-par --exclude .spaces --exclude .backup-age-pub \
   ./ "${DEPLOY_HOST}:~/eah/"
 
 ssh "${DEPLOY_HOST}" '
