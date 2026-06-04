@@ -61,9 +61,9 @@ export const config = {
   email: {
     /** When unset, email sending is disabled and the module no-ops. */
     resendApiKey: optionalFile("RESEND_API_KEY", ""),
-    from: optional("EMAIL_FROM", "ENAIH <noreply@eah.warrenwoolf.com>"),
+    from: optional("EMAIL_FROM", "ENAIH <noreply@enaih.org>"),
     /** Where bounces / human replies should go. */
-    replyTo: optional("EMAIL_REPLY_TO", "noreply@eah.warrenwoolf.com"),
+    replyTo: optional("EMAIL_REPLY_TO", "noreply@enaih.org"),
     /** Public-facing address for privacy / data-deletion requests. Shown on /privacy. */
     privacy: optional("PRIVACY_EMAIL", "privacy@enaih.org"),
     /**

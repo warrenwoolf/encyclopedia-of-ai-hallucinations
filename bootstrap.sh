@@ -120,9 +120,9 @@ IN_DEVELOPMENT=true
 # --- fill in when ready (see .env.example for the full annotated list) ---
 GOOGLE_CLIENT_ID=
 RESEND_API_KEY=
-EMAIL_FROM=ENAIH <noreply@eah.warrenwoolf.com>
-EMAIL_REPLY_TO=noreply@eah.warrenwoolf.com
-PRIVACY_EMAIL=privacy@eah.warrenwoolf.com
+EMAIL_FROM=ENAIH <noreply@enaih.org>
+EMAIL_REPLY_TO=noreply@enaih.org
+PRIVACY_EMAIL=privacy@enaih.org
 CONTACT_EMAIL=contact@enaih.org
 PUBLIC_BASE_URL=https://enaih.org
 DISCORD_BOT_TOKEN=

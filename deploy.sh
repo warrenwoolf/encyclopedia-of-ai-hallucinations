@@ -43,7 +43,7 @@ if [[ -r "$CF_ACCOUNT_ID_FILE" && -r "$CF_TOKEN_FILE" ]]; then
   cf_account="$(tr -d '[:space:]' < "$CF_ACCOUNT_ID_FILE")"
   cf_token="$(tr -d '[:space:]' < "$CF_TOKEN_FILE")"
   cf_host="${SITE_URL#*://}"; cf_host="${cf_host%%/*}"
-  # registrable domain = last two dot-labels (eah.warrenwoolf.com -> warrenwoolf.com)
+  # registrable domain = last two dot-labels (sub.example.com -> example.com)
   cf_domain="$(echo "$cf_host" | rev | cut -d. -f1-2 | rev)"
 
   echo "resolving Cloudflare zone id for ${cf_domain}..."
