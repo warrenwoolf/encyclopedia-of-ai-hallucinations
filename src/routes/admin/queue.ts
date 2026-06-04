@@ -10,6 +10,7 @@ import { query, queryOne } from "../../db.ts";
 import { CATEGORIES, categoryLabel } from "../../categories.ts";
 import { tokenForRequest } from "../../csrf.ts";
 import { formatEahId } from "../../eah-id.ts";
+import { getReproThreshold } from "../../settings.ts";
 import { htmlResponse, type RouteContext } from "../types.ts";
 import { findSimilar } from "../../similarity.ts";
 import { mayEdit } from "./entries.ts";
@@ -221,6 +222,21 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
     [id],
   );
 
+  // Reproduction votes (only meaningful at the pending-acceptance tier, but
+  // cheap to fetch always). One row per reviewer; `vote` is their current side.
+  const reproVotes = await query<{ user_id: number; vote: "reproduce" | "fail"; username: string | null }>(
+    `SELECT rv.user_id, rv.vote, u.username
+       FROM repro_votes rv
+       LEFT JOIN users u ON u.id = rv.user_id
+      WHERE rv.submission_id = ?
+      ORDER BY rv.created_at ASC`,
+    [id],
+  );
+  const reproThreshold = getReproThreshold();
+  const reproYes = reproVotes.filter((v) => v.vote === "reproduce");
+  const reproNo = reproVotes.filter((v) => v.vote === "fail");
+  const myVote = reproVotes.find((v) => v.user_id === ctx.admin!.userId)?.vote ?? null;
+
   const ipPrefix = row.ip_hash
     ? Buffer.from(row.ip_hash).toString("hex").slice(0, 12)
     : "";
@@ -311,9 +327,33 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
       `
     : raw("");
 
+  const isOwner = !!ctx.owner;
+
+  // Tally + explainer shown at the pending-acceptance tier. Acceptance/rejection
+  // of reproduction is a vote: one owner is decisive, else the first side to
+  // reach `reproThreshold` distinct staff votes wins.
+  const reproVoteBlock: SafeHtml = (row.status === "reviewed" && row.repro_status === "pending" && row.transcript_mode !== "link")
+    ? h`
+        <div class="notice">
+          <p><strong>Reproduction votes:</strong>
+             ${String(reproYes.length)} to accept · ${String(reproNo.length)} to reject —
+             <strong>${String(reproThreshold)}</strong> distinct staff confirmation${reproThreshold === 1 ? "" : "s"}
+             required to decide (a single owner vote is decisive).</p>
+          ${reproVotes.length > 0
+            ? h`<p class="muted">Cast so far: ${reproVotes.map((v, i) => h`${i > 0 ? ", " : ""}${v.username ? h`${v.username}` : h`<em>(unknown)</em>`} → ${v.vote === "reproduce" ? "accept" : "reject"}`)}.</p>`
+            : raw("")}
+          ${myVote
+            ? h`<p class="muted">You voted to <strong>${myVote === "reproduce" ? "accept" : "reject"}</strong>. Voting again updates your choice.</p>`
+            : h`<p class="muted">You haven't voted on this entry yet.</p>`}
+          ${isOwner
+            ? h`<p class="muted">As an owner, your vote takes effect immediately.</p>`
+            : raw("")}
+        </div>`
+    : raw("");
+
   // Action buttons depend on the current tier. pending review → confirm/reject;
-  // pending acceptance → accept (reproduce) / fail (unless a link) / reject;
-  // decided tiers → reject only.
+  // pending acceptance → vote accept (reproduce) / vote reject (fail) (unless a
+  // link) / reject-delete; decided tiers → reject-delete only.
   const reviewActions: SafeHtml = (() => {
     if (row.status === "unreviewed") {
       return h`
@@ -321,10 +361,12 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
         <button name="action" value="reject" type="submit" class="btn-danger">Reject (delete)</button>`;
     }
     if (row.status === "reviewed" && row.repro_status === "pending") {
+      const acceptLabel = isOwner ? "Accept (mark active now)" : "Vote to accept (reproduce)";
+      const failLabel = isOwner ? "Reject (couldn't reproduce, now)" : "Vote to reject (couldn't reproduce)";
       const repro = row.transcript_mode === "link"
         ? h`<span class="muted">Link submission — can't be reproduced (caps at pending acceptance). </span>`
-        : h`<button name="action" value="reproduce" type="submit">Accept (mark active)</button>
-            <button name="action" value="fail" type="submit">Reject (couldn't reproduce)</button>
+        : h`<button name="action" value="reproduce" type="submit">${acceptLabel}</button>
+            <button name="action" value="fail" type="submit">${failLabel}</button>
             `;
       return h`${repro}<button name="action" value="reject" type="submit" class="btn-danger">Reject (delete)</button>`;
     }
@@ -398,8 +440,13 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
     versionHistoryHtml = h`${groupHtml}`;
   }
 
+  const votedFlash: SafeHtml = ctx.url.searchParams.get("voted") === "1"
+    ? h`<div class="flash-success">Your reproduction vote was recorded. This entry stays in the queue until enough staff confirmations are collected (or an owner decides).</div>`
+    : raw("");
+
   const body = h`
     ${jumpToForm}
+    ${votedFlash}
     <p><a href="/admin/queue">← back to queue</a></p>
     ${editLink}
 
@@ -494,6 +541,7 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
           no need to open the edit form or ask the submitter for edit consent.
           <a href="/admin/categories">manage categories →</a></small>
       </p>
+      ${reproVoteBlock}
       <p class="review-actions">
         ${reviewActions}
       </p>

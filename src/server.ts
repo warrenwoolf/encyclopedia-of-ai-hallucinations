@@ -12,6 +12,7 @@ import { gc as ratelimitGc } from "./ratelimit.ts";
 import { getSessionFromRequest, purgeExpiredSessions } from "./auth.ts";
 import { primeQuotaCache } from "./email.ts";
 import { loadCategories } from "./categories.ts";
+import { loadSettings } from "./settings.ts";
 import { startDiscordPresence } from "./discord-gateway.ts";
 import type { RouteContext, RouteHandler } from "./routes/types.ts";
 
@@ -38,6 +39,7 @@ import {
 import { getAll, getDeleteConfirm, postDelete } from "./routes/admin/all.ts";
 import { getCategories, postCategory, getDeleteCategory, postDeleteCategory } from "./routes/admin/categories.ts";
 import { getUsers, getStaff, postUserAction } from "./routes/admin/users.ts";
+import { getSettings, postSettings } from "./routes/admin/settings.ts";
 import {
   mySubmissions, myView, myEditGet, myEditPost, myPropose,
   myWithdrawConfirm, myWithdraw, myDeleteConfirm, myDelete, myHistory,
@@ -140,6 +142,9 @@ const ROUTES: RouteDef[] = [
   route("GET", "/admin/users", getUsers),
   route("GET", "/admin/staff", getStaff),
   route("POST", "/admin/users/:id", postUserAction),
+  // Owner-only tunable site settings (e.g. the reproduction vote threshold).
+  route("GET", "/admin/settings", getSettings),
+  route("POST", "/admin/settings", postSettings),
   // Direct add/edit of entries (bypasses the draft workflow). The path is
   // /admin/entries/new and /admin/entries/:eahId/edit so it's clear these are
   // admin-only actions, even though the public entry URL is /e/A000001.
@@ -368,6 +373,10 @@ void primeQuotaCache().catch(e => console.warn("[startup] primeQuotaCache failed
 // Load the category set from the DB into the in-memory cache. Until this
 // resolves, src/categories.ts serves the built-in defaults.
 void loadCategories().catch(e => console.warn("[startup] loadCategories failed:", e));
+
+// Prime the owner-tunable settings cache (e.g. the reproduction vote threshold).
+// Fails open to defaults if the site_settings table isn't there yet.
+void loadSettings().catch(e => console.warn("[startup] loadSettings failed:", e));
 
 // Open a Discord gateway connection so the bot shows as "online" while the site
 // is running (the REST notifier in discord.ts alone leaves it offline). No-ops

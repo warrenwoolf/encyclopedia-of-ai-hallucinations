@@ -60,8 +60,11 @@ export const guide: RouteHandler = (req, ctx) => {
           Still hidden from the default listings while staff work to reproduce
           and accept it.</li>
       <li><strong>Active.</strong> Staff reproduced the behavior themselves and
-          accepted it into the canon. This is the top tier, and the only one
-          shown in the normal listings.</li>
+          accepted it into the canon. To guard against any single reviewer
+          promoting an entry alone, acceptance requires confirmation from
+          <strong>multiple staff members</strong> (or one site owner) — the
+          entry only goes active once enough independent reviewers agree. This
+          is the top tier, and the only one shown in the normal listings.</li>
       <li><strong>Rejected.</strong> Staff reviewed it but rejected it (including
           entries they couldn't reproduce); it stays addressable as a reported
           sighting.</li>

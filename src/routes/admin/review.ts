@@ -14,6 +14,7 @@ import { verifyCsrf } from "../../csrf.ts";
 import { sendDecision, sendReviewerMessage } from "../../email.ts";
 import { notifyPublished } from "../../discord.ts";
 import { allocateEahNumber, freeEahNumber, formatEahId } from "../../eah-id.ts";
+import { getReproThreshold } from "../../settings.ts";
 import { isValidCategory, categoryLabel } from "../../categories.ts";
 import { htmlResponse, parseForm, sanitizeText, type RouteContext } from "../types.ts";
 
@@ -186,6 +187,8 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   let didReproduce = false;
   let didFail = false;
   let didReject = false;
+  // A vote was recorded but didn't yet reach the threshold (still pending).
+  let didVote = false;
   let reproducedEahId = "";
   try {
     await transaction(async (tx) => {
@@ -214,56 +217,82 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
             [id, `Reviewed by staff — confirmed as a genuine submission. Now pending acceptance, awaiting staff reproduction before it becomes active${staffReviewMessage ? ` (see reviewer note below)` : ``}.`],
           );
         }
-      } else if (action === "reproduce") {
-        // pending acceptance → active. Normal rows already hold their A-number
-        // (allocated at propose), so reuse it; only allocate as a fallback for
-        // legacy rows that reached this step without one. Re-read under a lock
-        // and gate on the eligible tier (reviewed + still pending, non-link).
+      } else if (action === "reproduce" || action === "fail") {
+        // Pending acceptance → active (reproduce) or failed (fail), gated on a
+        // multi-reviewer vote. A single owner vote is decisive; otherwise the
+        // first action to collect `repro_threshold` distinct staff votes wins.
+        // Re-read under a lock and gate on the eligible tier (reviewed + still
+        // pending; reproduce additionally requires a non-link transcript).
         const cur = await tx.queryOne<{ status: string; repro_status: string; transcript_mode: string; eah_number: number | null }>(
           "SELECT status, repro_status, transcript_mode, eah_number FROM submissions WHERE id = ? FOR UPDATE",
           [id],
         );
-        if (cur && cur.status === "reviewed" && cur.repro_status === "pending" && cur.transcript_mode !== "link") {
-          const n = cur.eah_number ?? await allocateEahNumber(tx);
+        const eligible = !!cur && cur.status === "reviewed" && cur.repro_status === "pending"
+          && !(action === "reproduce" && cur.transcript_mode === "link");
+        if (eligible) {
+          // Record this reviewer's verification numbers / notes regardless of
+          // whether their vote tips the decision.
           await tx.execute(
             `UPDATE submissions
-                SET repro_status = 'reproduced',
-                    eah_number = ?,
-                    reviewed_by = ?,
-                    reviewed_at = NOW(),
-                    verified_hits = ?,
-                    verified_total = ?,
-                    reviewer_notes = ?
+                SET reviewed_by = ?, reviewed_at = NOW(),
+                    verified_hits = ?, verified_total = ?, reviewer_notes = ?
               WHERE id = ?`,
-            [n, ctx.admin!.userId, verifiedHits, verifiedTotal, reviewerNotes, id],
+            [ctx.admin!.userId, verifiedHits, verifiedTotal, reviewerNotes, id],
           );
-          didReproduce = true;
-          reproducedEahId = formatEahId(n);
+          // Upsert this reviewer's vote (one row per reviewer; switching sides
+          // overwrites it).
           await tx.execute(
-            `INSERT INTO submission_messages (submission_id, sender_type, body)
-             VALUES (?, 'system', ?)`,
-            [id, `Reproduced by staff — your entry is now active and publicly listed as ${reproducedEahId}.`],
+            `INSERT INTO repro_votes (submission_id, user_id, vote) VALUES (?, ?, ?)
+               ON DUPLICATE KEY UPDATE vote = VALUES(vote), created_at = NOW()`,
+            [id, ctx.admin!.userId, action],
           );
-        }
-      } else if (action === "fail") {
-        const res = await tx.execute(
-          `UPDATE submissions
-              SET repro_status = 'failed',
-                  reviewed_by = ?,
-                  reviewed_at = NOW(),
-                  verified_hits = ?,
-                  verified_total = ?,
-                  reviewer_notes = ?
-            WHERE id = ? AND status = 'reviewed'`,
-          [ctx.admin!.userId, verifiedHits, verifiedTotal, reviewerNotes, id],
-        );
-        if (res.affectedRows > 0) {
-          didFail = true;
-          await tx.execute(
-            `INSERT INTO submission_messages (submission_id, sender_type, body)
-             VALUES (?, 'system', ?)`,
-            [id, `Staff attempted reproduction and could not reproduce this entry.`],
-          );
+
+          const threshold = getReproThreshold();
+          const isOwner = !!ctx.owner;
+          let votes = 1;
+          if (!isOwner) {
+            const c = await tx.queryOne<{ c: number }>(
+              "SELECT COUNT(*) AS c FROM repro_votes WHERE submission_id = ? AND vote = ?",
+              [id, action],
+            );
+            votes = Number(c?.c ?? 0);
+          }
+          const decisive = isOwner || votes >= threshold;
+          const howDecided = isOwner ? "owner decision" : `${threshold} staff confirmations`;
+
+          if (!decisive) {
+            didVote = true;
+            const label = action === "reproduce" ? "accept (reproduce)" : "reject (could not reproduce)";
+            await tx.execute(
+              `INSERT INTO submission_messages (submission_id, sender_type, body)
+               VALUES (?, 'system', ?)`,
+              [id, `A staff member voted to ${label} — ${votes} of ${threshold} required staff confirmation${threshold === 1 ? "" : "s"} collected.`],
+            );
+          } else if (action === "reproduce") {
+            const n = cur!.eah_number ?? await allocateEahNumber(tx);
+            await tx.execute(
+              "UPDATE submissions SET repro_status = 'reproduced', eah_number = ? WHERE id = ?",
+              [n, id],
+            );
+            didReproduce = true;
+            reproducedEahId = formatEahId(n);
+            await tx.execute(
+              `INSERT INTO submission_messages (submission_id, sender_type, body)
+               VALUES (?, 'system', ?)`,
+              [id, `Reproduction accepted by staff (${howDecided}) — your entry is now active and publicly listed as ${reproducedEahId}.`],
+            );
+          } else {
+            await tx.execute(
+              "UPDATE submissions SET repro_status = 'failed' WHERE id = ?",
+              [id],
+            );
+            didFail = true;
+            await tx.execute(
+              `INSERT INTO submission_messages (submission_id, sender_type, body)
+               VALUES (?, 'system', ?)`,
+              [id, `Staff could not reproduce this entry (${howDecided}), so it won't become active.`],
+            );
+          }
         }
       } else {
         // reject — hard-delete. Free any A-number first (defensive: only a
@@ -338,6 +367,11 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     });
   }
 
+  // A vote that didn't yet reach the threshold keeps the entry in the queue —
+  // send the reviewer back to the detail page so they see the updated tally.
+  if (didVote) {
+    return new Response(null, { status: 303, headers: { Location: `/admin/queue/${id}?voted=1` } });
+  }
   return new Response(null, { status: 303, headers: { Location: "/admin/queue" } });
 }
 

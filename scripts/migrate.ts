@@ -218,6 +218,37 @@ const TABLES: TableSpec[] = [
       FOREIGN KEY (reporter_user_id) REFERENCES users(id)       ON DELETE SET NULL
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   },
+  {
+    // Owner-tunable key/value site configuration. Currently holds just
+    // `repro_threshold` (the number of distinct staff confirmations required to
+    // accept/reject a pending-acceptance entry's reproduction). Read into an
+    // in-memory cache by src/settings.ts at boot; edited via /admin/settings
+    // (owner-only). `key` is a reserved word, hence the backticks.
+    name: "site_settings",
+    sql: `CREATE TABLE IF NOT EXISTS site_settings (
+      \`key\`   VARCHAR(64) PRIMARY KEY,
+      value   VARCHAR(255) NOT NULL
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+  },
+  {
+    // Staff/owner votes on whether a pending-acceptance entry reproduces. One
+    // row per (submission, reviewer); `vote` is their current choice. A single
+    // owner vote is decisive; otherwise the first action (reproduce vs fail) to
+    // collect `repro_threshold` distinct staff votes wins (see review.ts).
+    // CASCADE on both FKs: votes are meaningless once the submission or the
+    // voter is gone. Must appear AFTER submissions and users so the FKs resolve.
+    name: "repro_votes",
+    sql: `CREATE TABLE IF NOT EXISTS repro_votes (
+      submission_id INT NOT NULL,
+      user_id       INT NOT NULL,
+      vote          ENUM('reproduce','fail') NOT NULL,
+      created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (submission_id, user_id),
+      INDEX idx_sub_vote (submission_id, vote),
+      FOREIGN KEY (submission_id) REFERENCES submissions(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id)       REFERENCES users(id)       ON DELETE CASCADE
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+  },
 ];
 
 /**

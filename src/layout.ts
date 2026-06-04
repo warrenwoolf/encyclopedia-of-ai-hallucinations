@@ -81,7 +81,8 @@ export function layout(opts: LayoutOptions): string {
           <a href="/admin/all">All</a>
           <a href="/admin/complaints">Complaints</a>
           <a href="/admin/users">Users</a>
-          <a href="/admin/staff">Staff</a>`
+          <a href="/admin/staff">Staff</a>
+          ${opts.user.isOwner ? h`<a href="/admin/settings">Settings</a>` : raw("")}`
       : raw("");
     // Account + admin links live in a hover/focus dropdown under the
     // "signed in as" trigger. Log out is a prominent standalone button.
