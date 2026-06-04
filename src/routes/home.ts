@@ -8,6 +8,7 @@
  */
 import { h, raw } from "../html.ts";
 import { pageResponse } from "../layout.ts";
+import { config } from "../config.ts";
 import { queryOne } from "../db.ts";
 import { renderBrowseBody } from "./browse.ts";
 import { type RouteHandler } from "./types.ts";
@@ -41,5 +42,6 @@ export const home: RouteHandler = async (req, ctx) => {
     body,
     user: ctx.user,
     bodyClass: "browse-page home-page",
+    canonical: `${config.publicBaseUrl}/`,
   });
 };

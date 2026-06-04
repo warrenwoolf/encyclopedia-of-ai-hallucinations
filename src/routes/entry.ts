@@ -329,10 +329,17 @@ export const entry: RouteHandler = async (req, ctx) => {
     ${complaintForm}
   `;
 
+  // Only active canon (reviewed + reproduced) is indexable; lower tiers
+  // (pending review/acceptance, failed) are link-reachable but hidden from
+  // listings, so keep them out of the index too. canonicalUrl is the A-number
+  // form, matching the 301 every slug already redirects to.
+  const isActiveCanon = row.repro_status === "reproduced";
   return pageResponse(req, {
     title: `${citeId} · ${row.title ?? row.ai_model} · ENAIH`,
     bodyClass: "text-page",
     body,
     user: ctx.user,
+    noindex: !isActiveCanon,
+    canonical: isActiveCanon ? canonicalUrl : undefined,
   });
 };

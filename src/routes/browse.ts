@@ -12,6 +12,7 @@
  */
 import { h, raw, type SafeHtml } from "../html.ts";
 import { pageResponse } from "../layout.ts";
+import { config } from "../config.ts";
 import { query, queryOne } from "../db.ts";
 import { CATEGORIES, categoryLabel, isValidCategory, resolveCategory } from "../categories.ts";
 import { formatEahId, parseEahId } from "../eah-id.ts";
@@ -609,10 +610,23 @@ export async function renderBrowseBody(ctx: RouteContext): Promise<SafeHtml> {
 
 export const browse: RouteHandler = async (req, ctx) => {
   const body = await renderBrowseBody(ctx);
+  // Keep Google out of the infinite param thicket: internal search results
+  // (`?q=`), deep pagination, and the opt-in pending view are thin/low-value, so
+  // noindex them. Everything else canonicalizes to the clean /browse so sort and
+  // facet variants consolidate into one indexable page (no canonical when
+  // noindexed — don't send both signals).
+  const sp = ctx.url.searchParams;
+  const hasQuery = (sp.get("q") ?? "").trim().length > 0;
+  const pageNum = parseInt(sp.get("page") ?? "1", 10);
+  const deepPage = Number.isFinite(pageNum) && pageNum > 1;
+  const pending = sp.get("pending") === "1" || sp.get("unreviewed") === "1";
+  const noindex = hasQuery || deepPage || pending;
   return pageResponse(req, {
     title: "Browse · ENAIH",
     body,
     user: ctx.user,
     bodyClass: "browse-page",
+    noindex,
+    canonical: noindex ? undefined : `${config.publicBaseUrl}/browse`,
   });
 };

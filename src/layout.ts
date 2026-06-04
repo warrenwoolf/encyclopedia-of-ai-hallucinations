@@ -33,6 +33,18 @@ export interface LayoutOptions {
    * only — never user input.
    */
   bodyClass?: string;
+  /**
+   * Absolute canonical URL for this page (`<link rel="canonical">`). Set on
+   * public pages with parameter variants (browse, entry) so Google consolidates
+   * duplicates. Omit on pages that set `noindex` — don't mix the two signals.
+   */
+  canonical?: string;
+  /**
+   * Force `<meta name="robots" content="noindex,nofollow">` even outside dev.
+   * Use for thin/infinite param surfaces (internal search results `?q=`, deep
+   * pagination) that shouldn't enter the index.
+   */
+  noindex?: boolean;
 }
 
 /**
@@ -121,7 +133,8 @@ export function layout(opts: LayoutOptions): string {
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    ${config.inDevelopment ? raw('<meta name="robots" content="noindex,nofollow">') : raw("")}
+    ${config.inDevelopment || opts.noindex ? raw('<meta name="robots" content="noindex,nofollow">') : raw("")}
+    ${opts.canonical && !opts.noindex && !config.inDevelopment ? h`<link rel="canonical" href="${opts.canonical}">` : raw("")}
     <title>${opts.title}</title>
     <link rel="stylesheet" href="/static/style.css">
     <link rel="icon" href="/favicon.ico" type="image/svg+xml">
