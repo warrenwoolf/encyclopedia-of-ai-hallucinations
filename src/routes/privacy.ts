@@ -11,8 +11,11 @@ export const privacy: RouteHandler = (req, ctx) => {
   const body = h`
     <p>This policy describes what data the Encyclopedia of AI Hallucinations
        ("ENAIH", "we") collects when you use the site, how we use it, and what
-       choices you have. There are no advertising networks, no analytics
-       services, and no tracking pixels.</p>
+       choices you have. There are no advertising networks and no cross-site
+       tracking. We use Cloudflare Web Analytics — a cookieless, privacy-first
+       measurement service that records aggregate page-view counts without
+       setting cookies, fingerprinting your device, or collecting personal data
+       (see "Third parties" below).</p>
 
     <h2>What we collect</h2>
 
@@ -98,16 +101,25 @@ export const privacy: RouteHandler = (req, ctx) => {
       <li><strong>Cloudflare</strong> — this site is served through a
           Cloudflare tunnel, which acts as a TLS edge proxy. Cloudflare sees
           network-level data (IP addresses, request metadata) as part of
-          providing that service. See
-          <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener">Cloudflare's privacy policy</a>.</li>
+          providing that service. We also use <strong>Cloudflare Web
+          Analytics</strong>, which loads a small measurement script
+          (<code>static.cloudflareinsights.com</code>) that reports aggregate,
+          anonymous page-view and performance data back to Cloudflare. It sets
+          no cookies, does not fingerprint your browser, does not track you
+          across sites, and does not build an individual profile. See
+          <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener">Cloudflare's privacy policy</a>
+          and
+          <a href="https://www.cloudflare.com/web-analytics/" rel="noopener">Cloudflare Web Analytics</a>.</li>
       <li><strong>Resend</strong> — your account email address and the
           transactional email content (verification codes, reviewer messages,
           status notifications) are processed by Resend as our transactional
           email service provider. See
           <a href="https://resend.com/legal/privacy-policy" rel="noopener">Resend's privacy policy</a>.</li>
     </ul>
-    <p>There are no other third-party services. The Content Security Policy
-       forbids third-party scripts and resources.</p>
+    <p>There are no other third-party services. Aside from the providers listed
+       above (Cloudflare and Resend, plus Google when you choose to sign in with
+       Google), the Content Security Policy restricts which third-party scripts
+       and resources the page is allowed to load.</p>
     <p><strong>International transfers.</strong> Cloudflare and Resend are
        US-based providers, so if you are in the EEA or UK your data is transferred
        to and processed in the United States. These providers offer transfer
@@ -150,7 +162,7 @@ export const privacy: RouteHandler = (req, ctx) => {
     <p>If we make material changes to data practices, we will update this page.
        The date below reflects the last revision.</p>
 
-    <p class="muted">Last updated: 2026-06-02.</p>
+    <p class="muted">Last updated: 2026-06-03.</p>
   `;
   return pageResponse(req, {
     title: "Privacy · ENAIH",
