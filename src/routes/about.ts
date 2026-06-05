@@ -32,7 +32,6 @@ export const about: RouteHandler = (req, ctx) => {
     <ul>
       <li>A citable database researchers can reference in papers.</li>
       <li>A resource journalists can link to for concrete examples.</li>
-      <li>A dataset AI companies can use to improve training.</li>
       <li>A place anyone can visit to understand AI failure modes.</li>
     </ul>
 
@@ -78,12 +77,12 @@ export const about: RouteHandler = (req, ctx) => {
 
       <dt>How are submissions reviewed, and how long does it take?</dt>
       <dd>When you submit, your entry goes public right away as <em>pending
-          review</em> — reachable by its link or A-number but hidden from the
-          default listings until staff vet it. Every submission gets its permanent
+          review</em> — reachable by anyone but hidden behind an opt-in toggle
+          until staff vet it. Every submission gets its permanent
           A-number (like <code>A000042</code>) at this point, so you can cite it
           immediately. From there it climbs a trust ladder. Staff first
-          <em>confirm</em> it's a genuine, reproducible hallucination and give it a
-          category; it becomes <em>pending acceptance</em> — still hidden from the
+          <em>confirm</em> it's a genuine submission, after which
+           it becomes <em>pending acceptance</em> — still hidden from the
           default listings. Next they try to reproduce it themselves: if they
           succeed it becomes <em>active</em> — the top tier — and appears in the
           normal listings; if they can't, it's rejected and kept as a reported

@@ -45,6 +45,12 @@ export interface LayoutOptions {
    * pagination) that shouldn't enter the index.
    */
   noindex?: boolean;
+  /**
+   * Load the Google Identity Services script + helper. Only the login and signup
+   * pages render the sign-in button, so only they set this — every other page
+   * skips the third-party script entirely.
+   */
+  googleSignin?: boolean;
 }
 
 /**

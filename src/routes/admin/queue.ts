@@ -351,14 +351,19 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
         </div>`
     : raw("");
 
+  // Reject no longer deletes — it returns the submission to its owner as
+  // 'rejected' so they can revise and resubmit. It's blocked on reproduced
+  // (active, publicly listed) entries; those are retired via /admin/all.
+  const rejectBtn = h`<button name="action" value="reject" type="submit" class="btn-danger">Reject (return to submitter)</button>`;
+
   // Action buttons depend on the current tier. pending review → confirm/reject;
   // pending acceptance → vote accept (reproduce) / vote reject (fail) (unless a
-  // link) / reject-delete; decided tiers → reject-delete only.
+  // link) / reject; decided tiers → reject only (and not for active entries).
   const reviewActions: SafeHtml = (() => {
     if (row.status === "unreviewed") {
       return h`
         <button name="action" value="confirm" type="submit">Confirm (→ pending acceptance)</button>
-        <button name="action" value="reject" type="submit" class="btn-danger">Reject (delete)</button>`;
+        ${rejectBtn}`;
     }
     if (row.status === "reviewed" && row.repro_status === "pending") {
       const acceptLabel = isOwner ? "Accept (mark active now)" : "Vote to accept (reproduce)";
@@ -368,12 +373,13 @@ export async function getQueueDetail(req: Request, ctx: RouteContext): Promise<R
         : h`<button name="action" value="reproduce" type="submit">${acceptLabel}</button>
             <button name="action" value="fail" type="submit">${failLabel}</button>
             `;
-      return h`${repro}<button name="action" value="reject" type="submit" class="btn-danger">Reject (delete)</button>`;
+      return h`${repro}${rejectBtn}`;
     }
-    return h`<span class="muted">This entry is decided (status ${row.status}${
+    const decided = h`<span class="muted">This entry is decided (status ${row.status}${
       row.status === "reviewed" ? h` / ${row.repro_status}` : raw("")
-    }). </span>
-      <button name="action" value="reject" type="submit" class="btn-danger">Reject (delete)</button>`;
+    }). </span>`;
+    // Active (reproduced) entries aren't rejectable here — retire them in /admin/all.
+    return row.repro_status === "reproduced" ? decided : h`${decided}${rejectBtn}`;
   })();
 
   const reviewerNotesPrev = row.reviewer_notes ?? "";

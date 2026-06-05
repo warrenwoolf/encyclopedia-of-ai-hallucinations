@@ -5,7 +5,9 @@
  *
  * On reject (and withdraw, handled elsewhere) the submission's EAH number is
  * returned to the freed-numbers pool so the next incoming draft can claim it.
- * On approve, the number is locked permanently.
+ * Reject no longer deletes the row: it flips the submission to 'rejected' and
+ * hands it back to the owner, who can revise and resubmit it. On approve, the
+ * number is locked permanently.
  */
 import { h } from "../../html.ts";
 import { layout } from "../../layout.ts";
@@ -88,7 +90,7 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
   //   reproduce — pending acceptance → active (publicly listed; A-number already
   //               allocated at submit-for-review, backfilled here for legacy rows)
   //   fail      — pending acceptance → repro_status='failed' (reviewed, not reproducible)
-  //   reject    — hard-delete the submission
+  //   reject    — return to the owner as 'rejected' (revisable + resubmittable)
   const action = form.get("action");
   if (action !== "confirm" && action !== "reproduce" && action !== "fail" && action !== "reject") {
     return await badRequest("Unknown review action.");
@@ -295,11 +297,34 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
           }
         }
       } else {
-        // reject — hard-delete. Free any A-number first (defensive: only a
-        // reproduced row would hold one). Child rows cascade via FK.
-        await freeEahNumber(tx, id);
-        await tx.execute("DELETE FROM submissions WHERE id = ?", [id]);
-        didReject = true;
+        // reject — return the submission to its owner as 'rejected' (NOT a hard
+        // delete). The owner can revise and resubmit it; the A-number is freed
+        // back to the pool since the entry never made it into the canon. Guarded
+        // under a lock so an already-active (reproduced, publicly listed) entry
+        // can't be silently unpublished through this path — those are retired via
+        // /admin/all instead.
+        const cur = await tx.queryOne<{ status: string; repro_status: string }>(
+          "SELECT status, repro_status FROM submissions WHERE id = ? FOR UPDATE",
+          [id],
+        );
+        const eligible = !!cur && cur.repro_status !== "reproduced"
+          && (cur.status === "unreviewed" || cur.status === "reviewed");
+        if (eligible) {
+          await freeEahNumber(tx, id);
+          await tx.execute(
+            `UPDATE submissions
+                SET status = 'rejected', repro_status = 'pending',
+                    reviewed_by = ?, reviewed_at = NOW(), rejection_reason = ?
+              WHERE id = ?`,
+            [ctx.admin!.userId, rejectionReason, id],
+          );
+          await tx.execute(
+            `INSERT INTO submission_messages (submission_id, sender_type, body)
+             VALUES (?, 'system', ?)`,
+            [id, `Rejected by staff${rejectionReason ? ` — ${rejectionReason}` : ""}. Returned to your dashboard; you can revise it and submit it for review again.`],
+          );
+          didReject = true;
+        }
       }
     });
   } catch (err) {
@@ -355,7 +380,8 @@ export async function postReview(req: Request, ctx: RouteContext): Promise<Respo
     });
   }
 
-  // Rejection email: the row is gone, so there's no A-number to reference.
+  // Rejection email: the row is kept (back in the owner's dashboard) but its
+  // A-number was freed, so there's no number to reference.
   if (didReject && notifyTo) {
     void sendDecision({
       to: notifyTo,

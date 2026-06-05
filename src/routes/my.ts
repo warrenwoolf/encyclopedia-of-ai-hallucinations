@@ -77,7 +77,7 @@ function dashboardTierWhere(tier: DashboardTier): string {
     case "pending-review": return "status = 'unreviewed'";
     case "pending-acceptance": return "status = 'reviewed' AND repro_status = 'pending'";
     case "active": return "status = 'reviewed' AND repro_status = 'reproduced'";
-    case "rejected": return "status = 'reviewed' AND repro_status = 'failed'";
+    case "rejected": return "(status = 'rejected' OR (status = 'reviewed' AND repro_status = 'failed'))";
   }
 }
 
@@ -115,6 +115,7 @@ interface SubmissionRow {
   anon_public: number;
   allow_author_edits: number;
   transcript_mode: string;
+  rejection_reason: string | null;
 }
 
 interface EditFormValues {
@@ -143,6 +144,20 @@ function dateInputValue(value: string | Date | null | undefined): string {
   return value.toISOString().slice(0, 10);
 }
 
+/**
+ * Callout shown on a rejected submission's pages. A rejected entry behaves like
+ * a draft (editable, deletable) but is labeled "rejected" and invites the owner
+ * to revise and resubmit. Returns empty for any other status.
+ */
+function rejectionBanner(row: SubmissionRow): SafeHtml {
+  if (row.status !== "rejected") return raw("");
+  return h`<div class="complaint-thanks" role="status">
+    <p><strong>This submission was rejected by staff.</strong> It's back in your hands —
+       revise it below and submit it for review again. Your edits and discussion are kept.</p>
+    ${row.rejection_reason ? h`<p><strong>Reason given:</strong> ${row.rejection_reason}</p>` : raw("")}
+  </div>`;
+}
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 /**
@@ -157,7 +172,7 @@ async function fetchOwned(slug: string, userId: number): Promise<SubmissionRow |
     `SELECT id, eah_number, repro_status, owner_user_id, status, title, prompt, output, ai_model,
             category, summary, notes, shared_chat_url, source_url, author_name, hallucination_date,
             entry_status, public_id, submitted_at, anon_public, allow_author_edits,
-            transcript_mode
+            transcript_mode, rejection_reason
        FROM submissions
       WHERE public_id = ? AND owner_user_id = ?`,
     [slug, userId],
@@ -684,9 +699,10 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
   const slug = row.public_id;
   const dispId = eahId || row.title || slug;
 
-  // Only drafts and pending review submissions are editable here. Later tiers
-  // are read-only — send them to the overview.
-  if (row.status !== "draft" && row.status !== "unreviewed") {
+  // Drafts, pending-review, and rejected submissions are editable here (rejected
+  // ones so the owner can revise before resubmitting). Later tiers are read-only
+  // — send them to the overview.
+  if (row.status !== "draft" && row.status !== "unreviewed" && row.status !== "rejected") {
     return new Response(null, { status: 303, headers: { Location: `/my/submissions/${slug}` } });
   }
   // The structured editor is transcript-only. Link submissions aren't editable
@@ -746,6 +762,7 @@ export const myEditGet: RouteHandler = async (req, ctx) => {
 
   const body = h`
     ${savedFlash}
+    ${rejectionBanner(row)}
     <p>${statusBadge(row.status)}</p>
     ${formHtml}
   `;
@@ -790,8 +807,8 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
   }
 
   const row = await fetchOwned(eahIdStr, ctx.user.userId);
-  // Drafts and pending review submissions are both editable.
-  if (!row || (row.status !== "draft" && row.status !== "unreviewed")) {
+  // Drafts, pending review, and rejected submissions are all editable.
+  if (!row || (row.status !== "draft" && row.status !== "unreviewed" && row.status !== "rejected")) {
     return pageResponse(req, {
       title: "Not found · ENAIH",
       heading: "Not found",
@@ -817,7 +834,7 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
     const formHtml = renderEditForm({
       slug, values: { ...values, turns: turnAction }, csrf: token, error: null, username: ctx.user.username,
     });
-    const body = h`<p>${statusBadge(row.status)}</p>${formHtml}`;
+    const body = h`${rejectionBanner(row)}<p>${statusBadge(row.status)}</p>${formHtml}`;
     return pageResponse(req, {
       title: `Edit ${dispId} · ENAIH`,
       heading: `Edit ${dispId}`,
@@ -833,6 +850,7 @@ export const myEditPost: RouteHandler = async (req, ctx) => {
     const { token, setCookie } = tokenForRequest(req);
     const formHtml = renderEditForm({ slug, values, csrf: token, error: v.error, username: ctx.user.username });
     const body = h`
+      ${rejectionBanner(row)}
       <p>${statusBadge(row.status)}</p>
       ${formHtml}
     `;
@@ -1002,11 +1020,13 @@ export const myPropose: RouteHandler = async (req, ctx) => {
     }, { status: 403 });
   }
 
+  // Drafts and rejected submissions can be (re)submitted for review.
   const row = await fetchOwned(eahIdStr, ctx.user.userId);
-  if (!row || row.status !== "draft") {
+  if (!row || (row.status !== "draft" && row.status !== "rejected")) {
     return new Response(null, { status: 404 });
   }
   const slug = row.public_id;
+  const wasRejected = row.status === "rejected";
 
   // Cap on submissions awaiting review (drafts are unlimited; only proposing
   // counts against the quota). Mirrors the check in submit.ts.
@@ -1039,13 +1059,16 @@ export const myPropose: RouteHandler = async (req, ctx) => {
       if (proposedEahId === null) {
         proposedEahId = await allocateEahNumber(tx);
       }
+      // Resubmitting a rejected entry clears its prior rejection reason.
       await tx.execute(
-        "UPDATE submissions SET status = 'unreviewed', eah_number = ? WHERE id = ? AND owner_user_id = ? AND status = 'draft'",
+        "UPDATE submissions SET status = 'unreviewed', eah_number = ?, rejection_reason = NULL WHERE id = ? AND owner_user_id = ? AND status IN ('draft', 'rejected')",
         [proposedEahId, row.id, ctx.user!.userId],
       );
       await tx.execute(
         `INSERT INTO submission_messages (submission_id, sender_type, body) VALUES (?, 'system', ?)`,
-        [row.id, `Submission submitted for review by ${username}.`],
+        [row.id, wasRejected
+          ? `Revised and resubmitted for review by ${username}.`
+          : `Submission submitted for review by ${username}.`],
       );
     });
   } catch (err) {
@@ -1165,25 +1188,27 @@ export const myWithdraw: RouteHandler = async (req, ctx) => {
 export const myDeleteConfirm: RouteHandler = async (req, ctx) => {
   if (!ctx.user) return new Response(null, { status: 303, headers: { Location: "/login" } });
   const row = await fetchOwned(ctx.params.eahId ?? "", ctx.user.userId);
-  if (!row || row.status !== "draft") {
+  if (!row || (row.status !== "draft" && row.status !== "rejected")) {
     return pageResponse(req, {
       title: "Not found · ENAIH",
       heading: "Not found",
-      body: h`<p>No draft with that ID. Only drafts can be deleted — withdraw a proposed
-        submission back to a draft first. <a href="/my/submissions">My submissions</a></p>`,
+      body: h`<p>No draft or rejected submission with that ID. Only drafts and rejected
+        submissions can be deleted — withdraw a pending one back to a draft first.
+        <a href="/my/submissions">My submissions</a></p>`,
       user: ctx.user,
     }, { status: 404 });
   }
   const slug = row.public_id;
   const dispId = row.title ?? slug;
   const { token, setCookie } = tokenForRequest(req);
+  const what = row.status === "rejected" ? "rejected submission" : "draft";
   const body = h`
-    <p>Delete draft <strong>${dispId}</strong>? This permanently removes the draft, its
+    <p>Delete ${what} <strong>${dispId}</strong>? This permanently removes it, its
     discussion, and its edit history. This can't be undone.</p>
     <form method="post" action="/my/submissions/${slug}/delete">
       <input type="hidden" name="_csrf" value="${token}">
       <input type="hidden" name="confirm" value="1">
-      <button type="submit" class="btn-danger">Delete draft</button>
+      <button type="submit" class="btn-danger">Delete ${what}</button>
     </form>
     <p><a href="/my/submissions/${slug}">Cancel</a></p>
   `;
@@ -1212,9 +1237,10 @@ export const myDelete: RouteHandler = async (req, ctx) => {
     }, { status: 403 });
   }
 
-  // Only drafts can be deleted. Proposed submissions must be withdrawn first.
+  // Drafts and rejected submissions can be deleted. Pending ones must be
+  // withdrawn back to a draft first.
   const row = await fetchOwned(eahIdStr, ctx.user.userId);
-  if (!row || row.status !== "draft") return new Response(null, { status: 404 });
+  if (!row || (row.status !== "draft" && row.status !== "rejected")) return new Response(null, { status: 404 });
 
   try {
     await transaction(async (tx) => {
@@ -1331,6 +1357,7 @@ export const myView: RouteHandler = async (req, ctx) => {
   const convoTurns = sharedMode === "single" || sharedMode === "link" ? [] : await loadTurns(row.id);
 
   const body = h`
+    ${rejectionBanner(row)}
     ${renderReadOnlyInfo(row, tagRows.map((t) => t.name), convoTurns)}
     <h2>Discussion</h2>
     ${thread}

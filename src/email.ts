@@ -242,7 +242,7 @@ export async function sendDecision(opts: {
     lines.push(`Model: ${modelLabel}`);
     lines.push(`View it: ${entryUrl(ref)}`);
   } else {
-    lines.push(`Your submission to the Encyclopedia of AI Hallucinations was not accepted.`);
+    lines.push(`Your submission to the Encyclopedia of AI Hallucinations was not accepted as-is. It's back in your dashboard, where you can revise it and submit it for review again.`);
     lines.push(``);
     lines.push(`Model: ${modelLabel}`);
     if (rejectionReason) {
@@ -268,7 +268,7 @@ export async function sendDecision(opts: {
     htmlParts.push(`<p><strong>Model:</strong> ${escape(modelLabel)}</p>`);
     htmlParts.push(`<p><a href="${escape(entryUrl(ref))}">View the entry</a></p>`);
   } else {
-    htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was not accepted.</p>`);
+    htmlParts.push(`<p>Your submission to the <strong>Encyclopedia of AI Hallucinations</strong> was not accepted as-is. It's back in your dashboard, where you can revise it and submit it for review again.</p>`);
     htmlParts.push(`<p><strong>Model:</strong> ${escape(modelLabel)}</p>`);
     if (rejectionReason) {
       htmlParts.push(`<p><strong>Reason given:</strong></p><blockquote>${escape(rejectionReason)}</blockquote>`);

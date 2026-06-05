@@ -84,6 +84,7 @@ export function tierBadge(status: string, reproStatus: string): SafeHtml {
  *   - draft      → submit for review (draft→pending review), delete (removes it)
  *   - unreviewed → withdraw (pending review→draft)
  *   - reviewed   → view entry (read-only here)
+ *   - rejected   → edit, resubmit for review (rejected→pending review), delete
  * To both leave the queue and discard, a user withdraws then deletes (two steps).
  *
  * `slug` is the submission's public_id (owner routes are addressed by slug now,
@@ -113,6 +114,15 @@ export function actionBar(slug: string, status: string, token: string, eahId = "
   if (status === "reviewed") {
     return h`<p class="action-bar"><a href="/e/${eahId || slug}">view entry</a> · ${overview} · ${history} · ${mySubs}</p>`;
   }
-  // rejected / withdrawn — terminal, just a way back.
+  if (status === "rejected") {
+    // Rejected entries return to the owner: revise, resubmit, or discard.
+    const resubmit = h`<form class="inline-form" method="post" action="/my/submissions/${slug}/propose">
+        <input type="hidden" name="_csrf" value="${token}">
+        <button class="linkbutton" type="submit">resubmit for review</button>
+      </form>`;
+    const del = h`<a class="del-link" href="/my/submissions/${slug}/delete">delete</a>`;
+    return h`<p class="action-bar">${overview} · ${edit} · ${discussion} · ${history} · ${resubmit} · ${del} · ${mySubs}</p>`;
+  }
+  // withdrawn — terminal, just a way back.
   return h`<p class="action-bar">${mySubs}</p>`;
 }
